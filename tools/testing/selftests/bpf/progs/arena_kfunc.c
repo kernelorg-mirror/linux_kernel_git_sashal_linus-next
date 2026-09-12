@@ -205,7 +205,7 @@ int arena_arg_no_arena(void *ctx)
 SEC("syscall")
 __arch_x86_64
 __arch_arm64
-__failure __msg("is not a pointer to arena or scalar")
+__failure __msg("R1 type=fp expected=arena, scalar")
 int arena_arg_bad_reg(void *ctx)
 {
 	u64 buf = 0;
@@ -233,8 +233,9 @@ SEC("syscall")
 __arch_x86_64
 __arch_arm64
 __description("arena_arg_stack: not supported, dummy test")
+__skip("arena_arg_stack: not supported")
 __success
-int arena_arg_stack(void *ctx)
+int dummy_test(void *ctx)
 {
 	return 0;
 }
