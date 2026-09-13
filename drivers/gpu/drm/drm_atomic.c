@@ -343,9 +343,9 @@ void drm_atomic_commit_default_clear(struct drm_atomic_commit *state)
 			continue;
 
 		drm_colorop_atomic_destroy_state(colorop,
-						 state->colorops[i].state);
+						 state->colorops[i].state_to_destroy);
 		state->colorops[i].ptr = NULL;
-		state->colorops[i].state = NULL;
+		state->colorops[i].state_to_destroy = NULL;
 		state->colorops[i].old_state = NULL;
 		state->colorops[i].new_state = NULL;
 	}
@@ -708,7 +708,7 @@ drm_atomic_get_colorop_state(struct drm_atomic_commit *state,
 	if (!colorop_state)
 		return ERR_PTR(-ENOMEM);
 
-	state->colorops[index].state = colorop_state;
+	state->colorops[index].state_to_destroy = colorop_state;
 	state->colorops[index].ptr = colorop;
 	state->colorops[index].old_state = colorop->state;
 	state->colorops[index].new_state = colorop_state;
@@ -924,6 +924,10 @@ static void drm_atomic_colorop_print_state(struct drm_printer *p,
 		drm_printf_indent(p, 1, "interpolation=%s\n",
 				  drm_get_colorop_lut3d_interpolation_name(state->lut3d_interpolation));
 		drm_printf_indent(p, 1, "data blob id=%d\n", state->data ? state->data->base.id : 0);
+		break;
+	case DRM_COLOROP_FIXED_MATRIX:
+		drm_printf_indent(p, 1, "fixed_matrix_type=%s\n",
+				  drm_get_colorop_fixed_matrix_type_name(state->fixed_matrix_type));
 		break;
 	default:
 		break;
