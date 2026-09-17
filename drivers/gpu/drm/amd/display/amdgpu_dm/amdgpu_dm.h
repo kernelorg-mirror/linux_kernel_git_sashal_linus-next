@@ -1308,7 +1308,8 @@ int fill_dc_plane_info_and_addr(struct amdgpu_device *adev,
 				struct drm_atomic_commit *state,
 				const struct drm_plane_state *plane_state,
 				struct dc_plane_info *plane_info,
-				struct dc_plane_address *address, bool tmz_surface);
+				struct dc_plane_address *address,
+				bool tmz_surface);
 int dm_update_mst_vcpi_slots_for_dsc(struct drm_atomic_commit *state, struct dc_state *dc_state,
 				     struct dsc_mst_fairness_vars *vars);
 void manage_dm_interrupts(struct amdgpu_device *adev, struct amdgpu_crtc *acrtc,
