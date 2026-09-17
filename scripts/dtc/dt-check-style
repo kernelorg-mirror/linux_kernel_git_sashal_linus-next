@@ -44,7 +44,6 @@ class LineType(Enum):
     NODE_OPEN = auto()       # something { (with optional label/name/addr)
     NODE_CLOSE = auto()      # };
     PROPERTY = auto()        # name = value; or name;
-    CONTINUATION = auto()    # continuation of a multi-line property
 
 
 re_cpp_directive = re.compile(
@@ -80,20 +79,23 @@ def is_preprocessor(stripped):
 
 class DtsLine:
     __slots__ = ('lineno', 'raw', 'code', 'linetype', 'indent_str', 'stripped', 'is_root',
-                 'prop_name', 'continuations',
+                 'prop_name', 'continuation', 'continuations',
                  'node_name', 'node_addr', 'label', 'ref_name', 'parent', 'depth',
                  'closures')
 
-    def __init__(self, lineno, raw, linetype, depth, indent_str, stripped, is_root = False):
+    def __init__(self, lineno, raw, linetype, depth, indent_str, stripped,
+                 continuation = False, is_root = False):
         self.lineno = lineno      # 1-based within the block
         self.raw = raw            # Entire raw line
         self.linetype = linetype
         self.indent_str = indent_str  # leading whitespace as-is
         self.depth = depth
         self.stripped = stripped      # Code without indentation
-        self.code = _strip_strings_and_comments(stripped)    # Only the code, skipping trailing comments
+        # Only the code, skipping trailing comments and space between code and trailing comment
+        self.code = _strip_strings_and_comments(stripped).rstrip()
         self.is_root = is_root
         self.prop_name = None
+        self.continuation = continuation    # Continuation of a multi-line property
         self.continuations = []
         self.node_name = None
         self.node_addr = None
@@ -174,7 +176,7 @@ def classify_lines(text):
             continue
 
         if not stripped:
-            dl = DtsLine(i, raw, LineType.BLANK, depth, '', '')
+            dl = DtsLine(i, raw, LineType.BLANK, depth, '', '', continuation=not prev_complete)
             out.append(dl)
             continue
 
@@ -183,7 +185,7 @@ def classify_lines(text):
                      else LineType.COMMENT_BODY)
             if ltype == LineType.COMMENT_END:
                 in_block_comment = False
-            dl = DtsLine(i, raw, ltype, depth, indent_str, stripped)
+            dl = DtsLine(i, raw, ltype, depth, indent_str, stripped, continuation=not prev_complete)
             out.append(dl)
             continue
 
@@ -206,16 +208,8 @@ def classify_lines(text):
         # structural classification entirely.
         if not code:
             ltype = LineType.COMMENT_START if opens_block else LineType.COMMENT
-            dl = DtsLine(i, raw, ltype, depth, indent_str, stripped)
+            dl = DtsLine(i, raw, ltype, depth, indent_str, stripped, continuation=not prev_complete)
             out.append(dl)
-            continue
-
-        if not prev_complete:
-            dl = DtsLine(i, raw, LineType.CONTINUATION, depth, indent_str, code)
-            out.append(dl)
-            prev_complete = (code.endswith(';') or
-                             code.endswith('{') or
-                             code.endswith('};'))
             continue
 
         # NODE_CLOSE: the canonical form is "}" or "};" alone. A line
@@ -244,7 +238,8 @@ def classify_lines(text):
             continue
 
         # Property (or first line of a multi-line property).
-        dl = DtsLine(i, raw, LineType.PROPERTY, depth, indent_str, code)
+        dl = DtsLine(i, raw, LineType.PROPERTY, depth, indent_str, code,
+                     continuation=not prev_complete)
         parse_property_name(dl)
         out.append(dl)
         prev_complete = code.endswith(';')
@@ -253,7 +248,7 @@ def classify_lines(text):
     last_prop = None
     grouped = []
     for dl in out:
-        if dl.linetype == LineType.CONTINUATION and last_prop is not None:
+        if dl.continuation and last_prop is not None:
             last_prop.continuations.append(dl)
             continue
         if dl.linetype == LineType.PROPERTY:
@@ -445,6 +440,12 @@ def check_blank_lines(ctx):
         if lines[i].linetype == LineType.BLANK and \
                 lines[i - 1].linetype == LineType.BLANK:
             yield (lines[i].lineno, 'consecutive blank lines')
+        prev_is_blank = lines[i].linetype == LineType.BLANK
+        for cont in lines[i].continuations:
+            if cont.linetype == LineType.BLANK and prev_is_blank:
+                yield (cont.lineno, 'consecutive blank lines')
+            prev_is_blank = cont.linetype == LineType.BLANK
+
     # Blank right after { or right before }
     for i, dl in enumerate(lines):
         if dl.linetype != LineType.BLANK:
@@ -534,6 +535,8 @@ def check_continuation_alignment(ctx):
         dl_value_complete = rest.endswith('",') or rest.endswith('>,')
         target_col = _display_col(_strip_strings_and_comments(dl.raw[:eq + 1 + m.start(1)]))
         for cont in dl.continuations:
+            if cont.linetype == LineType.BLANK:
+                continue
             target_offset = 0
             err_msg_explanation = 'to < or "'
             if not dl_value_complete:
@@ -544,21 +547,28 @@ def check_continuation_alignment(ctx):
                        'continuation should align to column %d '
                        '(%s)' % (target_col + target_offset + 1, err_msg_explanation))
             # Align to the value within <> or "" of continuation (so the previous line)
-            dl_value_complete = cont.stripped.endswith('",') or cont.stripped.endswith('>,')
+            if len(cont.code):
+                dl_value_complete = cont.code.endswith('",') or cont.code.endswith('>,')
+
+
+def _check_hex_case(dl):
+    if dl.linetype in (LineType.BLANK, LineType.COMMENT,
+                        LineType.COMMENT_START, LineType.COMMENT_BODY,
+                        LineType.COMMENT_END, LineType.PREPROCESSOR):
+        return
+    for m in re.finditer(r'\b0[xX][0-9a-fA-F]+\b', dl.code):
+        lit = m.group(0)
+        if any(c.isupper() for c in lit[2:]) or lit[1] == 'X':
+            yield (dl.lineno,
+                    'hex literal %r must be lowercase' % lit)
 
 
 def check_hex_case(ctx):
     """Hex literals (0xN) must use lowercase digits and prefix."""
     for dl in ctx.lines:
-        if dl.linetype in (LineType.BLANK, LineType.COMMENT,
-                           LineType.COMMENT_START, LineType.COMMENT_BODY,
-                           LineType.COMMENT_END, LineType.PREPROCESSOR):
-            continue
-        for m in re.finditer(r'\b0[xX][0-9a-fA-F]+\b', dl.code):
-            lit = m.group(0)
-            if any(c.isupper() for c in lit[2:]) or lit[1] == 'X':
-                yield (dl.lineno,
-                       'hex literal %r must be lowercase' % lit)
+        yield from _check_hex_case(dl)
+        for cont in dl.continuations:
+            yield from _check_hex_case(cont)
 
 
 def check_indent_consistent(ctx):
@@ -574,10 +584,10 @@ def check_indent_consistent(ctx):
             return
 
     for dl in ctx.lines:
+        if dl.continuation:
+            continue   # continuations align to <, not to indent unit
         if dl.linetype in (LineType.BLANK, LineType.PREPROCESSOR):
             continue
-        if dl.linetype == LineType.CONTINUATION:
-            continue   # continuations align to <, not to indent unit
         if dl.linetype in (LineType.COMMENT_BODY, LineType.COMMENT_END):
             continue
         if not dl.indent_str:
@@ -621,39 +631,42 @@ def check_indent_unit_strict(ctx):
                    'got %r' % unit)
 
 
+def _check_line_length(dl):
+    if dl.linetype == LineType.BLANK:
+        return
+    cols = _display_col(dl.raw)
+    if cols > 80:
+        yield (dl.lineno,
+                'line exceeds 80 columns (%d)' % cols)
+
+
 def check_line_length(ctx):
     """Lines must not exceed 80 columns; tabs count as 8 (see
     _display_col)."""
     for dl in ctx.lines:
-        if dl.linetype == LineType.BLANK:
-            continue
-        cols = _display_col(dl.raw)
-        if cols > 80:
-            yield (dl.lineno,
-                   'line exceeds 80 columns (%d)' % cols)
+        yield from _check_line_length(dl)
+        for cont in dl.continuations:
+            yield from _check_line_length(cont)
+
+
+def _check_mixed_indent_chars(dl):
+    if not dl.indent_str:
+        return
+    if dl.linetype == LineType.PREPROCESSOR:
+        return
+    if re.search(r' \t', dl.indent_str):
+        yield (dl.lineno, 'mixed tabs and spaces in indent')
+    if dl.indent_str.count(' ') > 7:
+        yield (dl.lineno, 'too many space characters in indent (more than 7)')
 
 
 def check_mixed_indent_chars(ctx):
     """Indent must be all-tabs, except for aligning indentation (comments
     or continued lines)."""
     for dl in ctx.lines:
-        if not dl.indent_str:
-            continue
-        if dl.linetype == LineType.PREPROCESSOR:
-            continue
-        if re.search(r' \t', dl.indent_str):
-            yield (dl.lineno, 'mixed tabs and spaces in indent')
-        if dl.indent_str.count(' ') > 7:
-            yield (dl.lineno, 'too many space characters in indent (more than 7)')
+        yield from _check_mixed_indent_chars(dl)
         for cont in dl.continuations:
-            if not cont.indent_str:
-                continue
-            if cont.linetype == LineType.PREPROCESSOR:
-                continue
-            if re.search(r' \t', cont.indent_str):
-                yield (cont.lineno, 'mixed tabs and spaces in indent')
-            if cont.indent_str.count(' ') > 7:
-                yield (cont.lineno, 'too many space characters in indent (more than 7)')
+            yield from _check_mixed_indent_chars(cont)
 
 
 def check_node_close_alone(ctx):
@@ -703,65 +716,40 @@ def check_property_name(ctx):
                 yield (dl.lineno, f'property name "{dl.prop_name}" is using discouraged style')
 
 
-def _property_bucket(name):
-    """Return the canonical bucket index for a property:
-       0 device_type
+def _property_bucket(name, is_root=False):
+    """Return the canonical bucket (group) index for a property:
+       0 device_type ('model' in the root node)
        1 compatible
-       2 reg / reg-names
+       2 reg, reg-names
        3 ranges
        4 standard properties (no vendor comma in #-stripped name)
        5 vendor-specific properties
        6 status
-    Plus a sub-key inside the bucket for fixed slots (device_type, compatible,
-    reg, reg-names, ranges, status). 'standard' and 'vendor' return None for
-    the sub-key, signalling that the within-bucket key is computed by
-    the pairing rules."""
+    Properties sharing a bucket compare equal: their relative order
+    within the group is not checked, only the pairing rules below
+    apply."""
     stripped = name.lstrip('#')
-    if name == 'device_type':
-        return (0, 0)
+    if is_root:
+        if name == 'model':
+            return 0
+    elif name == 'device_type':
+        return 0
     if name == 'compatible':
-        return (1, 0)
-    if name == 'reg':
-        return (2, 0)
-    if name == 'reg-names':
-        return (2, 1)
+        return 1
+    if name in ('reg', 'reg-names'):
+        return 2
     if name == 'ranges':
-        return (3, 0)
+        return 3
     if name == 'status':
-        return (6, 0)
-    return (5 if ',' in stripped else 4, None)
-
-
-def _property_bucket_root(name):
-    """Return the canonical bucket index for a property:
-       0 model (for root nodes only)
-       1 compatible
-    Plus a sub-key inside the bucket for fixed slots (device_type, compatible,
-    reg, reg-names, ranges, status). 'standard' and 'vendor' return None for
-    the sub-key, signalling that the within-bucket key is computed by
-    the pairing rules."""
-    stripped = name.lstrip('#')
-    if name == 'model':
-        return (0, 0)
-    if name == 'compatible':
-        return (1, 0)
-    if name == 'reg':
-        return (2, 0)
-    if name == 'reg-names':
-        return (2, 1)
-    if name == 'ranges':
-        return (3, 0)
-    if name == 'status':
-        return (6, 0)
-    return (5 if ',' in stripped else 4, None)
+        return 6
+    return 5 if ',' in stripped else 4
 
 
 # Declarative pairing rules: each is a callable
 #   (name, all_names) -> anchor_name_or_None
-# If a rule returns an anchor, the property sorts immediately after the
+# If a rule returns an anchor, the property must be placed after the
 # anchor. Rules are tried in order; the first match wins. If none
-# matches, the within-bucket key falls back to natural sort by the
-# #-stripped name.
+# matches, the property can be placed anywhere within its bucket.
 
 def _pair_pinctrl_names(name, all_names):
     """pinctrl-names follows the highest pinctrl-N in the same node."""
@@ -776,8 +764,7 @@ def _pair_pinctrl_names(name, all_names):
 def _pair_x_names(name, all_names):
     """Generic <x>-names follows its owning property. The owner is
     usually plural (clocks/clock-names, dmas/dma-names,
-    resets/reset-names) but occasionally singular (reg/reg-names is
-    handled by the fixed slot above; this rule catches anything else)."""
+    resets/reset-names) but occasionally singular (reg/reg-names)."""
     if not name.endswith('-names'):
         return None
     base = name[:-len('-names')]
@@ -792,33 +779,27 @@ def _pair_x_names(name, all_names):
 PAIRING_RULES = (_pair_pinctrl_names, _pair_x_names)
 
 
-def _property_sort_key(dl, name, all_names):
-    """Sort key for a property among its node-body siblings.
-
-    Format: (bucket, within_key, tiebreak). 'within_key' for
-    standard/vendor buckets follows pairing rules: a property paired
-    with anchor X sorts as if it were X with a higher tiebreak."""
-    if dl.is_root:
-        bucket, fixed_sub = _property_bucket_root(name)
-    else:
-        bucket, fixed_sub = _property_bucket(name)
-    if fixed_sub is not None:
-        return (bucket, (), fixed_sub)
-
+def _property_anchor(name, all_names):
+    """Return the property this one must be placed after, or None."""
     for rule in PAIRING_RULES:
         anchor = rule(name, all_names)
         if anchor is not None:
-            return (bucket, _natural_sort_key(anchor.lstrip('#')), 1)
-
-    return (bucket, _natural_sort_key(name.lstrip('#')), 0)
+            return anchor
+    return None
 
 
 def check_property_order(ctx):
-    """Properties within a node body must appear in canonical order:
-    compatible, reg(/reg-names), ranges, then the standard group, then
-    the vendor-specific group, then status. Inside the standard and
-    vendor groups, pairing rules apply (e.g. <x>-names follows <x>);
-    everything else falls back to natural sort by the #-stripped name."""
+    """Properties within a node body must be grouped in canonical
+    order: device_type ('model' for the root node), compatible,
+    reg(/reg-names), ranges, then the standard group, then the
+    vendor-specific group, then status.
+
+    The order of properties within one group is free, e.g. it does not
+    matter whether '#address-cells' comes before or after 'clocks'.
+    Paired properties still keep their relative order: <x>-names
+    follows <x> (clocks/clock-names, reg/reg-names, ...), pinctrl-names
+    follows the pinctrl-N states and #size-cells follows
+    #address-cells."""
     lines = ctx.lines
     for i, dl in enumerate(lines):
         if dl.linetype != LineType.NODE_OPEN:
@@ -836,16 +817,26 @@ def check_property_order(ctx):
         if len(props) < 2:
             continue
         all_names = [p.prop_name for p in props]
-        keyed = [(p, _property_sort_key(dl, p.prop_name, all_names))
-                 for p in props]
-        for k in range(1, len(keyed)):
-            if keyed[k][1] < keyed[k - 1][1]:
-                p = keyed[k][0]
-                prev = keyed[k - 1][0]
-                yield (p.lineno,
-                       'property %r out of canonical order '
-                       '(should sort before %r)' %
-                       (p.prop_name, prev.prop_name))
+        buckets = [_property_bucket(p.prop_name, dl.is_root) for p in props]
+        findings = []
+        # Group (bucket) order
+        for k in range(1, len(props)):
+            if buckets[k] < buckets[k - 1]:
+                findings.append((props[k].lineno,
+                                 'property %r out of canonical order '
+                                 '(should sort before %r)' %
+                                 (props[k].prop_name,
+                                  props[k - 1].prop_name)))
+        # Pairing within a group: the anchor must come first
+        seen = set()
+        for p in props:
+            anchor = _property_anchor(p.prop_name, all_names)
+            if anchor is not None and anchor not in seen:
+                findings.append((p.lineno,
+                                 'property %r must be placed after %r' %
+                                 (p.prop_name, anchor)))
+            seen.add(p.prop_name)
+        yield from sorted(findings)
 
 
 def _check_redundant_whitespace(dl):
@@ -901,6 +892,8 @@ def check_required_blank_lines(ctx):
             if d.linetype == LineType.NODE_CLOSE and \
                     d.depth == body_depth - 1 and depth_inside == 0:
                 break
+            if d.continuation:
+                continue
             # Track depth inside nested children so we only look at
             # immediate-body items.
             if d.linetype == LineType.NODE_OPEN and \
@@ -919,8 +912,6 @@ def check_required_blank_lines(ctx):
             if d.linetype in (LineType.COMMENT, LineType.COMMENT_START,
                               LineType.COMMENT_BODY, LineType.COMMENT_END,
                               LineType.PREPROCESSOR):
-                continue
-            if d.linetype == LineType.CONTINUATION:
                 continue
 
             needs_blank = False
@@ -964,10 +955,16 @@ def check_tab_in_yaml_example(ctx):
                 yield (cont.lineno, 'tab character not allowed in DTS example')
 
 
+def _check_trailing_whitespace(dl):
+    if dl.raw != dl.raw.rstrip():
+        yield (dl.lineno, 'trailing whitespace')
+
+
 def check_trailing_whitespace(ctx):
     for dl in ctx.lines:
-        if dl.raw != dl.raw.rstrip():
-            yield (dl.lineno, 'trailing whitespace')
+        yield from _check_trailing_whitespace(dl)
+        for cont in dl.continuations:
+            yield from _check_trailing_whitespace(cont)
 
 
 def check_unclosed_block_comment(ctx):
@@ -1135,7 +1132,8 @@ RULES = [
          'property names use only recommended characters (see DTS Coding Style)',
          check_property_name),
     Rule('property-order', 'strict',
-         'canonical bucket + pairing + natural-sort order of properties',
+         'canonical group + pairing order of properties (order within '
+         'a group is not checked)',
          check_property_order),
     # See also check_redundant_whitespace() and check_value_whitespace()
     Rule('redundant-whitespace-strict', 'strict',
