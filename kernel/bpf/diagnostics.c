@@ -1119,16 +1119,17 @@ void bpf_diag_ctx_forbidden(struct bpf_verifier_env *env, u32 insn_idx,
 	const char *constraint, *context;
 	u32 depth;
 
-	if (env->cur_state->active_rcu_locks)
-		ctx_kind = BPF_DIAG_CONTEXT_RCU;
-	else if (env->cur_state->active_preempt_locks)
-		ctx_kind = BPF_DIAG_CONTEXT_PREEMPT;
-	else if (env->cur_state->active_irq_id)
-		ctx_kind = BPF_DIAG_CONTEXT_IRQ;
-	else if (env->cur_state->active_locks)
-		ctx_kind = BPF_DIAG_CONTEXT_LOCK;
-	else
-		ctx_kind = BPF_DIAG_CONTEXT_NONE;
+	ctx_kind = BPF_DIAG_CONTEXT_NONE;
+	if (env->cur_state->in_sleepable) {
+		if (env->cur_state->active_rcu_locks)
+			ctx_kind = BPF_DIAG_CONTEXT_RCU;
+		else if (env->cur_state->active_preempt_locks)
+			ctx_kind = BPF_DIAG_CONTEXT_PREEMPT;
+		else if (env->cur_state->active_irq_id)
+			ctx_kind = BPF_DIAG_CONTEXT_IRQ;
+		else if (env->cur_state->active_locks)
+			ctx_kind = BPF_DIAG_CONTEXT_LOCK;
+	}
 
 	depth = diag_context_depth(env, ctx_kind);
 	opts = (struct bpf_diag_history_opts) {
@@ -1567,8 +1568,7 @@ static void diag_record_mod(struct bpf_verifier_env *env, u32 insn_idx,
 	} else if (diag_mod_insn_origin(env, insn_idx, &target, &event.mod.origin)) {
 		event.mod.origin_valid = true;
 	}
-	if (old_reg && new_reg &&
-	    (reason == BPF_DIAG_MOD_WRITE || reason == BPF_DIAG_MOD_SPILL) &&
+	if (old_reg && new_reg && reason == BPF_DIAG_MOD_WRITE &&
 	    !memcmp(&event.mod.old, &event.mod.new, sizeof(event.mod.old)) &&
 	    !event.mod.origin_valid &&
 	    diag_mod_keeps_lineage(env, &event))
@@ -1600,9 +1600,9 @@ static struct bpf_reg_state *target_to_reg(struct bpf_verifier_env *env,
 			return NULL;
 		return &state->stack_arg_regs[target->stack_arg];
 	case BPF_DIAG_MOD_TARGET_STACK_SLOT:
-		if (target->spi >= state->allocated_stack / BPF_REG_SIZE)
+		if (target->spi >= bpf_stack_nr_slots(state))
 			return NULL;
-		return &state->stack[target->spi].spilled_ptr;
+		return &bpf_stack_slot(state, target->spi)->spilled_ptr;
 	default:
 		return NULL;
 	}
@@ -1618,7 +1618,7 @@ static bool reg_to_target(struct bpf_verifier_env *env, const struct bpf_reg_sta
 	for (frame = 0; frame <= vstate->curframe; frame++) {
 		struct bpf_func_state *state = vstate->frame[frame];
 		unsigned long start, end;
-		u32 nslots = state->allocated_stack / BPF_REG_SIZE;
+		u32 nslots = bpf_stack_nr_slots(state);
 		int spi;
 
 		start = (unsigned long)state->regs;
@@ -1637,6 +1637,11 @@ static bool reg_to_target(struct bpf_verifier_env *env, const struct bpf_reg_sta
 			return true;
 		}
 
+		/*
+		 * Map the pointer back to its slot by address, which relies on
+		 * the slots forming one contiguous array as bpf_stack_slot()
+		 * indexes it.
+		 */
 		start = (unsigned long)state->stack;
 		end = (unsigned long)(state->stack + nslots);
 		if (nslots && addr >= start && addr < end) {

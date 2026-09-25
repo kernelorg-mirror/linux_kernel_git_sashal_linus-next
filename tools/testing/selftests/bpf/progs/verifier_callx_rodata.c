@@ -6,7 +6,8 @@
 #include "bpf_misc.h"
 #include "../../../include/linux/filter.h"
 
-#if defined(__TARGET_ARCH_x86) || defined(__TARGET_ARCH_arm64)
+/* gcc doesn't support indirect calls */
+#if (defined(__TARGET_ARCH_x86) || defined(__TARGET_ARCH_arm64)) && defined(__clang__)
 
 /*
  * Read-only data with pointers to functions, where the compiler puts tables
@@ -579,23 +580,58 @@ __naked void callx_rodata_recursion(void)
 		::: __clobber_all);
 }
 
+
+/* Four 480-byte frames, deeper than any budget together with their caller */
 __naked __noinline __used
-static unsigned long use_stack_304(void)
+static unsigned long use_stack_480_0(void)
 {
 	asm volatile (
 		"r0 = 0;"
-		"*(u64 *)(r10 - 304) = r0;"
+		"*(u64 *)(r10 - 480) = r0;"
+		"exit;"
+	);
+}
+
+__naked __noinline __used
+static unsigned long use_stack_480_1(void)
+{
+	asm volatile (
+		"r0 = 0;"
+		"*(u64 *)(r10 - 480) = r0;"
+		"call use_stack_480_0;"
+		"exit;"
+	);
+}
+
+__naked __noinline __used
+static unsigned long use_stack_480_2(void)
+{
+	asm volatile (
+		"r0 = 0;"
+		"*(u64 *)(r10 - 480) = r0;"
+		"call use_stack_480_1;"
+		"exit;"
+	);
+}
+
+__naked __noinline __used
+static unsigned long use_stack_480_3(void)
+{
+	asm volatile (
+		"r0 = 0;"
+		"*(u64 *)(r10 - 480) = r0;"
+		"call use_stack_480_2;"
 		"exit;"
 	);
 }
 
 /* stack of all possible callees is accounted */
 SEC("socket")
-__failure __msg("combined stack size of 2 calls is")
+__failure __msg("combined stack size of {{[0-9]+}} calls is")
 __naked void callx_rodata_stack_depth(void)
 {
 	asm volatile (
-		FUNC_TABLE2(tbl, ret0, use_stack_304)
+		FUNC_TABLE2(tbl, ret0, use_stack_480_3)
 		"r0 = 0;"
 		"*(u64 *)(r10 - 304) = r0;"
 		"call %[bpf_get_prandom_u32];"
@@ -613,11 +649,11 @@ __naked void callx_rodata_stack_depth(void)
 
 /* stack of a callback that is read from the data is accounted too */
 SEC("socket")
-__failure __msg("combined stack size of 2 calls is")
+__failure __msg("combined stack size of {{[0-9]+}} calls is")
 __naked void callx_rodata_callback_stack_depth(void)
 {
 	asm volatile (
-		FUNC_TABLE2(tbl, use_stack_304, ret0)
+		FUNC_TABLE2(tbl, use_stack_480_3, ret0)
 		"r0 = 0;"
 		"*(u64 *)(r10 - 304) = r0;"
 		"r6 = tbl_%= ll;"

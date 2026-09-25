@@ -21,7 +21,7 @@ static void run(int prog_fd, int expected, const char *name)
  * of its functions. The copies have what user space puts into .rodata before
  * the load. The program that doesn't have callx uses .rodata.
  */
-void test_callx_rodata_lskel(void)
+static void __test_callx_rodata_lskel(void)
 {
 	struct callx_rodata_lskel *skel;
 
@@ -34,6 +34,12 @@ void test_callx_rodata_lskel(void)
 	skel = callx_rodata_lskel__open();
 	if (!ASSERT_OK_PTR(skel, "open"))
 		return;
+
+	/* gcc doesn't support indirect calls */
+	if (skel->rodata->skip) {
+		test__skip();
+		goto out;
+	}
 
 	skel->rodata->bias = 7;
 
@@ -55,9 +61,14 @@ out:
 
 #else
 
-void test_callx_rodata_lskel(void)
+static void __test_callx_rodata_lskel(void)
 {
 	test__skip();
 }
 
 #endif
+
+void test_callx_rodata_lskel(void)
+{
+	__test_callx_rodata_lskel();
+}
