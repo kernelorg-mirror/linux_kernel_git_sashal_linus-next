@@ -7,6 +7,7 @@
 #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/io.h>
+#include <linux/pm_runtime.h>
 #include <linux/spinlock.h>
 #include <linux/types.h>
 
@@ -131,7 +132,6 @@ static int ipu6_fw_isys_close(struct ipu6_isys *isys)
 {
 	struct device *dev = &isys->adev->auxdev.dev;
 	int retry = IPU6_ISYS_CLOSE_RETRY;
-	unsigned long flags;
 	void *fwctx;
 	int ret;
 
@@ -141,11 +141,9 @@ static int ipu6_fw_isys_close(struct ipu6_isys *isys)
 	 * to SP icache.
 	 * spinlock to wait the interrupt handler to be finished
 	 */
-	spin_lock_irqsave(&isys->power_lock, flags);
 	ret = ipu6_fw_com_close(isys->fwctx);
 	fwctx = isys->fwctx;
 	isys->fwctx = NULL;
-	spin_unlock_irqrestore(&isys->power_lock, flags);
 	if (ret)
 		dev_err(dev, "Device close failure: %d\n", ret);
 
@@ -158,9 +156,7 @@ static int ipu6_fw_isys_close(struct ipu6_isys *isys)
 
 	if (ret) {
 		dev_err(dev, "Device release time out %d\n", ret);
-		spin_lock_irqsave(&isys->power_lock, flags);
 		isys->fwctx = fwctx;
-		spin_unlock_irqrestore(&isys->power_lock, flags);
 	}
 
 	return ret;
@@ -531,9 +527,6 @@ int ipu6_isys_isr_one(struct ipu6_bus_device *adev)
 	u32 index;
 	u64 ts;
 
-	if (!isys->fwctx)
-		return 1;
-
 	resp = ipu6_fw_isys_get_resp(isys);
 	if (!resp)
 		return 1;
@@ -556,13 +549,16 @@ int ipu6_isys_isr_one(struct ipu6_bus_device *adev)
 			"FW error resp error %d, details %d\n",
 			resp->error_info.error, resp->error_info.error_details);
 
+	guard(spinlock_irqsave)(&isys->streams_lock);
+
 	if (resp->stream_handle >= IPU6_ISYS_MAX_STREAMS) {
 		dev_err(&adev->auxdev.dev, "bad stream handle %u\n",
 			resp->stream_handle);
 		goto leave;
 	}
 
-	stream = ipu6_isys_query_stream_by_handle(isys, resp->stream_handle);
+	stream = resp->stream_handle < IPU6_ISYS_MAX_STREAMS ?
+		isys->streams_by_handle[resp->stream_handle] : NULL;
 	if (!stream) {
 		dev_err(&adev->auxdev.dev, "stream of stream_handle %u is unused\n",
 			resp->stream_handle);
@@ -599,7 +595,7 @@ int ipu6_isys_isr_one(struct ipu6_bus_device *adev)
 		if (!resp->buf_id) {
 			dev_warn(&adev->auxdev.dev, "%d: Invalid buf ID\n",
 				 resp->stream_handle);
-			goto leave_put_stream;
+			goto leave;
 		}
 
 		isys_fw_msg = container_of((void *)(uintptr_t)resp->buf_id,
@@ -650,8 +646,6 @@ int ipu6_isys_isr_one(struct ipu6_bus_device *adev)
 		break;
 	}
 
-leave_put_stream:
-	ipu6_isys_put_stream(stream);
 leave:
 	ipu6_fw_isys_put_resp(isys);
 	return 0;
@@ -662,7 +656,6 @@ static void ipu6_isys_csi2_isr(struct ipu6_isys_csi2 *csi2)
 	struct ipu6_isys_stream *stream;
 	unsigned int i;
 	u32 status;
-	int source;
 
 	ipu6_isys_register_errors(csi2);
 
@@ -672,23 +665,22 @@ static void ipu6_isys_csi2_isr(struct ipu6_isys_csi2 *csi2)
 	writel(status, csi2->base + CSI_PORT_REG_BASE_IRQ_CSI_SYNC +
 	       CSI_PORT_REG_BASE_IRQ_CLEAR_OFFSET);
 
-	source = csi2->asd.source;
-	for (i = 0; i < NR_OF_CSI2_VC; i++) {
-		if (status & IPU_CSI_RX_IRQ_FS_VC(i)) {
-			stream = ipu6_isys_query_stream_by_source(csi2->isys,
-								  source, i);
-			if (stream) {
-				ipu6_isys_csi2_sof_event_by_stream(stream);
-				ipu6_isys_put_stream(stream);
-			}
-		}
+	scoped_guard(spinlock, &csi2->isys->streams_lock) {
+		for (i = 0; i < NR_OF_CSI2_VC; i++) {
+			if (status & IPU_CSI_RX_IRQ_FS_VC(i)) {
+				stream = csi2->streams_by_vc[i];
+				if (!stream)
+					continue;
 
-		if (status & IPU_CSI_RX_IRQ_FE_VC(i)) {
-			stream = ipu6_isys_query_stream_by_source(csi2->isys,
-								  source, i);
-			if (stream) {
+				ipu6_isys_csi2_sof_event_by_stream(stream);
+			}
+
+			if (status & IPU_CSI_RX_IRQ_FE_VC(i)) {
+				stream = csi2->streams_by_vc[i];
+				if (!stream)
+					continue;
+
 				ipu6_isys_csi2_eof_event_by_stream(stream);
-				ipu6_isys_put_stream(stream);
 			}
 		}
 	}
@@ -700,12 +692,11 @@ irqreturn_t ipu6_isys_isr(struct ipu6_bus_device *adev)
 	void __iomem *base = isys->pdata->base;
 	u32 status_sw, status_csi;
 	u32 ctrl0_status, ctrl0_clear;
+	int pm_status;
 
-	spin_lock(&isys->power_lock);
-	if (!isys->power) {
-		spin_unlock(&isys->power_lock);
-		return IRQ_NONE;
-	}
+	pm_status = pm_runtime_get_if_active(&adev->auxdev.dev);
+	if (!pm_status)
+		return 0;
 
 	ctrl0_status = isys->pdata->ipdata->csi2.ctrl0_irq_status;
 	ctrl0_clear = isys->pdata->ipdata->csi2.ctrl0_irq_clear;
@@ -750,22 +741,25 @@ irqreturn_t ipu6_isys_isr(struct ipu6_bus_device *adev)
 
 	writel(ISYS_UNISPART_IRQS, base + IPU6_REG_ISYS_UNISPART_IRQ_MASK);
 
-	spin_unlock(&isys->power_lock);
+	if (pm_status > 0)
+		pm_runtime_put(&adev->auxdev.dev);
 
 	return IRQ_HANDLED;
 }
 
 static int ipu6_isys_fw_pin_cfg(struct ipu6_isys_video *av,
-				struct ipu6_fw_isys_stream_cfg_data_abi *cfg)
+				struct ipu6_isys_stream *stream,
+				struct media_pad *src_pad,
+				struct v4l2_mbus_frame_desc_entry *entry,
+				void *__cfg)
 {
-	struct media_pad *src_pad = media_pad_remote_pad_first(&av->pad);
 	struct v4l2_subdev *sd = media_entity_to_v4l2_subdev(src_pad->entity);
 	struct v4l2_subdev_state *state = v4l2_subdev_get_locked_active_state(sd);
+	struct ipu6_fw_isys_stream_cfg_data_abi *cfg = __cfg;
 	struct ipu6_fw_isys_input_pin_info_abi *input_pin;
 	struct ipu6_fw_isys_output_pin_info_abi *output_pin;
-	struct ipu6_isys_stream *stream = av->stream;
 	struct ipu6_isys_queue *aq = &av->aq;
-	struct v4l2_mbus_framefmt fmt;
+	struct v4l2_mbus_framefmt *fmt;
 	const struct ipu6_isys_pixelformat *pfmt =
 		ipu6_isys_get_isys_format(ipu6_isys_get_format(av), 0);
 	struct v4l2_rect v4l2_crop;
@@ -775,13 +769,13 @@ static int ipu6_isys_fw_pin_cfg(struct ipu6_isys_video *av,
 	u32 src_stream;
 
 	src_stream = __ipu6_isys_get_src_stream_by_src_pad(state, src_pad->index);
-	fmt = *v4l2_subdev_state_get_format(state, src_pad->index, src_stream);
+	fmt = v4l2_subdev_state_get_format(state, src_pad->index, src_stream);
 	v4l2_crop = *v4l2_subdev_state_get_crop(state, src_pad->index, src_stream);
 
 	input_pin = &cfg->input_pins[input_pins];
-	input_pin->input_res.width = fmt.width;
-	input_pin->input_res.height = fmt.height;
-	input_pin->dt = av->dt;
+	input_pin->input_res.width = fmt->width;
+	input_pin->input_res.height = fmt->height;
+	input_pin->dt = entry->bus.csi2.dt;
 	input_pin->bits_per_pix = pfmt->bpp_packed;
 	input_pin->mapped_dt = 0x40; /* invalid mipi data type */
 	input_pin->mipi_decompression = 0;
@@ -822,28 +816,24 @@ static int ipu6_isys_fw_pin_cfg(struct ipu6_isys_video *av,
 	return 0;
 }
 
-static int ipu6_fw_isys_prepare_stream_cfg(struct ipu6_isys_video *av,
+static int ipu6_fw_isys_prepare_stream_cfg(struct ipu6_isys_stream *stream,
+					   struct v4l2_mbus_frame_desc *desc,
 					   struct isys_fw_msgs *msg)
 {
 	struct ipu6_fw_isys_stream_cfg_data_abi *stream_cfg;
-	struct device *dev = &av->isys->adev->auxdev.dev;
-	struct ipu6_isys_stream *stream = av->stream;
-	struct ipu6_isys_queue *aq;
+	struct device *dev = &stream->isys->adev->auxdev.dev;
+	int ret;
 
 	stream_cfg = &msg->ipu6.stream;
-	stream_cfg->src = stream->stream_source;
+	stream_cfg->src = stream->asd->source;
 	stream_cfg->vc = stream->vc;
 	stream_cfg->isl_use = 0;
 	stream_cfg->sensor_type = IPU6_FW_ISYS_SENSOR_MODE_NORMAL;
 
-	list_for_each_entry(aq, &stream->queues, node) {
-		struct ipu6_isys_video *__av = ipu6_isys_queue_to_video(aq);
-		int ret;
-
-		ret = ipu6_isys_fw_pin_cfg(__av, stream_cfg);
-		if (ret < 0)
-			return ret;
-	}
+	ret = ipu6_isys_fw_pins_prepare(stream, desc, ipu6_isys_fw_pin_cfg,
+					stream_cfg);
+	if (ret)
+		return ret;
 
 	ipu6_fw_isys_dump_stream_cfg(dev, msg);
 
