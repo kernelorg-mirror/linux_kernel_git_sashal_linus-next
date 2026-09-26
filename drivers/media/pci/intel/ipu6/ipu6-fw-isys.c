@@ -774,7 +774,7 @@ static int ipu6_isys_fw_pin_cfg(struct ipu6_isys_video *av,
 	int output_pins;
 	u32 src_stream;
 
-	src_stream = ipu6_isys_get_src_stream_by_src_pad(sd, src_pad->index);
+	src_stream = __ipu6_isys_get_src_stream_by_src_pad(state, src_pad->index);
 	fmt = *v4l2_subdev_state_get_format(state, src_pad->index, src_stream);
 	v4l2_crop = *v4l2_subdev_state_get_crop(state, src_pad->index, src_stream);
 
@@ -934,10 +934,7 @@ static void ipu6_fw_isys_prepare_buf_set(struct isys_fw_msgs *msg,
 	set->send_irq_eof = 0;
 	set->send_resp_eof = 0;
 
-	if (stream->streaming)
-		set->send_irq_capture_ack = 0;
-	else
-		set->send_irq_capture_ack = 1;
+	set->send_irq_capture_ack = 1;
 	set->send_irq_capture_done = 0;
 
 	set->send_resp_capture_ack = 1;
