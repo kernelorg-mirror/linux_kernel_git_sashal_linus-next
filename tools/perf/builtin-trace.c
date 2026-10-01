@@ -1139,14 +1139,11 @@ static size_t btf_struct_scnprintf(const struct btf_type *type, struct btf *btf,
 	LIBBPF_OPTS(btf_dump_opts, dump_opts);
 	LIBBPF_OPTS(btf_dump_type_data_opts, dump_data_opts);
 
-	if (arg == NULL || arg->augmented.args == NULL || arg->augmented.size < (int)sizeof(*augmented_arg) ||
+	if (!syscall_arg__augmented_args_valid(arg, type->size) ||
 	    arg->fmt == NULL || !arg->fmt->from_user)
 		return 0;
 
 	augmented_arg = arg->augmented.args;
-	if (augmented_arg->size <= 0 || augmented_arg->size > arg->augmented.size - (int)sizeof(*augmented_arg) ||
-	    (size_t)augmented_arg->size < type->size)
-		return 0;
 
 	dump_data_opts.compact	  = true;
 	dump_data_opts.skip_names = !arg->trace->show_arg_names;
@@ -1904,12 +1901,18 @@ static void thread__set_filename_pos(struct thread *thread, const char *bf,
 static size_t syscall_arg__scnprintf_augmented_string(struct syscall_arg *arg, char *bf, size_t size)
 {
 	struct augmented_arg *augmented_arg = arg->augmented.args;
-	size_t printed = scnprintf(bf, size, "\"%.*s\"", augmented_arg->size, augmented_arg->value);
+	size_t printed;
+	int consumed;
+
+	if (!syscall_arg__augmented_args_valid(arg, 0))
+		return 0;
+
+	printed = scnprintf(bf, size, "\"%.*s\"", augmented_arg->size, augmented_arg->value);
 	/*
 	 * So that the next arg with a payload can consume its augmented arg, i.e. for rename* syscalls
 	 * we would have two strings, each prefixed by its size.
 	 */
-	int consumed = sizeof(*augmented_arg) + augmented_arg->size;
+	consumed = sizeof(*augmented_arg) + augmented_arg->size;
 
 	arg->augmented.args = ((void *)arg->augmented.args) + consumed;
 	arg->augmented.size -= consumed;
@@ -1922,7 +1925,7 @@ static size_t syscall_arg__scnprintf_filename(char *bf, size_t size,
 {
 	unsigned long ptr = arg->val;
 
-	if (arg->augmented.args)
+	if (syscall_arg__augmented_args_valid(arg, 0))
 		return syscall_arg__scnprintf_augmented_string(arg, bf, size);
 
 	if (!arg->trace->vfs_getname)
@@ -1938,12 +1941,14 @@ static size_t syscall_arg__scnprintf_filename(char *bf, size_t size,
 static size_t syscall_arg__scnprintf_buf(char *bf, size_t size, struct syscall_arg *arg)
 {
 	struct augmented_arg *augmented_arg = arg->augmented.args;
-	unsigned char *orig = (unsigned char *)augmented_arg->value;
 	size_t printed = 0;
+	unsigned char *orig;
 	int consumed;
 
-	if (augmented_arg == NULL)
+	if (!syscall_arg__augmented_args_valid(arg, 0))
 		return 0;
+
+	orig = (unsigned char *)augmented_arg->value;
 
 	for (int j = 0; j < augmented_arg->size; ++j) {
 		bool control_char = orig[j] <= MAX_CONTROL_CHAR || orig[j] >= MAX_ASCII;
@@ -2961,26 +2966,29 @@ static void *syscall__augmented_args(struct syscall *sc, struct perf_sample *sam
 	 * traffic to just what is needed for each syscall.
 	 */
 	int args_size = raw_augmented_args_size ?: sc->args_size;
+	static uintptr_t argbuf[1024]; /* assuming single-threaded */
 
 	*augmented_args_size = sample->raw_size - args_size;
-	if (*augmented_args_size > 0) {
-		static uintptr_t argbuf[1024]; /* assuming single-threaded */
-
-		if ((size_t)(*augmented_args_size) > sizeof(argbuf))
-			return NULL;
-
-		/*
-		 * The perf ring-buffer is 8-byte aligned but sample->raw_data
-		 * is not because it's preceded by u32 size.  Later, beautifier
-		 * will use the augmented args with stricter alignments like in
-		 * some struct.  To make sure it's aligned, let's copy the args
-		 * into a static buffer as it's single-threaded for now.
-		 */
-		memcpy(argbuf, sample->raw_data + args_size, *augmented_args_size);
-
-		return argbuf;
+	/*
+	 * The raw data is padded to a u64 boundary with stale bytes, so less
+	 * than a struct augmented_arg is only padding.
+	 */
+	if (*augmented_args_size < (int)sizeof(struct augmented_arg) ||
+	    (size_t)(*augmented_args_size) > sizeof(argbuf)) {
+		*augmented_args_size = 0;
+		return NULL;
 	}
-	return NULL;
+
+	/*
+	 * The perf ring-buffer is 8-byte aligned but sample->raw_data
+	 * is not because it's preceded by u32 size.  Later, beautifier
+	 * will use the augmented args with stricter alignments like in
+	 * some struct.  To make sure it's aligned, let's copy the args
+	 * into a static buffer as it's single-threaded for now.
+	 */
+	memcpy(argbuf, sample->raw_data + args_size, *augmented_args_size);
+
+	return argbuf;
 }
 
 static int trace__sys_enter(struct trace *trace,
