@@ -16,7 +16,10 @@
 #include <linux/of_graph.h>
 #include <linux/regmap.h>
 #include <linux/slab.h>
+#include <linux/time64.h>
 #include <linux/timer.h>
+#include <linux/unaligned.h>
+#include <linux/units.h>
 #include <linux/v4l2-dv-timings.h>
 #include <linux/videodev2.h>
 #include <linux/workqueue.h>
@@ -29,7 +32,7 @@
 #include <media/v4l2-fwnode.h>
 #include <uapi/linux/it6625.h>
 
-static int debug = 3;
+static int debug;
 module_param(debug, int, 0644);
 MODULE_PARM_DESC(debug, "debug level (0-3)");
 
@@ -252,7 +255,7 @@ struct it6625 {
 	struct regmap *it6625_regmap;
 	enum it6625_chip_type chip_type;
 
-	/* protects concurrent access to the chip's registers and state */
+	/* Serializes MCU transactions. */
 	struct mutex it6625_lock;
 	/* serializes the complete VIDIOC_S_EDID sequence against itself */
 	struct mutex edid_lock;
@@ -268,7 +271,6 @@ struct it6625 {
 	struct mutex if_state_lock;
 
 	struct v4l2_subdev sd;
-	struct v4l2_mbus_config_mipi_csi2 bus;
 	struct video_device *vdev;
 	struct media_pad pad;
 	struct v4l2_ctrl_handler hdl;
@@ -289,8 +291,6 @@ struct it6625 {
 	u8 csi_lanes;
 	u8 port_num;
 	enum v4l2_mbus_type bus_type;
-	u8 csi_format;
-	u32 mbus_fmt_code;
 	/* number of EDID blocks currently loaded, protected by edid_lock */
 	u8 edid_blocks;
 
@@ -315,11 +315,18 @@ struct it6625 {
 };
 
 /*
- * Index 0: D-PHY (4-lane). Index 1: C-PHY (3-trio) -- the confirmed
- * hardware max C-PHY capability, tested single-port/three-trio.
+ * Reported link frequency for every topology except the reference
+ * exception below: D-PHY (any lane count) and one-/two-trio C-PHY.
  */
-static const s64 it6625_link_freq[] = {
+static const s64 it6625_link_freq_default[] = {
 	445500000,
+};
+
+/*
+ * IT6626 C-PHY, three trios: the confirmed hardware max C-PHY
+ * capability, tested single-port/three-trio.
+ */
+static const s64 it6626_cphy_3trio_link_freq[] = {
 	2500000000LL,
 };
 
@@ -379,9 +386,7 @@ static const struct it6625_format_info {
 
 static inline int it6625_csi_format_idx(u8 csi_format)
 {
-	int i;
-
-	for (i = 0; i < ARRAY_SIZE(it6625_formats); i++) {
+	for (unsigned int i = 0; i < ARRAY_SIZE(it6625_formats); i++) {
 		if (it6625_formats[i].csi_format == csi_format)
 			return i;
 	}
@@ -391,9 +396,7 @@ static inline int it6625_csi_format_idx(u8 csi_format)
 
 static inline int it6625_csi_mbus_code_idx(u32 mbus_fmt_code)
 {
-	int i;
-
-	for (i = 0; i < ARRAY_SIZE(it6625_formats); i++) {
+	for (unsigned int i = 0; i < ARRAY_SIZE(it6625_formats); i++) {
 		if (it6625_formats[i].mbus_fmt_code == mbus_fmt_code)
 			return i;
 	}
@@ -431,9 +434,9 @@ static int it6625_regmap_i2c_init(struct i2c_client *client,
 
 static int it6625_read_byte(struct it6625 *it6625, u8 reg)
 {
+	struct device *dev = it6625->dev;
 	unsigned int val;
 	int err;
-	struct device *dev = it6625->dev;
 
 	err = regmap_read(it6625->it6625_regmap, reg, &val);
 	if (err < 0) {
@@ -446,8 +449,8 @@ static int it6625_read_byte(struct it6625 *it6625, u8 reg)
 
 static int it6625_write_byte(struct it6625 *it6625, u8 reg, u8 val)
 {
-	int err;
 	struct device *dev = it6625->dev;
+	int err;
 
 	err = regmap_write(it6625->it6625_regmap, reg, val);
 	if (err < 0) {
@@ -460,8 +463,8 @@ static int it6625_write_byte(struct it6625 *it6625, u8 reg, u8 val)
 
 static int it6625_set_bits(struct it6625 *it6625, u8 reg, u8 mask, u8 val)
 {
-	int err;
 	struct device *dev = it6625->dev;
+	int err;
 
 	err = regmap_update_bits(it6625->it6625_regmap, reg, mask, val);
 	if (err < 0) {
@@ -474,8 +477,8 @@ static int it6625_set_bits(struct it6625 *it6625, u8 reg, u8 mask, u8 val)
 
 static int it6625_read_bytes(struct it6625 *it6625, u8 reg, u8 *buf, int len)
 {
-	int err;
 	struct device *dev = it6625->dev;
+	int err;
 
 	err = regmap_bulk_read(it6625->it6625_regmap, reg, buf, len);
 	if (err < 0) {
@@ -488,8 +491,8 @@ static int it6625_read_bytes(struct it6625 *it6625, u8 reg, u8 *buf, int len)
 
 static int it6625_write_bytes(struct it6625 *it6625, u8 reg, u8 *buf, int len)
 {
-	int err;
 	struct device *dev = it6625->dev;
+	int err;
 
 	err = regmap_bulk_write(it6625->it6625_regmap, reg, buf, len);
 	if (err < 0) {
@@ -510,11 +513,11 @@ static int it6625_wait_for_status(struct it6625 *it6625, u8 reg, u8 val,
 	int timeout_round_ms = DIV_ROUND_UP(timeout_ms, sleep_ms) * sleep_ms;
 
 	status = read_poll_timeout(it6625_read_byte, rval, rval == val,
-				   sleep_ms * 1000,
-				   timeout_round_ms * 1000,
+				   sleep_ms * USEC_PER_MSEC,
+				   timeout_round_ms * USEC_PER_MSEC,
 				   false, it6625, reg);
 
-	dev_info(dev, "%s status = %d %d", __func__, status, (int)rval);
+	dev_dbg(dev, "%s status = %d %d", __func__, status, rval);
 	if (status < 0) {
 		dev_err(dev, "%s err status = %d", __func__, status);
 		return -ETIMEDOUT;
@@ -562,7 +565,7 @@ static inline bool is_hdmi(struct it6625 *it6625)
 	int val;
 
 	val = it6625_read_byte(it6625, REG_RX_STATUS);
-	return (val < 0) ? false : (val & B_RX_HDMI);
+	return val < 0 ? false : val & B_RX_HDMI;
 }
 
 static inline bool hdmi_5v_power_present(struct it6625 *it6625)
@@ -570,7 +573,7 @@ static inline bool hdmi_5v_power_present(struct it6625 *it6625)
 	int val;
 
 	val = it6625_read_byte(it6625, REG_RX_STATUS);
-	return (val < 0) ? false : (val & B_RX_5V);
+	return val < 0 ? false : val & B_RX_5V;
 }
 
 static inline bool no_signal(struct it6625 *it6625)
@@ -578,7 +581,7 @@ static inline bool no_signal(struct it6625 *it6625)
 	int val;
 
 	val = it6625_read_byte(it6625, REG_RX_STATUS);
-	return (val < 0) ? true : !(val & B_RX_STABLE);
+	return val < 0 ? true : !(val & B_RX_STABLE);
 }
 
 static inline bool audio_present(struct it6625 *it6625)
@@ -586,14 +589,12 @@ static inline bool audio_present(struct it6625 *it6625)
 	int val;
 
 	val = it6625_read_byte(it6625, REG_RX_STATUS);
-	return (val < 0) ? false : (val & B_RX_AUD_ON);
+	return val < 0 ? false : val & B_RX_AUD_ON;
 }
 
 static int get_audio_sampling_rate(struct it6625 *it6625)
 {
-	int fs_id;
-	int i, freq = 0;
-	const struct fs_id_map {
+	static const struct fs_id_map {
 		u8 fs_id;
 		u32 freq;
 	} s_fsid_map[] = {
@@ -618,6 +619,8 @@ static int get_audio_sampling_rate(struct it6625 *it6625)
 		{ AUD1411K, 1411200 },
 		{ AUD1536K, 1536000 },
 	};
+	int fs_id;
+	int i, freq = 0;
 
 	if (no_signal(it6625) || !audio_present(it6625))
 		return 0;
@@ -640,35 +643,30 @@ static int get_audio_sampling_rate(struct it6625 *it6625)
 
 static u64 it6625_get_pclk(struct it6625 *it6625)
 {
-	u32 pclk;
 	u8 ck[4];
+	u32 pclk;
 	int ret;
 
-	ret = it6625_read_bytes(it6625, REG_VID_PCLK, ck, 4);
+	ret = it6625_read_bytes(it6625, REG_VID_PCLK, ck, sizeof(ck));
 	if (ret < 0) {
 		dev_err(it6625->dev, "failed to read pixel clock");
 		return 0;
 	}
 
-	pclk = ck[0];
-	pclk <<= 8;
-	pclk |= ck[1];
-	pclk <<= 8;
-	pclk |= ck[2];
-	pclk <<= 8;
-	pclk |= ck[3];
+	pclk = get_unaligned_be32(ck);
 
 	v4l2_dbg(1, debug, &it6625->sd, "%s: pclk=%u (%08x)",
 		 __func__, pclk, pclk);
 
-	return (u64)pclk * 1000;
+	return (u64)pclk * HZ_PER_KHZ;
 }
 
 static int it6625_read_edid(struct it6625 *it6625, u8 *edid, int start_block,
 			    int num_blocks)
 {
-	int i, bank_ctrl, err = 0;
 	struct device *dev = it6625->dev;
+	unsigned int i, bank_ctrl;
+	int err = 0;
 
 	if (!edid) {
 		dev_err(dev, "edid buffer is NULL");
@@ -706,8 +704,9 @@ static int it6625_read_edid(struct it6625 *it6625, u8 *edid, int start_block,
 static int it6625_write_edid(struct it6625 *it6625, u8 *edid, int start_block,
 			     int num_blocks)
 {
-	int i, bank_ctrl, err = 0;
 	struct device *dev = it6625->dev;
+	unsigned int i, bank_ctrl;
+	int err = 0;
 
 	if (start_block < 0 || num_blocks <= 0 ||
 	    start_block > EDID_NUM_BLOCKS_MAX ||
@@ -765,8 +764,8 @@ static void it6625_enable_hpd(struct it6625 *it6625)
 
 static void it6625_hpd_delayed_work(struct work_struct *work)
 {
-	struct it6625 *it6625 = container_of(work,
-			struct it6625, hpd_delayed_work.work);
+	struct it6625 *it6625 =
+		container_of(work, struct it6625, hpd_delayed_work.work);
 	int val = 0;
 
 	guard(mutex)(&it6625->it6625_lock);
@@ -774,14 +773,33 @@ static void it6625_hpd_delayed_work(struct work_struct *work)
 	it6625_update_config(it6625);
 }
 
+/* REG_H_ACTIVE_1..REG_V_ACTIVE_0 */
+struct it6625_active_size_regs {
+	__be16 h_active;
+	__be16 v_active;
+};
+
+static_assert(sizeof(struct it6625_active_size_regs) == 4);
+
+/* REG_H_FP_1..REG_V_BP_0 */
+struct it6625_porch_regs {
+	__be16 hfrontporch;
+	__be16 hsync;
+	__be16 hbackporch;
+	__be16 vfrontporch;
+	__be16 vsync;
+	__be16 vbackporch;
+};
+
+static_assert(sizeof(struct it6625_porch_regs) == 12);
+
 static int it6625_get_detected_timings(struct it6625 *it6625,
 				       struct v4l2_dv_timings *timings)
 {
 	struct v4l2_bt_timings *bt = &timings->bt;
+	struct it6625_active_size_regs active;
+	struct it6625_porch_regs porch;
 	int val;
-	unsigned int width, height;
-	u8 buffer[4];
-	u8 buffer2[12];
 
 	if (no_signal(it6625)) {
 		dev_err(it6625->dev, "no signal detected");
@@ -801,24 +819,21 @@ static int it6625_get_detected_timings(struct it6625 *it6625,
 	bt->interlaced = val & B_INTERLACE ?
 			 V4L2_DV_INTERLACED : V4L2_DV_PROGRESSIVE;
 
-	if (it6625_read_bytes(it6625, REG_H_ACTIVE_1, buffer, 4) < 0)
+	if (it6625_read_bytes(it6625, REG_H_ACTIVE_1, (u8 *)&active, sizeof(active)) < 0)
 		return -EIO;
 
-	width = ((buffer[0] & 0xff) << 8) + buffer[1];
-	height = ((buffer[2] & 0xff) << 8) + buffer[3];
+	bt->width = be16_to_cpu(active.h_active);
+	bt->height = be16_to_cpu(active.v_active);
 
-	bt->width = width;
-	bt->height = height;
-
-	if (it6625_read_bytes(it6625, REG_H_FP_1, buffer2, 12) < 0)
+	if (it6625_read_bytes(it6625, REG_H_FP_1, (u8 *)&porch, sizeof(porch)) < 0)
 		return -EIO;
 
-	bt->hfrontporch = ((buffer2[0] & 0xff) << 8) + buffer2[1];
-	bt->hsync = ((buffer2[2] & 0xff) << 8) + buffer2[3];
-	bt->hbackporch = ((buffer2[4] & 0xff) << 8) + buffer2[5];
-	bt->vfrontporch = ((buffer2[6] & 0xff) << 8) + buffer2[7];
-	bt->vsync = ((buffer2[8] & 0xff) << 8) + buffer2[9];
-	bt->vbackporch = ((buffer2[10] & 0xff) << 8) + buffer2[11];
+	bt->hfrontporch = be16_to_cpu(porch.hfrontporch);
+	bt->hsync = be16_to_cpu(porch.hsync);
+	bt->hbackporch = be16_to_cpu(porch.hbackporch);
+	bt->vfrontporch = be16_to_cpu(porch.vfrontporch);
+	bt->vsync = be16_to_cpu(porch.vsync);
+	bt->vbackporch = be16_to_cpu(porch.vbackporch);
 
 	bt->pixelclock = it6625_get_pclk(it6625);
 	if (bt->interlaced == V4L2_DV_INTERLACED) {
@@ -889,17 +904,26 @@ static int it6625_s_ctrl_audio_present(struct v4l2_subdev *sd)
 				audio_present(it6625));
 }
 
-static void it6625_v4l2_sd_ctrl_update(struct v4l2_subdev *sd)
+static int it6625_v4l2_sd_ctrl_update(struct v4l2_subdev *sd)
 {
-	it6625_s_ctrl_detect_hdmi_5v(sd);
-	it6625_s_ctrl_audio_sampling_rate(sd);
-	it6625_s_ctrl_audio_present(sd);
+	int ret;
+
+	ret = it6625_s_ctrl_detect_hdmi_5v(sd);
+	if (ret)
+		return ret;
+
+	ret = it6625_s_ctrl_audio_sampling_rate(sd);
+	if (ret)
+		return ret;
+
+	return it6625_s_ctrl_audio_present(sd);
 }
 
-static void it6625_enable_stream_locked(struct it6625 *it6625, bool enable)
+static int it6625_enable_stream_locked(struct it6625 *it6625, bool enable)
 {
 	struct v4l2_subdev *sd = &it6625->sd;
 	int val;
+	int err;
 
 	lockdep_assert_held(&it6625->it6625_lock);
 
@@ -907,27 +931,28 @@ static void it6625_enable_stream_locked(struct it6625 *it6625, bool enable)
 		 __func__, enable ? "en" : "dis");
 
 	val = enable ? B_MIPI_OUTPUT : 0;
-	it6625_set_bits(it6625, REG_MIPI_CONTROL, B_MIPI_OUTPUT, val);
-	it6625_update_config(it6625);
+	err = it6625_set_bits(it6625, REG_MIPI_CONTROL, B_MIPI_OUTPUT, val);
+	if (err < 0)
+		return err;
+
+	return it6625_update_config(it6625);
 }
 
-static void it6625_enable_stream(struct it6625 *it6625, bool enable)
-{
-	guard(mutex)(&it6625->it6625_lock);
-	it6625_enable_stream_locked(it6625, enable);
-}
-
-static void it6625_set_mipi_config_locked(struct it6625 *it6625, u32 cfg_val)
+static int it6625_set_mipi_config_locked(struct it6625 *it6625, u32 cfg_val)
 {
 	u8 mipi_data_type;
+	int err;
 
 	lockdep_assert_held(&it6625->it6625_lock);
 
 	dev_dbg(it6625->dev, "mipi_data_type = 0x%x", cfg_val);
 
 	mipi_data_type = cfg_val & 0xFF;
-	it6625_write_byte(it6625, REG_MIPI_DATA_TYPE, mipi_data_type);
-	it6625_update_config(it6625);
+	err = it6625_write_byte(it6625, REG_MIPI_DATA_TYPE, mipi_data_type);
+	if (err < 0)
+		return err;
+
+	return it6625_update_config(it6625);
 }
 
 static inline unsigned int fps_from_bt_timings(const struct v4l2_bt_timings *t)
@@ -940,9 +965,21 @@ static inline unsigned int fps_from_bt_timings(const struct v4l2_bt_timings *t)
 				 V4L2_DV_BT_FRAME_WIDTH(t));
 }
 
-static void it6625_initial_setup(struct it6625 *it6625)
+static int it6625_initial_setup(struct it6625 *it6625)
 {
+	struct v4l2_subdev *sd = &it6625->sd;
+	struct v4l2_subdev_state *state;
+	struct v4l2_mbus_framefmt *fmt;
+	int idx;
 	int val = 0;
+	int err;
+
+	state = v4l2_subdev_lock_and_get_active_state(sd);
+	fmt = v4l2_subdev_state_get_format(state, 0);
+	idx = it6625_csi_mbus_code_idx(fmt->code);
+	if (idx < 0)
+		idx = 0;
+	v4l2_subdev_unlock_state(state);
 
 	guard(mutex)(&it6625->it6625_lock);
 
@@ -968,22 +1005,36 @@ static void it6625_initial_setup(struct it6625 *it6625)
 	if (it6625->port_num == 2)
 		val |= FIELD_PREP(B_MIPI_SPLIT, 1);
 
-	it6625_write_byte(it6625, REG_MIPI_CFG, val);
-	it6625_write_byte(it6625, REG_MIPI_DATA_TYPE, it6625->csi_format);
-	it6625_write_byte(it6625, REG_MIPI_CONTROL, 0x00);
-	it6625_write_byte(it6625, REG_RX_CFG, 0x00);
+	err = it6625_write_byte(it6625, REG_MIPI_CFG, val);
+	if (err)
+		return err;
 
-	it6625_set_bits(it6625, REG_HOST_CTRL_INT, B_CONFIG_UPDATE, B_CONFIG_UPDATE);
-	it6625_wait_for_status(it6625, REG_HOST_CTRL_INT, 0x00, 25);
+	err = it6625_write_byte(it6625, REG_MIPI_DATA_TYPE,
+				it6625_formats[idx].csi_format);
+	if (err)
+		return err;
+
+	err = it6625_write_byte(it6625, REG_MIPI_CONTROL, 0x00);
+	if (err)
+		return err;
+
+	err = it6625_write_byte(it6625, REG_RX_CFG, 0x00);
+	if (err)
+		return err;
+
+	err = it6625_set_bits(it6625, REG_HOST_CTRL_INT, B_CONFIG_UPDATE,
+			      B_CONFIG_UPDATE);
+	if (err)
+		return err;
+
+	return it6625_wait_for_status(it6625, REG_HOST_CTRL_INT, 0x00, 25);
 }
 
 static int it6625_cec_adap_enable(struct cec_adapter *adap, bool enable)
 {
 	struct it6625 *it6625 = adap->priv;
-	u8 cmds[2];
+	u8 cmds[2] = { CMD_SET_CEC_ENABLE, enable ? 1 : 0 };
 
-	cmds[0] = CMD_SET_CEC_ENABLE;
-	cmds[1] = enable ? 1 : 0;
 	guard(mutex)(&it6625->it6625_lock);
 	it6625_write_command(it6625, cmds, sizeof(cmds));
 
@@ -1009,7 +1060,7 @@ static void it6625_cec_reset_la(struct it6625 *it6625, bool keep_enabled)
 static int it6625_cec_adap_log_addr(struct cec_adapter *adap, u8 log_addr)
 {
 	struct it6625 *it6625 = adap->priv;
-	u8 cmds[2] = {CMD_SET_CEC_LA, log_addr};
+	u8 cmds[2] = { CMD_SET_CEC_LA, log_addr };
 
 	dev_dbg(it6625->dev, "%s: la=%d", __func__, log_addr);
 
@@ -1127,18 +1178,43 @@ static void it6625_get_timings(struct it6625 *it6625,
 	*timings = it6625->timings;
 }
 
+/*
+ * Project a DV-timings struct's width/height/field onto a pad format.
+ * Caller must hold it6625_lock and, separately, whichever subdev
+ * state fmt belongs to.
+ */
+static void it6625_fill_timings_format(const struct v4l2_dv_timings *timings,
+				       struct v4l2_mbus_framefmt *fmt)
+{
+	fmt->width = timings->bt.width;
+	fmt->height = timings->bt.height;
+	fmt->field = timings->bt.interlaced == V4L2_DV_INTERLACED ?
+		     V4L2_FIELD_INTERLACED : V4L2_FIELD_NONE;
+}
+
 static void it6625_clear_timings(struct it6625 *it6625)
 {
-	guard(mutex)(&it6625->it6625_lock);
-	memset(&it6625->timings, 0, sizeof(it6625->timings));
+	struct v4l2_subdev *sd = &it6625->sd;
+	struct v4l2_subdev_state *state = v4l2_subdev_lock_and_get_active_state(sd);
+	struct v4l2_mbus_framefmt *fmt = v4l2_subdev_state_get_format(state, 0);
+
+	scoped_guard(mutex, &it6625->it6625_lock) {
+		memset(&it6625->timings, 0, sizeof(it6625->timings));
+		it6625_fill_timings_format(&it6625->timings, fmt);
+	}
+
+	v4l2_subdev_unlock_state(state);
 }
 
 static void it6625_irq_hdmi_5v_change(struct it6625 *it6625)
 {
 	struct v4l2_subdev *sd = &it6625->sd;
+	int ret;
 
 	it6625_clear_timings(it6625);
-	it6625_v4l2_sd_ctrl_update(sd);
+	ret = it6625_v4l2_sd_ctrl_update(sd);
+	if (ret)
+		dev_err(it6625->dev, "%s: failed to update controls: %d", __func__, ret);
 }
 
 static void it6625_irq_hdcp_change(struct it6625 *it6625)
@@ -1327,26 +1403,13 @@ static void it6625_polling_work(struct work_struct *work)
 	it6625_interrupt_handler(it6625);
 }
 
-static const char *it6625_csi_format_name(u8 csi_format)
-{
-	switch (csi_format) {
-	case CSI_YUV422_8b:
-		return "YUV422 8bit";
-	case CSI_RGB888:
-		return "RGB888 8bit";
-	case CSI_YUV444_8b:
-		return "YUV444 8bit";
-	default:
-		return "unknown";
-	}
-}
-
 static int it6625_log_status(struct v4l2_subdev *sd)
 {
 	struct it6625 *it6625 = sd_to_6625(sd);
+	struct v4l2_subdev_state *state;
 	struct v4l2_dv_timings timings, configured_timings;
 	struct v4l2_bt_timings bt;
-	u8 csi_format;
+	u32 mbus_fmt_code;
 
 	if (it6625_get_detected_timings(it6625, &timings))
 		v4l2_info(sd, "No video detected");
@@ -1358,15 +1421,19 @@ static int it6625_log_status(struct v4l2_subdev *sd)
 	v4l2_print_dv_timings(sd->name, "Configured format: ",
 			      &configured_timings, true);
 
-	/* snapshot together so the reported pair was actually configured together */
+	/*
+	 * VIDIOC_LOG_STATUS isn't core-locked, so take both locks
+	 * ourselves; snapshot together so the reported pair was
+	 * actually configured together.
+	 */
+	state = v4l2_subdev_lock_and_get_active_state(sd);
 	scoped_guard(mutex, &it6625->it6625_lock) {
-		csi_format = it6625->csi_format;
+		mbus_fmt_code = v4l2_subdev_state_get_format(state, 0)->code;
 		bt = it6625->timings.bt;
 	}
+	v4l2_subdev_unlock_state(state);
 
-	v4l2_info(sd, "CSI format: %s @ %uHz",
-		  it6625_csi_format_name(csi_format),
-		  fps_from_bt_timings(&bt));
+	v4l2_info(sd, "CSI format: %#x @ %uHz", mbus_fmt_code, fps_from_bt_timings(&bt));
 
 	it6625_show_avi_infoframe(it6625);
 
@@ -1415,18 +1482,30 @@ static int
 it6625_update_timings_if_changed(struct it6625 *it6625,
 				 const struct v4l2_dv_timings *timings)
 {
+	struct v4l2_subdev *sd = &it6625->sd;
+	struct v4l2_subdev_state *state;
+	struct v4l2_mbus_framefmt *fmt;
 	int ret;
 
-	guard(mutex)(&it6625->it6625_lock);
-	if (v4l2_match_dv_timings(&it6625->timings, timings, 0, false)) {
-		ret = 0;
-	} else if (!v4l2_valid_dv_timings(timings, it6625_get_timings_cap(it6625),
-					  NULL, NULL)) {
-		ret = -ERANGE;
-	} else {
-		it6625->timings = *timings;
-		ret = 1;
+	/* .s_dv_timings isn't core-locked, so take both locks ourselves */
+	state = v4l2_subdev_lock_and_get_active_state(sd);
+	fmt = v4l2_subdev_state_get_format(state, 0);
+
+	scoped_guard(mutex, &it6625->it6625_lock) {
+		if (v4l2_match_dv_timings(&it6625->timings, timings, 0, false)) {
+			ret = 0;
+		} else if (!v4l2_valid_dv_timings(timings,
+						  it6625_get_timings_cap(it6625),
+						  NULL, NULL)) {
+			ret = -ERANGE;
+		} else {
+			it6625->timings = *timings;
+			it6625_fill_timings_format(&it6625->timings, fmt);
+			ret = 1;
+		}
 	}
+
+	v4l2_subdev_unlock_state(state);
 
 	return ret;
 }
@@ -1456,12 +1535,24 @@ static int it6625_dv_timings_cap(struct v4l2_subdev *sd,
 	return 0;
 }
 
-static int it6625_s_stream(struct v4l2_subdev *sd, int enable)
+static int it6625_enable_streams(struct v4l2_subdev *sd,
+				 struct v4l2_subdev_state *state,
+				 u32 pad, u64 streams_mask)
 {
 	struct it6625 *it6625 = sd_to_6625(sd);
 
-	it6625_enable_stream(it6625, enable);
-	return 0;
+	guard(mutex)(&it6625->it6625_lock);
+	return it6625_enable_stream_locked(it6625, true);
+}
+
+static int it6625_disable_streams(struct v4l2_subdev *sd,
+				  struct v4l2_subdev_state *state,
+				  u32 pad, u64 streams_mask)
+{
+	struct it6625 *it6625 = sd_to_6625(sd);
+
+	guard(mutex)(&it6625->it6625_lock);
+	return it6625_enable_stream_locked(it6625, false);
 }
 
 static int it6625_enum_mbus_code(struct v4l2_subdev *sd,
@@ -1589,85 +1680,59 @@ static inline u32 format_to_colorspace(u8 csi_format)
 	}
 }
 
-static int it6625_get_fmt(struct v4l2_subdev *sd,
-			  struct v4l2_subdev_state *sd_state,
-			  struct v4l2_subdev_format *format)
-{
-	struct it6625 *it6625 = sd_to_6625(sd);
-	struct v4l2_dv_timings timings;
-
-	if (format->pad != 0)
-		return -EINVAL;
-
-	it6625_get_timings(it6625, &timings);
-	format->format.width = timings.bt.width;
-	format->format.height = timings.bt.height;
-	format->format.field = timings.bt.interlaced == V4L2_DV_INTERLACED ?
-			       V4L2_FIELD_INTERLACED : V4L2_FIELD_NONE;
-
-	if (format->which == V4L2_SUBDEV_FORMAT_TRY) {
-		struct v4l2_mbus_framefmt *fmt;
-
-		fmt = v4l2_subdev_state_get_format(sd_state, format->pad);
-		format->format.code = fmt->code;
-		format->format.colorspace = fmt->colorspace;
-	} else {
-		scoped_guard(mutex, &it6625->it6625_lock) {
-			format->format.colorspace =
-				format_to_colorspace(it6625->csi_format);
-			format->format.code = it6625->mbus_fmt_code;
-		}
-	}
-
-	return 0;
-}
-
 static int it6625_set_fmt(struct v4l2_subdev *sd,
 			  const struct v4l2_subdev_client_info *ci,
 			  struct v4l2_subdev_state *sd_state,
 			  struct v4l2_subdev_format *format)
 {
 	struct it6625 *it6625 = sd_to_6625(sd);
+	struct v4l2_mbus_framefmt *fmt;
+	u8 csi_format;
+	int idx;
 	int ret;
-	u32 mbus_fmt_code = format->format.code;
 
-	ret = it6625_get_fmt(sd, sd_state, format);
-	format->format.code = mbus_fmt_code;
+	if (format->pad != 0)
+		return -EINVAL;
 
-	if (ret)
-		return ret;
-
-	ret = it6625_csi_mbus_code_idx(mbus_fmt_code);
-
-	if (ret < 0) {
+	idx = it6625_csi_mbus_code_idx(format->format.code);
+	if (idx < 0) {
 		v4l2_dbg(1, debug, sd,
 			 "%s: unsupported format code 0x%x, falling back to default",
-			 __func__, mbus_fmt_code);
-		ret = 0;
-		mbus_fmt_code = it6625_formats[ret].mbus_fmt_code;
-		format->format.code = mbus_fmt_code;
+			 __func__, format->format.code);
+		idx = 0;
 	}
 
-	if (format->which == V4L2_SUBDEV_FORMAT_TRY) {
-		struct v4l2_mbus_framefmt *fmt;
+	csi_format = it6625_formats[idx].csi_format;
 
-		fmt = v4l2_subdev_state_get_format(sd_state, format->pad);
-		fmt->code = format->format.code;
-		fmt->colorspace = format_to_colorspace(it6625_formats[ret].csi_format);
-		format->format.colorspace = fmt->colorspace;
+	/* fmt already carries width/height/field for this state; leave alone */
+	fmt = v4l2_subdev_state_get_format(sd_state, format->pad);
+
+	if (format->which == V4L2_SUBDEV_FORMAT_ACTIVE) {
+		if (v4l2_subdev_is_streaming(sd))
+			return -EBUSY;
+
+		guard(mutex)(&it6625->it6625_lock);
+
+		ret = it6625_enable_stream_locked(it6625, false);
+		if (ret)
+			return ret;
+
+		ret = it6625_set_mipi_config_locked(it6625, csi_format);
+		if (ret)
+			return ret;
+	}
+
+	/*
+	 * TRY: commit unconditionally. ACTIVE: commit only after the
+	 * hardware programming above actually succeeded.
+	 */
+	fmt->code = it6625_formats[idx].mbus_fmt_code;
+	fmt->colorspace = format_to_colorspace(csi_format);
+	format->format = *fmt;
+
+	if (format->which == V4L2_SUBDEV_FORMAT_TRY)
 		v4l2_dbg(1, debug, sd, "%s: try format code = 0x%x",
 			 __func__, format->format.code);
-		return 0;
-	}
-
-	scoped_guard(mutex, &it6625->it6625_lock) {
-		it6625->csi_format = it6625_formats[ret].csi_format;
-		it6625->mbus_fmt_code = format->format.code;
-		it6625_enable_stream_locked(it6625, false);
-		it6625_set_mipi_config_locked(it6625, it6625->csi_format);
-	}
-
-	format->format.colorspace = format_to_colorspace(it6625_formats[ret].csi_format);
 
 	return 0;
 }
@@ -1709,8 +1774,8 @@ static int it6625_s_edid(struct v4l2_subdev *sd,
 			 struct v4l2_subdev_edid *edid)
 {
 	struct it6625 *it6625 = sd_to_6625(sd);
-	int err;
 	u16 parent_pa = CEC_PHYS_ADDR_INVALID;
+	int err;
 
 	if (edid->pad != 0) {
 		v4l2_err(sd, "invalid pad %d", edid->pad);
@@ -1778,13 +1843,13 @@ static const struct v4l2_subdev_core_ops it6625_core_ops = {
 
 static const struct v4l2_subdev_video_ops it6625_video_ops = {
 	.g_input_status = it6625_g_input_status,
-	.s_stream = it6625_s_stream,
+	.s_stream = v4l2_subdev_s_stream_helper,
 };
 
 static const struct v4l2_subdev_pad_ops it6625_pad_ops = {
 	.enum_mbus_code = it6625_enum_mbus_code,
 	.set_fmt = it6625_set_fmt,
-	.get_fmt = it6625_get_fmt,
+	.get_fmt = v4l2_subdev_get_fmt,
 	.get_edid = it6625_g_edid,
 	.set_edid = it6625_s_edid,
 	.enum_dv_timings = it6625_enum_dv_timings,
@@ -1793,6 +1858,8 @@ static const struct v4l2_subdev_pad_ops it6625_pad_ops = {
 	.s_dv_timings = it6625_pad_s_dv_timings,
 	.g_dv_timings = it6625_pad_g_dv_timings,
 	.query_dv_timings = it6625_pad_query_dv_timings,
+	.enable_streams = it6625_enable_streams,
+	.disable_streams = it6625_disable_streams,
 };
 
 static const struct v4l2_subdev_ops it6625_ops = {
@@ -1804,7 +1871,11 @@ static const struct v4l2_subdev_ops it6625_ops = {
 static int it6625_init_state(struct v4l2_subdev *sd,
 			     struct v4l2_subdev_state *sd_state)
 {
+	struct it6625 *it6625 = sd_to_6625(sd);
 	struct v4l2_mbus_framefmt *fmt = v4l2_subdev_state_get_format(sd_state, 0);
+
+	scoped_guard(mutex, &it6625->it6625_lock)
+		it6625_fill_timings_format(&it6625->timings, fmt);
 
 	fmt->code = it6625_formats[0].mbus_fmt_code;
 	fmt->colorspace = format_to_colorspace(it6625_formats[0].csi_format);
@@ -1842,8 +1913,11 @@ static int it6625_v4l2_init_controls(struct v4l2_subdev *sd)
 {
 	struct it6625 *it6625 = sd_to_6625(sd);
 	struct v4l2_ctrl_handler *hdl = &it6625->hdl;
+	bool cphy_3trio = it6625->bus_type == V4L2_MBUS_CSI2_CPHY &&
+			   it6625->csi_lanes == 3;
 
 	v4l2_ctrl_handler_init(hdl, 4);
+
 	it6625->ctrl_5v_detect =
 		v4l2_ctrl_new_std(hdl, NULL, V4L2_CID_DV_RX_POWER_PRESENT,
 				  0, 1, 0, 0);
@@ -1855,10 +1929,9 @@ static int it6625_v4l2_init_controls(struct v4l2_subdev *sd)
 	it6625->ctrl_audio_present =
 		v4l2_ctrl_new_custom(hdl, &it6625_ctrl_audio_present, NULL);
 	it6625->ctrl_link_freq =
-		v4l2_ctrl_new_int_menu(hdl, NULL, V4L2_CID_LINK_FREQ,
-				       ARRAY_SIZE(it6625_link_freq) - 1,
-				       it6625->bus_type == V4L2_MBUS_CSI2_CPHY ? 1 : 0,
-				       it6625_link_freq);
+		v4l2_ctrl_new_int_menu(hdl, NULL, V4L2_CID_LINK_FREQ, 0, 0,
+				       cphy_3trio ? it6626_cphy_3trio_link_freq :
+						    it6625_link_freq_default);
 	if (hdl->error) {
 		v4l2_err(sd, "Failed to initialize controls");
 		v4l2_ctrl_handler_free(hdl);
@@ -1872,11 +1945,9 @@ static int it6625_v4l2_init_controls(struct v4l2_subdev *sd)
 
 static void it6625_regdump_print(struct seq_file *s, const u8 *reg_buf)
 {
-	int i;
-
 	seq_puts(s, "     0x00 0x01 0x02 0x03 0x04 0x05 0x06 0x07 0x08 0x09 0x0A 0x0B 0x0C 0x0D 0x0E 0x0F\n");
 
-	for (i = 0; i < 256; i++) {
+	for (unsigned int i = 0; i < 256; i++) {
 		if (i % 16 == 0)
 			seq_printf(s, "[%02X] ", i & 0xF0);
 		seq_printf(s, "0x%02X ", reg_buf[i]);
@@ -2055,11 +2126,6 @@ static void it6625_init_data(struct it6625 *it6625)
 	static struct v4l2_dv_timings default_timing =
 			V4L2_DV_BT_CEA_1920X1080P60;
 
-	it6625->csi_lanes = 4;
-	it6625->port_num = 1;
-	it6625->bus_type = V4L2_MBUS_CSI2_DPHY;
-	it6625->csi_format = it6625_formats[0].csi_format;
-	it6625->mbus_fmt_code = it6625_formats[0].mbus_fmt_code;
 	it6625->timings = default_timing;
 	/* firmware ships with a verified 2-block default EDID in EDID RAM */
 	it6625->edid_blocks = 2;
@@ -2103,33 +2169,24 @@ static int it6625_parse_endpoint(struct it6625 *it6625)
 			of_node_put(port_ep);
 	}
 
-	if (!ep) {
-		it6625->port_num = 1;
-		dev_dbg(dev, "no CSI-2 endpoint node found, using default %u CSI lanes",
-			it6625->csi_lanes);
-		return 0;
-	}
-
 	ret = v4l2_fwnode_endpoint_alloc_parse(of_fwnode_handle(ep), &endpoint);
 	of_node_put(ep);
-	if (ret) {
-		dev_err(dev, "failed to parse endpoint: %d", ret);
-		return ret;
-	}
+	if (ret)
+		return dev_err_probe(dev, ret, "failed to parse endpoint");
 
 	if (endpoint.bus_type != V4L2_MBUS_CSI2_DPHY &&
 	    endpoint.bus_type != V4L2_MBUS_CSI2_CPHY) {
 		dev_err(dev, "unsupported bus type %d, expected CSI-2 D-PHY or C-PHY",
 			endpoint.bus_type);
-		v4l2_fwnode_endpoint_free(&endpoint);
-		return -EINVAL;
+		ret = -EINVAL;
+		goto out_free_endpoint;
 	}
 
 	if (endpoint.bus_type == V4L2_MBUS_CSI2_CPHY &&
 	    it6625->chip_type != IT6626_CHIP) {
 		dev_err(dev, "IT6625 does not support C-PHY, only IT6626 does");
-		v4l2_fwnode_endpoint_free(&endpoint);
-		return -EINVAL;
+		ret = -EINVAL;
+		goto out_free_endpoint;
 	}
 
 	max_lanes = (endpoint.bus_type == V4L2_MBUS_CSI2_CPHY) ? 3 : 4;
@@ -2139,47 +2196,22 @@ static int it6625_parse_endpoint(struct it6625 *it6625)
 		dev_err(dev,
 			"invalid number of CSI data lanes: %u (max %u for this bus type)",
 			endpoint.bus.mipi_csi2.num_data_lanes, max_lanes);
-		v4l2_fwnode_endpoint_free(&endpoint);
-		return -EINVAL;
+		ret = -EINVAL;
+		goto out_free_endpoint;
 	}
 
 	it6625->csi_lanes = endpoint.bus.mipi_csi2.num_data_lanes;
 	it6625->bus_type = endpoint.bus_type;
+
+out_free_endpoint:
 	v4l2_fwnode_endpoint_free(&endpoint);
 
-	return 0;
+	return ret;
 }
 
 static int it6625_parse_dt(struct it6625 *it6625)
 {
 	return it6625_parse_endpoint(it6625);
-}
-
-static int it6625_init_v4l2_subdev(struct it6625 *it6625)
-{
-	struct v4l2_subdev *sd = &it6625->sd;
-	int err;
-
-	sd->dev = it6625->dev;
-
-	v4l2_i2c_subdev_init(sd, it6625->i2c_client, &it6625_ops);
-	sd->internal_ops = &it6625_internal_ops;
-	sd->flags |= V4L2_SUBDEV_FL_HAS_DEVNODE | V4L2_SUBDEV_FL_HAS_EVENTS;
-	if (it6625_v4l2_init_controls(sd)) {
-		dev_err(it6625->dev, "Failed to initialize v4l2 controls");
-		return -ENOMEM;
-	}
-
-	it6625->pad.flags = MEDIA_PAD_FL_SOURCE;
-	sd->entity.function = MEDIA_ENT_F_CAM_SENSOR;
-	err = media_entity_pads_init(&sd->entity, 1, &it6625->pad);
-	if (err < 0) {
-		dev_err(it6625->dev, "%s %d err=%d", __func__, __LINE__, err);
-		v4l2_ctrl_handler_free(sd->ctrl_handler);
-		return err;
-	}
-
-	return 0;
 }
 
 static int it6625_check_device(struct it6625 *it6625)
@@ -2267,13 +2299,34 @@ static int it6625_probe(struct i2c_client *client)
 	}
 
 	sd = &it6625->sd;
-	err = it6625_init_v4l2_subdev(it6625);
-	if (err)
+	v4l2_i2c_subdev_init(sd, it6625->i2c_client, &it6625_ops);
+	sd->internal_ops = &it6625_internal_ops;
+	sd->flags |= V4L2_SUBDEV_FL_HAS_DEVNODE | V4L2_SUBDEV_FL_HAS_EVENTS;
+
+	err = it6625_v4l2_init_controls(sd);
+	if (err) {
+		dev_err(it6625->dev, "failed to initialize v4l2 controls: %d", err);
 		goto err_clean_work_queues;
+	}
+
+	it6625->pad.flags = MEDIA_PAD_FL_SOURCE;
+	sd->entity.function = MEDIA_ENT_F_CAM_SENSOR;
+	err = media_entity_pads_init(&sd->entity, 1, &it6625->pad);
+	if (err < 0) {
+		dev_err(it6625->dev, "%s %d err=%d", __func__, __LINE__, err);
+		goto err_clean_ctrl_handler;
+	}
+
+	sd->state_lock = sd->ctrl_handler->lock;
+	err = v4l2_subdev_init_finalize(sd);
+	if (err) {
+		dev_err(it6625->dev, "%s %d err=%d", __func__, __LINE__, err);
+		goto err_clean_hdl;
+	}
 
 	err = v4l2_ctrl_handler_setup(sd->ctrl_handler);
 	if (err)
-		goto err_clean_hdl;
+		goto err_clean_state;
 
 	it6625->cec_adap = cec_allocate_adapter(&it6625_cec_adap_ops,
 						it6625, dev_name(it6625->dev),
@@ -2284,7 +2337,7 @@ static int it6625_probe(struct i2c_client *client)
 	if (IS_ERR(it6625->cec_adap)) {
 		err = PTR_ERR(it6625->cec_adap);
 		dev_err(it6625->dev, "%s %d", __func__, __LINE__);
-		goto err_clean_hdl;
+		goto err_clean_state;
 	}
 
 	err = cec_register_adapter(it6625->cec_adap, &client->dev);
@@ -2292,13 +2345,22 @@ static int it6625_probe(struct i2c_client *client)
 		dev_err(it6625->dev, "%s: failed to register the cec device", __func__);
 		cec_delete_adapter(it6625->cec_adap);
 		it6625->cec_adap = NULL;
-		goto err_clean_hdl;
+		goto err_clean_state;
 	}
 
 	it6625_debugfs_init(it6625, client);
 
-	it6625_initial_setup(it6625);
-	it6625_v4l2_sd_ctrl_update(sd);
+	err = it6625_initial_setup(it6625);
+	if (err) {
+		dev_err_probe(it6625->dev, err, "failed initial hardware setup");
+		goto err_clean_debugfs;
+	}
+
+	err = it6625_v4l2_sd_ctrl_update(sd);
+	if (err) {
+		dev_err_probe(it6625->dev, err, "failed to update controls");
+		goto err_clean_debugfs;
+	}
 
 	err = v4l2_async_register_subdev(sd);
 	if (err < 0) {
@@ -2317,8 +2379,11 @@ err_clean_debugfs:
 	v4l2_debugfs_if_free(it6625->infoframes);
 	debugfs_remove_recursive(it6625->debugfs_dir);
 	cec_unregister_adapter(it6625->cec_adap);
+err_clean_state:
+	v4l2_subdev_cleanup(sd);
 err_clean_hdl:
 	media_entity_cleanup(&sd->entity);
+err_clean_ctrl_handler:
 	v4l2_ctrl_handler_free(&it6625->hdl);
 
 err_clean_work_queues:
@@ -2353,12 +2418,15 @@ static void it6625_remove(struct i2c_client *client)
 
 	debugfs_remove_recursive(it6625->debugfs_dir);
 	cec_unregister_adapter(it6625->cec_adap);
+
+	v4l2_subdev_cleanup(sd);
+	media_entity_cleanup(&sd->entity);
+	v4l2_ctrl_handler_free(&it6625->hdl);
+
 	mutex_destroy(&it6625->it6625_lock);
 	mutex_destroy(&it6625->edid_lock);
 	mutex_destroy(&it6625->if_read_lock);
 	mutex_destroy(&it6625->if_state_lock);
-	media_entity_cleanup(&sd->entity);
-	v4l2_ctrl_handler_free(&it6625->hdl);
 }
 
 static const struct i2c_device_id it6625_id[] = {
