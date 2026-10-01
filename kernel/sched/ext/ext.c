@@ -2325,6 +2325,13 @@ static void enqueue_task_scx(struct rq *rq, struct task_struct *p, int core_enq_
 	u64 enq_flags = core_enq_flags | rq->scx.remote_activate_enq_flags;
 
 	/*
+	 * An SCX-internal migration ends on arrival. Clear sticky_cpu so @p can
+	 * leave custody when inserted into the destination DSQ.
+	 */
+	if (sticky_cpu >= 0)
+		p->scx.sticky_cpu = -1;
+
+	/*
 	 * SCX_RQ_IN_WAKEUP promises a task_woken_scx() call once this enqueue
 	 * returns. Only the core's wakeup path delivers one. The flags stashed
 	 * for a remote activation may carry the wakeup bit without it.
@@ -2363,9 +2370,6 @@ static void enqueue_task_scx(struct rq *rq, struct task_struct *p, int core_enq_
 		dl_server_start(&rq->ext_server);
 
 	scx_do_enqueue_task(rq, p, enq_flags, sticky_cpu);
-
-	if (sticky_cpu >= 0)
-		p->scx.sticky_cpu = -1;
 out:
 	rq->scx.flags &= ~SCX_RQ_IN_WAKEUP;
 
@@ -11373,6 +11377,23 @@ out:
 	cgroup_get(cgrp);
 	return cgrp;
 }
+
+/**
+ * scx_bpf_cgroup_nr_cpus - Return the number of CPUs in a cgroup's cpuset
+ * @cgrp: cgroup of interest
+ *
+ * Return the number of CPUs in @cgrp's effective cpuset, which is inherited
+ * from the nearest ancestor with the cpuset controller enabled. This matches
+ * the count used by fair's group share calculation and lets hierarchical BPF
+ * schedulers bound a group's weight by the CPUs it can actually run on.
+ *
+ * The value is a snapshot and may change at any time through cpuset updates or
+ * CPU hotplug. Schedulers should re-read it when recomputing group state.
+ */
+__bpf_kfunc u32 scx_bpf_cgroup_nr_cpus(struct cgroup *cgrp)
+{
+	return cpuset_num_cpus(cgrp);
+}
 #endif	/* CONFIG_CGROUP_SCHED */
 
 __bpf_kfunc_end_defs();
@@ -11420,6 +11441,7 @@ BTF_ID_FLAGS(func, scx_bpf_now)
 BTF_ID_FLAGS(func, scx_bpf_events, KF_IMPLICIT_ARGS)
 #ifdef CONFIG_CGROUP_SCHED
 BTF_ID_FLAGS(func, scx_bpf_task_cgroup, KF_IMPLICIT_ARGS | KF_RCU | KF_ACQUIRE)
+BTF_ID_FLAGS(func, scx_bpf_cgroup_nr_cpus, KF_RCU)
 #endif
 BTF_ID_FLAGS(func, scx_bpf_sub_grant, KF_IMPLICIT_ARGS)
 BTF_ID_FLAGS(func, scx_bpf_sub_revoke, KF_IMPLICIT_ARGS)
