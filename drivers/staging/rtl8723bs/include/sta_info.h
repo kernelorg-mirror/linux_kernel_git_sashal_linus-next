@@ -87,7 +87,7 @@ struct sta_info {
 	u8 hwaddr[ETH_ALEN];
 
 	bool ieee8021x_blocked;
-	uint dot118021XPrivacy; /* aes, tkip... */
+	uint dot118021_x_privacy; /* aes, tkip... */
 	union Keytype dot11tkiptxmickey;
 	union Keytype dot11tkiprxmickey;
 	union Keytype dot118021x_UncstKey;
@@ -121,7 +121,6 @@ struct sta_info {
 	struct recv_reorder_ctrl recvreorder_ctrl[16];
 
 	/* for A-MPDU Tx */
-	/* unsigned char 	ampdu_txen_bitmap; */
 	u16 BA_starting_seqctrl[16];
 
 	struct ht_priv htpriv;
@@ -189,16 +188,13 @@ struct sta_info {
 	/* ODM_STA_INFO_T */
 	/*  ================ODM Relative Info ======================= */
 	/*  Please be care, dont declare too much structure here. It will cost memory * STA support num. */
-	/*  */
-	/*  */
 	/*  2011/10/20 MH Add for ODM STA info. */
-	/*  */
 	/*  Driver Write */
 	u8 bValid;				/*  record the sta status link or not? */
 	u8 IOTPeer;			/*  Enum value.	HT_IOT_PEER_E */
 	/*  ODM Write */
 	/* 1 PHY_STATUS_INFO */
-	u8 RSSI_Path[4];		/*  */
+	u8 RSSI_Path[4];
 	u8 RSSI_Ave;
 	u8 RXEVM[4];
 	u8 RXSNR[4];
@@ -207,9 +203,7 @@ struct sta_info {
 	/*  ODM Write */
 	/* 1 TX_INFO (may changed by IC) */
 	/* TX_INFO_T		pTxInfo;		 Define in IC folder. Move lower layer. */
-	/*  */
 	/*  ================ODM Relative Info ======================= */
-	/*  */
 
 	/* To store the sequence number of received management frame */
 	u16 rx_mgmt_frame_seq_num;
