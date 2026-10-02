@@ -1384,6 +1384,8 @@ static int xe_pci_runtime_suspend(struct device *dev)
 {
 	struct pci_dev *pdev = to_pci_dev(dev);
 	struct xe_device *xe = pdev_to_xe_device(pdev);
+	unsigned int flags;
+	bool pme_enabled;
 	int err, ret;
 
 	/*
@@ -1395,13 +1397,37 @@ static int xe_pci_runtime_suspend(struct device *dev)
 	xe_assert(xe, !IS_SRIOV_VF(xe));
 	xe_assert(xe, !pci_num_vf(pdev));
 
+	flags = memalloc_noreclaim_save();
+	pme_enabled = xe->pme.capable && !xe->d3cold.allowed &&
+		      pci_enable_wake(pdev, PCI_D3hot, true) == 0;
+	memalloc_noreclaim_restore(flags);
+
+	xe_pm_update_pme_enabled(xe, pme_enabled);
+
 	err = xe_pm_runtime_suspend(xe);
-	if (err)
+	if (err) {
+		if (pme_enabled) {
+			flags = memalloc_noreclaim_save();
+			pci_enable_wake(pdev, PCI_D3hot, false);
+			memalloc_noreclaim_restore(flags);
+
+			xe_pm_update_pme_enabled(xe, false);
+		}
+
 		return err;
+	}
 
 	err = xe_pm_wait_all_c6(xe);
 	if (err) {
 		drm_dbg(&xe->drm, "Resuming - GT C6 check failed!");
+		if (pme_enabled) {
+			flags = memalloc_noreclaim_save();
+			pci_enable_wake(pdev, PCI_D3hot, false);
+			memalloc_noreclaim_restore(flags);
+
+			xe_pm_update_pme_enabled(xe, false);
+		}
+
 		ret = xe_pm_runtime_resume(xe);
 		if (ret) {
 			drm_err(&xe->drm, "Resume failed after suspend was canceled");
@@ -1436,6 +1462,8 @@ static int xe_pci_runtime_resume(struct device *dev)
 		return err;
 
 	pci_restore_state(pdev);
+
+	xe_pm_update_pme_enabled(xe, false);
 
 	if (xe->d3cold.allowed) {
 		err = pci_enable_device(pdev);
