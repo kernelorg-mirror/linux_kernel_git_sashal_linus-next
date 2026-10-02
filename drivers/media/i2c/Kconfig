@@ -466,6 +466,16 @@ config VIDEO_OV02C10
 	  To compile this driver as a module, choose M here: the
 	  module will be called ov02c10.
 
+config VIDEO_OV05C10
+	tristate "OmniVision OV05C10 sensor support"
+	select V4L2_CCI_I2C
+	help
+	  This is a Video4Linux2 sensor driver for the OmniVision
+	  OV05C10 camera.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called ov05c10.
+
 config VIDEO_OV08D10
         tristate "OmniVision OV08D10 sensor support"
         help
@@ -846,6 +856,17 @@ config VIDEO_S5KJN1
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called s5kjn1.
+
+config VIDEO_S5KJN5
+	tristate "Samsung S5KJN5 sensor support"
+	depends on GPIOLIB
+	select V4L2_CCI_I2C
+	help
+	  This is a V4L2 sensor driver for Samsung S5KJN5 50MP
+	  10-bit RAW MIPI CSI-2 camera sensor.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called s5kjn5.
 
 config VIDEO_T4KA3
 	tristate "Toshiba T4KA3 sensor support"

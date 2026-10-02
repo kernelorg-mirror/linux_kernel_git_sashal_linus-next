@@ -346,7 +346,7 @@ irqreturn_t ipu6_buttress_isr(int irq, void *isp_ptr)
 	if (!active)
 		return IRQ_NONE;
 
-	if (IS_IPU7(isp)) {
+	if (IS_IPU7(isp) || IS_IPU8(isp)) {
 		u32 pb_irq;
 
 		pb_irq = readl(isp->pb_base + IPU7_PB_INTERRUPT_STATUS);
@@ -478,6 +478,9 @@ static int ipu7_isys_d2d_power(struct ipu6_device *isp, bool on)
 
 static void ipu7_nde_control(struct ipu6_device *isp, bool on)
 {
+	u32 resvec = IS_IPU8(isp) ? IPU8_NDE_RESVEC : IPU7_NDE_RESVEC;
+	u32 reg = IS_IPU8(isp) ? IPU8_BUTTRESS_REG_NDE_CONTROL :
+					 IPU7_BUTTRESS_REG_NDE_CONTROL;
 	u32 val;
 
 	val = FIELD_PREP(IPU7_NDE_VAL_MASK,
@@ -486,8 +489,8 @@ static void ipu7_nde_control(struct ipu6_device *isp, bool on)
 			 on ? IPU7_NDE_SCALE_ACTIVE : IPU7_NDE_SCALE_DEFAULT) |
 	      FIELD_PREP(IPU7_NDE_VALID_MASK,
 			 on ? IPU7_NDE_VALID_ACTIVE : IPU7_NDE_VALID_DEFAULT) |
-	      FIELD_PREP(IPU7_NDE_RESVEC_MASK, IPU7_NDE_RESVEC);
-	writel(val, isp->base + IPU7_BUTTRESS_REG_NDE_CONTROL);
+	      FIELD_PREP(IPU7_NDE_RESVEC_MASK, resvec);
+	writel(val, isp->base + reg);
 }
 
 static int __ipu7_power_on(struct device *dev,
@@ -507,6 +510,17 @@ static int __ipu7_power_on(struct device *dev,
 			return ret;
 
 		ipu7_nde_control(isp, true);
+	}
+
+	/* IPU8 psys needs its PLL running above 400MHz. */
+	if (!is_isys && IS_IPU8(isp) && ctrl->ratio > IPU8_PS_FREQ_CTL_DEFAULT_RATIO) {
+		writel(1, isp->base + IPU7_BUTTRESS_REG_PS_PLL_ENABLE);
+		ret = readl_poll_timeout(isp->base + IPU7_BUTTRESS_REG_SLEEP_LEVEL_STS,
+					 val, (val & IPU7_BUTTRESS_OWN_ACK_PS_CLK),
+					 100, BUTTRESS_POWER_TIMEOUT_US);
+		if (ret)
+			dev_warn(&isp->pdev->dev,
+				 "ps_pll req ack timeout: 0x%x\n", val);
 	}
 
 	/* Request clock ownership. */
@@ -566,6 +580,12 @@ static int __ipu7_power_off(struct device *dev,
 		ipu7_nde_control(isp, false);
 	}
 
+	if (ctrl->subsys_id == IPU_PSYS && IS_IPU8(isp)) {
+		val = readl(isp->base + IPU7_BUTTRESS_REG_SLEEP_LEVEL_STS);
+		if (val & IPU7_BUTTRESS_OWN_ACK_PS_CLK)
+			writel(0, isp->base + IPU7_BUTTRESS_REG_PS_PLL_ENABLE);
+	}
+
 	return 0;
 }
 
@@ -612,7 +632,7 @@ int ipu6_buttress_power(struct device *dev,
 
 	mutex_lock(&isp->buttress.power_mutex);
 
-	if (IS_IPU7(isp))
+	if (IS_IPU7(isp) || IS_IPU8(isp))
 		ret = on ? __ipu7_power_on(dev, ctrl) :
 			   __ipu7_power_off(dev, ctrl);
 	else
@@ -775,7 +795,7 @@ int ipu6_buttress_authenticate(struct ipu6_device *isp)
 	 * Write address of FIT table to FW_SOURCE register
 	 * Let's use fw address. I.e. not using FIT table yet
 	 */
-	if (IS_IPU7(isp)) {
+	if (IS_IPU7(isp) || IS_IPU8(isp)) {
 		writel(isp->cpd_fw->size,
 		       isp->base + IPU7_BUTTRESS_REG_FW_SOURCE_SIZE);
 		writel(sg_dma_address(isp->psys->fw_sgt.sgl),
@@ -822,7 +842,7 @@ int ipu6_buttress_authenticate(struct ipu6_device *isp)
 		goto out_unlock;
 	}
 
-	void __iomem *base = IS_IPU7(isp) ?
+	void __iomem *base = (IS_IPU7(isp) || IS_IPU8(isp)) ?
 			     isp->base + IPU7_BUTTRESS_REG_FW_BOOT_PARAMS7 :
 			     psys_pdata->base + BOOTLOADER_STATUS_OFFSET;
 
@@ -922,6 +942,23 @@ static int __ipu7p5_start_tsc_sync(struct ipu6_device *isp)
 	return -ETIMEDOUT;
 }
 
+static int __ipu8_start_tsc_sync(struct ipu6_device *isp)
+{
+	u32 val;
+
+	for (unsigned int i = 0; i < BUTTRESS_TSC_SYNC_RESET_TRIAL_MAX; i++) {
+		val = readl(isp->base + IPU7_BUTTRESS_REG_PB_TIMESTAMP_VALID);
+		if (val == 1)
+			return 0;
+
+		usleep_range(40, 50);
+	}
+
+	dev_err(&isp->pdev->dev, "TSC sync failed (timeout)\n");
+
+	return -ETIMEDOUT;
+}
+
 static int __ipu6_start_tsc_sync(struct ipu6_device *isp)
 {
 	for (unsigned int i = 0; i < BUTTRESS_TSC_SYNC_RESET_TRIAL_MAX; i++) {
@@ -948,6 +985,9 @@ static int __ipu6_start_tsc_sync(struct ipu6_device *isp)
 
 int ipu6_buttress_start_tsc_sync(struct ipu6_device *isp)
 {
+	if (IS_IPU8(isp))
+		return __ipu8_start_tsc_sync(isp);
+
 	if (IS_IPU7P5(isp))
 		return __ipu7p5_start_tsc_sync(isp);
 
@@ -1037,7 +1077,10 @@ static void ipu7_buttress_setup(struct ipu6_device *isp)
 
 	writel(val, isp->pb_base + IPU7_BAR2_MISC_CONFIG);
 
-	if (IS_IPU7P5(isp)) {
+	if (IS_IPU8(isp)) {
+		writel(BIT(13), isp->pb_base + IPU7_TLBID_HASH_ENABLE_63_32);
+		writel(BIT(9), isp->pb_base + IPU7_TLBID_HASH_ENABLE_95_64);
+	} else if (IS_IPU7P5(isp)) {
 		writel(BIT(14), isp->pb_base + IPU7_TLBID_HASH_ENABLE_63_32);
 		writel(BIT(9), isp->pb_base + IPU7_TLBID_HASH_ENABLE_95_64);
 	} else {
@@ -1057,7 +1100,7 @@ void ipu6_buttress_restore(struct ipu6_device *isp)
 {
 	struct ipu6_buttress *b = &isp->buttress;
 
-	if (IS_IPU7(isp)) {
+	if (IS_IPU7(isp) || IS_IPU8(isp)) {
 		ipu7_buttress_setup(isp);
 	} else {
 		writel(b->regs->irq_all, isp->base + b->regs->irq_clear);
@@ -1085,7 +1128,7 @@ int ipu6_buttress_init(struct ipu6_device *isp)
 	dev_dbg(&isp->pdev->dev, "IPU in %s mode\n",
 		isp->secure_mode ? "secure" : "non-secure");
 
-	if (IS_IPU7(isp)) {
+	if (IS_IPU7(isp) || IS_IPU8(isp)) {
 		ipu7_buttress_setup(isp);
 		b->ref_clk = 384;
 	} else {

@@ -140,6 +140,28 @@ static const struct ipu6_buttress_ctrl ipu7_psys_buttress_ctrl = {
 	.pwr_sts_off = IPU6_BUTTRESS_PWR_STATE_DN_DONE,
 };
 
+static const struct ipu6_buttress_ctrl ipu8_isys_buttress_ctrl = {
+	.subsys_id = IPU_ISYS,
+	.ratio = IPU8_IS_FREQ_CTL_DEFAULT_RATIO,
+	.qos_floor = 0,
+	.freq_ctl = IPU7_BUTTRESS_REG_IS_WORKPOINT_REQ,
+	.pwr_sts_shift = IPU7_BUTTRESS_PWR_STATE_IS_PWR_SHIFT,
+	.pwr_sts_mask = IPU7_BUTTRESS_PWR_STATE_IS_PWR_MASK,
+	.pwr_sts_on = IPU6_BUTTRESS_PWR_STATE_UP_DONE,
+	.pwr_sts_off = IPU6_BUTTRESS_PWR_STATE_DN_DONE,
+};
+
+static const struct ipu6_buttress_ctrl ipu8_psys_buttress_ctrl = {
+	.subsys_id = IPU_PSYS,
+	.ratio = IPU8_PS_FREQ_CTL_DEFAULT_RATIO,
+	.qos_floor = 0,
+	.freq_ctl = IPU7_BUTTRESS_REG_PS_WORKPOINT_REQ,
+	.pwr_sts_shift = IPU7_BUTTRESS_PWR_STATE_PS_PWR_SHIFT,
+	.pwr_sts_mask = IPU7_BUTTRESS_PWR_STATE_PS_PWR_MASK,
+	.pwr_sts_on = IPU6_BUTTRESS_PWR_STATE_UP_DONE,
+	.pwr_sts_off = IPU6_BUTTRESS_PWR_STATE_DN_DONE,
+};
+
 static const struct ipu6_buttress_registers ipu6_buttress_regs = {
 	/* Registers */
 	.irq_status	= BUTTRESS_REG_ISR_STATUS,
@@ -274,7 +296,7 @@ void ipu6_configure_spc(struct ipu6_device *isp,
 	void __iomem *spc_regs_base;
 	u32 val;
 
-	if (IS_IPU7(isp))
+	if (IS_IPU7(isp) || IS_IPU8(isp))
 		return;
 
 	dmem_base = base + hw_variant->dmem_offset;
@@ -373,6 +395,13 @@ static void ipu6_internal_pdata_init(struct ipu6_device *isp)
 
 	if (IS_IPU7(isp)) {
 		isys_ipdata.csi2.gpreg = IPU7_IS_IO_CSI2_GPREGS_BASE;
+		isys_ipdata.csi2.gpreg_stride = IPU7_IS_IO_CSI2_GPREGS_STRIDE;
+		isys_ipdata.csi2.nports = 4;
+	}
+
+	if (IS_IPU8(isp)) {
+		isys_ipdata.csi2.gpreg = IPU8_IS_IO_CSI2_GPREGS_BASE;
+		isys_ipdata.csi2.gpreg_stride = IPU8_IS_IO_CSI2_GPREGS_STRIDE;
 		isys_ipdata.csi2.nports = 4;
 	}
 }
@@ -498,7 +527,7 @@ static void ipu6_configure_vc_mechanism(struct ipu6_device *isp)
 {
 	u32 val;
 
-	if (IS_IPU7(isp))
+	if (IS_IPU7(isp) || IS_IPU8(isp))
 		return;
 
 	val = readl(isp->base + BUTTRESS_REG_BTRS_CTRL);
@@ -670,6 +699,21 @@ static int ipu6_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		isys_ctrl = &ipu7_isys_buttress_ctrl;
 		psys_ctrl = &ipu7_psys_buttress_ctrl;
 		break;
+	case PCI_DEVICE_ID_INTEL_IPU8:
+		/*
+		 * IPU8 reuses the IPU7P5 buttress register map,
+		 * matching staging ipu7 (no dedicated ipu8_buttress_regs
+		 * there either). isys/psys control ratios use IPU8's own
+		 * 0x10 default, unlike IPU7/IPU7P5.
+		 * TODO: confirm buttress register map against IPU8 hw spec.
+		 */
+		isp->hw_ver = IPU_VERSION_8;
+		isp->cpd_fw_name = IPU8_FIRMWARE_NAME;
+		isp->model_name = IPU8_MEDIA_DEV_MODEL_NAME;
+		isp->buttress.regs = &ipu7p5_buttress_regs;
+		isys_ctrl = &ipu8_isys_buttress_ctrl;
+		psys_ctrl = &ipu8_psys_buttress_ctrl;
+		break;
 	default:
 		return dev_err_probe(dev, -ENODEV,
 				     "Unsupported IPU6 device %x\n",
@@ -691,7 +735,7 @@ static int ipu6_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		return dev_err_probe(dev, PTR_ERR(isp->base),
 				     "Failed to I/O mem remapping\n");
 
-	if (IS_IPU7(isp)) {
+	if (IS_IPU7(isp) || IS_IPU8(isp)) {
 		isp->pb_base = pcim_iomap_region(pdev, IPU7_PCI_PBBAR,
 						 IPU6_NAME);
 		if (IS_ERR(isp->pb_base))
@@ -763,7 +807,7 @@ static int ipu6_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		goto out_ipu6_rpm_put;
 	}
 
-	ret = IS_IPU7(isp) ? ipu7_map_fw(isp) : ipu6_map_fw(isp);
+	ret = (IS_IPU7(isp) || IS_IPU8(isp)) ? ipu7_map_fw(isp) : ipu6_map_fw(isp);
 	if (ret)
 		goto out_ipu6_rpm_put;
 
@@ -806,7 +850,7 @@ out_free_irq:
 out_ipu6_rpm_put:
 	pm_runtime_put_sync(&isp->psys->auxdev.dev);
 out_ipu6_bus_del_devices:
-	dir = IS_IPU7(isp) ? DMA_BIDIRECTIONAL : DMA_TO_DEVICE;
+	dir = (IS_IPU7(isp) || IS_IPU8(isp)) ? DMA_BIDIRECTIONAL : DMA_TO_DEVICE;
 	if (!IS_ERR_OR_NULL(isp->psys)) {
 		ipu6_cpd_free_pkg_dir(isp->psys);
 		if (isp->psys->fw_sgt.nents)
@@ -840,7 +884,7 @@ static void ipu6_pci_remove(struct pci_dev *pdev)
 
 	devm_free_irq(&pdev->dev, pdev->irq, isp);
 
-	dir = IS_IPU7(isp) ? DMA_BIDIRECTIONAL : DMA_TO_DEVICE;
+	dir = (IS_IPU7(isp) || IS_IPU8(isp)) ? DMA_BIDIRECTIONAL : DMA_TO_DEVICE;
 	ipu6_cpd_free_pkg_dir(isp->psys);
 	ipu6_unmap_fw_region(isp->psys, dir);
 

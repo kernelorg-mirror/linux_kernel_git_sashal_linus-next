@@ -13260,6 +13260,8 @@ INTEL IPU6 INPUT SYSTEM DRIVER
 M:	Sakari Ailus <sakari.ailus@linux.intel.com>
 R:	Antti Laakso <antti.laakso@linux.intel.com>
 R:	"Sapre, Sarang" <sarang.sapre@intel.com>
+R:	Divyamani Tripathi <divyamani.tripathi@intel.com>
+R:	Manik Bajpai <manik.bajpai@intel.com>
 L:	linux-media@vger.kernel.org
 S:	Maintained
 T:	git git://linuxtv.org/media.git
@@ -20213,6 +20215,13 @@ T:	git git://linuxtv.org/media.git
 F:	Documentation/devicetree/bindings/media/i2c/ovti,ov02e10.yaml
 F:	drivers/media/i2c/ov02e10.c
 
+OMNIVISION OV05C10 SENSOR DRIVER
+M:	Sakari Ailus <sakari.ailus@linux.intel.com>
+R:	Antti Laakso <antti.laakso@linux.intel.com>
+L:	linux-media@vger.kernel.org
+S:	Maintained
+F:	drivers/media/i2c/ov05c10.c
+
 OMNIVISION OV08D10 SENSOR DRIVER
 M:	Jimmy Su <jimmy.su@intel.com>
 R:	Matthias Fend <matthias.fend@emfend.at>
@@ -24465,6 +24474,13 @@ S:	Maintained
 T:	git git://linuxtv.org/media_tree.git
 F:	Documentation/devicetree/bindings/media/i2c/samsung,s5kjn1.yaml
 F:	drivers/media/i2c/s5kjn1.c
+
+SAMSUNG S5KJN5 CAMERA DRIVER
+M:	Wenmeng Liu <wenmeng.liu@oss.qualcomm.com>
+L:	linux-media@vger.kernel.org
+S:	Supported
+F:	Documentation/devicetree/bindings/media/i2c/samsung,s5kjn5.yaml
+F:	drivers/media/i2c/s5kjn5.c
 
 SAMSUNG S5P Security SubSystem (SSS) DRIVER
 M:	Krzysztof Kozlowski <krzk@kernel.org>

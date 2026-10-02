@@ -4,6 +4,8 @@
 #ifndef IPU7_FW_ISYS_H
 #define IPU7_FW_ISYS_H
 
+#include <linux/limits.h>
+
 #define IPU7_FWLOG_MAX_LOGGER_SOURCES		(64U)
 #define IPU7_INSYS_MAX_OUTPUT_QUEUES		3U
 #define IPU7_INSYS_STREAM_ID_MAX		16U
@@ -23,6 +25,9 @@
 #define IPU7_ISYS_SIZE_SEND_QUEUE		40U
 #define IPU7_ISYS_NUM_RECV_QUEUE		1U
 #define IPU7_INSYS_SEND_QUEUE_TOKEN_FLAG_NONE	0U
+
+/* Value of mipi_fn below when firmware ABI < 1.2.1 does not report it. */
+#define IPU7_INSYS_MIPI_FRAME_NUMBER_DONT_CARE	U16_MAX
 
 #define IPU7_LOGGER_CFG_CHANNEL_ENABLE_SYSCOM	BIT(1)
 
@@ -107,7 +112,6 @@ enum ipu7_insys_resp_type {
 	IPU7_INSYS_RESP_TYPE_FRAME_EOF = 8,
 	IPU7_INSYS_RESP_TYPE_STREAM_START_AND_CAPTURE_DONE = 9,
 	IPU7_INSYS_RESP_TYPE_STREAM_CAPTURE_DONE = 10,
-	IPU7_INSYS_RESP_TYPE_PWM_IRQ = 11,
 	N_IPU7_INSYS_RESP_TYPE
 };
 
@@ -198,7 +202,7 @@ struct ipu7_insys_resp {
 	u8 pin_id;
 	u8 frame_id;
 	u8 skip_frame;
-	u8 pad[2];
+	u16 mipi_fn;
 };
 
 struct ipu7_insys_resp_queue_token {
@@ -231,11 +235,38 @@ struct ipu7_fw_isys_output_cropping {
 	u16 line_bottom;
 } __packed;
 
+/* IPU8 InSys firmware layout, ABI 1.0.14. */
+struct ipu7_fw_isys_output_cropping_ipu8 {
+	u16 line_top;
+	u16 line_bottom;
+	u16 column_left;
+	u16 column_right;
+} __packed;
+
 struct ipu7_fw_isys_output_dpcm {
 	u8 enable;
 	u8 type;
 	u8 predictor;
 	u8 pad;
+} __packed;
+
+/* IPU8 (InSys ABI 1.0.14) only. */
+enum ipu7_insys_cfa_dim {
+	IPU7_INSYS_CFA_DIM_2X2 = 0,
+	IPU7_INSYS_CFA_DIM_4X4 = 1,
+	N_IPU7_INSYS_CFA_DIM
+};
+
+#define IPU7_INSYS_MAX_BINNING_FACTOR	4U
+
+/* IPU8 (InSys ABI 1.0.14) only. */
+struct ipu7_fw_isys_upipe_output_pin_ipu8 {
+	u32 opaque_pin_cfg;
+	u16 plane_offset_1;
+	u16 plane_offset_2;
+	u8 single_uob_fifo;
+	u8 shared_uob_fifo;
+	u8 pad[2];
 } __packed;
 
 struct ipu7_fw_isys_output_pin {
@@ -248,6 +279,22 @@ struct ipu7_fw_isys_output_pin {
 	u8 input_pin_id;
 	u8 early_ack_en;
 	u8 pad[3];
+} __packed;
+
+/* IPU8 InSys firmware layout, ABI 1.0.14. */
+struct ipu7_fw_isys_output_pin_ipu8 {
+	struct ipu7_fw_isys_output_link link;
+	struct ipu7_fw_isys_output_cropping_ipu8 crop;
+	struct ipu7_fw_isys_output_dpcm dpcm;
+	struct ipu7_fw_isys_upipe_output_pin_ipu8 upipe_pin_cfg;
+	u32 stride;
+	u16 ft;
+	u8 upipe_enable;
+	u8 send_irq;
+	u8 input_pin_id;
+	u8 early_ack_en;
+	u8 cfa_dim;
+	u8 binning_factor;
 } __packed;
 
 struct ipu7_fw_isys_resolution {
@@ -276,14 +323,41 @@ struct ipu7_fw_isys_stream_cfg {
 	u8 pad[2];
 } __packed;
 
+/* IPU8 InSys firmware layout, ABI 1.0.14. */
+struct ipu7_fw_isys_stream_cfg_ipu8 {
+	struct ipu7_fw_isys_input_pin input_pins[IPU7_MAX_IPINS];
+	struct ipu7_fw_isys_output_pin_ipu8 output_pins[IPU7_MAX_OPINS];
+	u16 stream_msg_map;
+	u8 port_id;
+	u8 vc;
+	u8 nof_input_pins;
+	u8 nof_output_pins;
+	u8 pad[2];
+} __packed;
+
 struct ipu7_fw_isys_capture_output_pin {
 	u64 user_token;
 	u32 addr;
 	u8 pad[4];
 } __packed;
 
+/* IPU8 (InSys ABI 1.0.14) only. */
+struct ipu7_fw_isys_capture_output_pin_cfg_ipu8 {
+	struct ipu7_fw_isys_capture_output_pin pin_payload;
+	u32 upipe_capture_cfg;
+} __packed;
+
 struct ipu7_fw_isys_frame_buff_set {
 	struct ipu7_fw_isys_capture_output_pin output_pins[IPU7_MAX_OPINS];
+	u8 capture_msg_map;
+	u8 frame_id;
+	u8 skip_frame;
+	u8 pad[5];
+} __packed;
+
+/* IPU8 InSys firmware layout, ABI 1.0.14. */
+struct ipu7_fw_isys_frame_buff_set_ipu8 {
+	struct ipu7_fw_isys_capture_output_pin_cfg_ipu8 output_pins[IPU7_MAX_OPINS];
 	u8 capture_msg_map;
 	u8 frame_id;
 	u8 skip_frame;
