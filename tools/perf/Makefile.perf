@@ -283,8 +283,12 @@ ifneq ($(force_fixdep),1)
 endif
 
 # Runs pylint on perf python files.
-# Require pylint >= 2.16.0 (which introduced W0718 broad-exception-caught and
-# astroid .pyi stub support for perf.pyi).
+# Require pylint >= 2.16.0 (which introduced W0718 broad-exception-caught).
+# Note: astroid's ImportlibFinder only resolves .pyi stubs for package
+# directories (__init__.pyi), not single-file stubs like perf.pyi, and does not
+# introspect C extensions by default. Pass 'perf' in --ignored-modules (leaving
+# perf module type-checking to mypy via perf.pyi) so pylint does not depend on
+# building the perf Python C extension first.
 # Disabled warnings:
 #   W0123 (eval-used): Use of eval()
 #   W0311 (bad-indentation): Non-4-space indentation
@@ -310,9 +314,9 @@ ifneq ($(force_fixdep),1)
       $(warning Warning: pylint version is older than 2.16.0, skipping pylint checks.)
       override PYLINT :=
     else
-      override PYLINT := PYTHONPATH=$(abspath $(OUTPUT)python):$(srctree)/tools/perf/python:$(srctree)/tools/perf/pmu-events \
+      override PYLINT := PYTHONPATH=$(srctree)/tools/perf/python:$(srctree)/tools/perf/pmu-events \
         $(PYLINT) --disable=all --enable=E,W --disable=W0123,W0311,W0511,W0603,W0622,W0718 \
-        --ignored-modules=textual,setproctitle
+        --ignored-modules=perf,textual,setproctitle
     endif
   endif
 endif
@@ -323,9 +327,17 @@ export HOSTCC HOSTLD HOSTAR HOSTCFLAGS SHELLCHECK MYPY PYLINT CONFIG_PERF_BPF_SK
 include $(srctree)/tools/build/Makefile.include
 
 ifeq ($(force_fixdep),1)
-goals := $(filter-out all sub-make, $(MAKECMDGOALS))
+goals := $(filter-out all sub-make clean, $(MAKECMDGOALS))
 
-$(goals) all: sub-make
+ifneq ($(filter clean,$(MAKECMDGOALS)),)
+clean-make:
+	$(Q)$(MAKE) -f Makefile.perf -j1 clean
+
+fixdep: clean-make
+.PHONY: clean-make
+endif
+
+$(goals) all clean: sub-make
 
 sub-make: fixdep
 	$(Q)$(MAKE) FIXDEP_BUILT=1 -f Makefile.perf $(goals)
@@ -526,8 +538,8 @@ endif
 EXTLIBS := $(call filter-out,$(EXCLUDE_EXTLIBS),$(EXTLIBS))
 LIBS = -Wl,--whole-archive $(PERFLIBS) $(EXTRA_PERFLIBS) -Wl,--no-whole-archive -Wl,--start-group $(EXTLIBS) -Wl,--end-group
 
-PERFLIBS_PY := $(call filter-out,$(LIBPERF_BENCH) $(LIBPERF_TEST),$(PERFLIBS))
-LIBS_PY = -Wl,--whole-archive $(PERFLIBS_PY) $(EXTRA_PERFLIBS) -Wl,--no-whole-archive -Wl,--start-group $(EXTLIBS) -Wl,--end-group
+PERFLIBS_PY := $(call filter-out,$(LIBPERF_BENCH) $(LIBPERF_TEST),$(PERFLIBS)) $(EXTRA_PERFLIBS)
+LIBS_PY = -Wl,--whole-archive $(PERFLIBS_PY) -Wl,--no-whole-archive -Wl,--start-group $(EXTLIBS) -Wl,--end-group
 
 export INSTALL SHELL_PATH
 
@@ -559,8 +571,10 @@ $(shell [ -d '$(OUTPUT)python' ] || mkdir -p '$(OUTPUT)python')
 $(OUTPUT)python/perf$(PYTHON_EXTENSION_SUFFIX): util/python.c util/setup.py python/perf.pyi $(PERFLIBS_PY)
 	$(QUIET_GEN)LDSHARED="$(CC) -pthread -shared" \
         CFLAGS='$(CFLAGS)' LDFLAGS='$(LDFLAGS) $(LIBS_PY)' \
+	  PYTHON_EXT_DEPS='$(PERFLIBS_PY)' \
 	  $(PYTHON_WORD) util/setup.py \
 	  $(python_setup_quiet) build_ext; \
+	$(MKDIR) -p $(OUTPUT)python; \
 	cp $(PYTHON_EXTBUILD_LIB)perf*.so $(OUTPUT)python/; \
 	if [ "$(abspath python/perf.pyi)" != "$(abspath $(OUTPUT)python/perf.pyi)" ]; then \
 		cp python/perf.pyi $(OUTPUT)python/; \
@@ -634,18 +648,52 @@ $(SCRIPTS) : $(OUTPUT)% : %.sh
 $(OUTPUT)PERF-VERSION-FILE: .FORCE-PERF-VERSION-FILE
 	$(Q)$(SHELL_PATH) util/PERF-VERSION-GEN $(OUTPUT)
 
-ifdef PYLINT
-# Run Python checks after the extension is ready, independently of C builds.
-all: pylint-perf pylint-tests
-.PHONY: pylint-perf pylint-tests
+ifdef SHELLCHECK
+# Run shellcheck independently of C builds.
+all: shellcheck-perf shellcheck-tests
+.PHONY: shellcheck-perf shellcheck-tests
 
-pylint-perf pylint-tests: | $(LANG_BINDINGS)
+shellcheck-perf:
+	$(Q)$(MAKE) $(build)=perf shellcheck
+
+shellcheck-tests:
+	$(Q)$(MAKE) $(build)=perf-test dir=tests shellcheck
+endif
+
+ifdef MYPY
+# Run mypy independently of C builds.
+all: mypy-perf mypy-tests mypy-util mypy-pmu-events
+.PHONY: mypy-perf mypy-tests mypy-util mypy-pmu-events
+
+mypy-perf:
+	$(Q)$(MAKE) $(build)=perf mypy
+
+mypy-tests:
+	$(Q)$(MAKE) $(build)=perf-test dir=tests mypy
+
+mypy-util:
+	$(Q)$(MAKE) $(build)=perf-util dir=util mypy
+
+mypy-pmu-events:
+	$(Q)$(MAKE) $(build)=pmu-events dir=pmu-events mypy
+endif
+
+ifdef PYLINT
+# Run pylint independently of C builds.
+all: pylint-perf pylint-tests pylint-util pylint-pmu-events
+.PHONY: pylint-perf pylint-tests pylint-util pylint-pmu-events
 
 pylint-perf:
 	$(Q)$(MAKE) $(build)=perf pylint
 
 pylint-tests:
 	$(Q)$(MAKE) $(build)=perf-test dir=tests pylint
+
+pylint-util:
+	$(Q)$(MAKE) $(build)=perf-util dir=util pylint
+
+pylint-pmu-events:
+	$(Q)$(MAKE) $(build)=pmu-events dir=pmu-events pylint
 endif
 
 # These can record PERF_VERSION
@@ -956,7 +1004,7 @@ install: install-bin try-install-man
 install-build-deps:
 	$(Q)$(SHELL) $(srctree)/tools/perf/scripts/install-build-deps.sh $(INSTALL_BUILD_DEPS_ARGS)
 
-install-python_ext:
+install-python_ext: $(LANG_BINDINGS)
 	$(PYTHON_WORD) util/setup.py $(python_setup_quiet) \
 		$(if $(OUTPUT),egg_info --egg-base $(OUTPUT)) \
 		install --root='/$(DESTDIR_SQ)'
@@ -1032,7 +1080,9 @@ endif
 
 FORCE:
 
-.PHONY: all install install-build-deps clean config-clean strip install-gtk
+.PHONY: all install install-bin install-tools install-tests install-build-deps
+.PHONY: install-gtk install-python_ext $(DOC_TARGETS) $(INSTALL_DOC_TARGETS)
+.PHONY: clean config-clean strip
 .PHONY: shell_compatibility_test please_set_SHELL_PATH_to_a_more_modern_shell
 .PHONY: .FORCE-PERF-VERSION-FILE TAGS tags cscope FORCE prepare bpf-skel-prepare
 .PHONY: python_perf_target

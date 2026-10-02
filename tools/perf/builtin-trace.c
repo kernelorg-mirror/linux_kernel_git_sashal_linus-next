@@ -21,6 +21,7 @@
 #include <bpf/libbpf.h>
 #include <bpf/btf.h>
 #endif
+#include "util/bpf_skel/perf_trace_u.h"
 #include "util/rlimit.h"
 #include "builtin.h"
 #include "util/cgroup.h"
@@ -215,6 +216,7 @@ struct trace {
 	bool			print_sample;
 	bool			show_tool_stats;
 	bool			trace_syscalls;
+	bool			syscall_augment;
 	bool			libtraceevent_print;
 	bool			kernel_syscallchains;
 	s16			args_alignment;
@@ -489,38 +491,6 @@ static int evsel__init_syscall_tp(struct evsel *evsel)
 	return -ENOMEM;
 }
 
-static int evsel__init_augmented_syscall_tp(struct evsel *evsel, struct evsel *tp)
-{
-	struct syscall_tp *sc = evsel__syscall_tp(evsel);
-
-	if (sc != NULL) {
-		struct tep_format_field *syscall_id = evsel__field(tp, "id");
-		if (syscall_id == NULL)
-			syscall_id = evsel__field(tp, "__syscall_nr");
-		if (syscall_id == NULL ||
-		    __tp_field__init_uint(&sc->id, syscall_id->size, syscall_id->offset, evsel->needs_swap))
-			return -EINVAL;
-
-		return 0;
-	}
-
-	return -ENOMEM;
-}
-
-static int evsel__init_augmented_syscall_tp_args(struct evsel *evsel)
-{
-	struct syscall_tp *sc = __evsel__syscall_tp(evsel);
-
-	return __tp_field__init_ptr(&sc->args, sc->id.offset + sizeof(u64));
-}
-
-static int evsel__init_augmented_syscall_tp_ret(struct evsel *evsel)
-{
-	struct syscall_tp *sc = __evsel__syscall_tp(evsel);
-
-	return __tp_field__init_uint(&sc->ret, sizeof(u64), sc->id.offset + sizeof(u64), evsel->needs_swap);
-}
-
 static int evsel__init_raw_syscall_tp(struct evsel *evsel, void *handler)
 {
 	if (evsel__syscall_tp(evsel) != NULL) {
@@ -553,6 +523,57 @@ static struct evsel *perf_evsel__raw_syscall_newtp(const char *direction, void *
 out_delete:
 	evsel__put_and_free_priv(evsel);
 	return NULL;
+}
+
+static struct syscall_tp sys_enter_tp;
+static struct syscall_tp sys_exit_tp;
+
+static int evsel__init_bpf_output_tp(struct evsel *evsel)
+{
+	struct tep_event *event;
+	struct tep_format_field *field;
+	struct syscall_tp *sc;
+
+	if (evsel == NULL)
+		return 0;
+
+	event = trace_event__tp_format("raw_syscalls", "sys_enter");
+	if (event == NULL)
+		event = trace_event__tp_format("syscalls", "sys_enter");
+	if (event == NULL)
+		return -errno;
+
+	field = tep_find_field(event, "id");
+	if (field == NULL || tp_field__init_uint(&sys_enter_tp.id, field, evsel->needs_swap))
+		return -EINVAL;
+
+	__tp_field__init_ptr(&sys_enter_tp.args, sys_enter_tp.id.offset + sizeof(u64));
+
+	/* ID is at the same offset, use evsel sc for convenience */
+	sc = evsel__syscall_tp(evsel);
+	if (sc == NULL)
+		return -ENOMEM;
+
+	event = trace_event__tp_format("raw_syscalls", "sys_exit");
+	if (event == NULL)
+		event = trace_event__tp_format("syscalls", "sys_exit");
+	if (event == NULL)
+		return -errno;
+
+	field = tep_find_field(event, "id");
+	if (field == NULL || tp_field__init_uint(&sys_exit_tp.id, field, evsel->needs_swap))
+		return -EINVAL;
+
+	field = tep_find_field(event, "ret");
+	if (field == NULL || tp_field__init_uint(&sys_exit_tp.ret, field, evsel->needs_swap))
+		return -EINVAL;
+
+	/* Save the common part to the evsel sc */
+	if (sys_enter_tp.id.offset != sys_exit_tp.id.offset)
+		return -EINVAL;
+	sc->id = sys_enter_tp.id;
+
+	return 0;
 }
 
 #define perf_evsel__sc_tp_uint(name, sample) \
@@ -2282,13 +2303,13 @@ static bool field_is_ptr_sized(const struct tep_format_field *field)
 }
 
 static struct tep_format_field *
-syscall_arg_fmt__init_array(struct syscall_arg_fmt *arg, struct tep_format_field *field,
+syscall_arg_fmt__init_array(struct syscall_arg_fmt *arg, int nr, struct tep_format_field *field,
 			    bool *use_btf)
 {
 	struct tep_format_field *last_field = NULL;
 	int len;
 
-	for (; field; field = field->next, ++arg) {
+	for (; field && nr > 0; field = field->next, ++arg, --nr) {
 		/* assume it's the last argument */
 		if (is_internal_field(field))
 			continue;
@@ -2360,8 +2381,8 @@ syscall_arg_fmt__init_array(struct syscall_arg_fmt *arg, struct tep_format_field
 
 static int syscall__set_arg_fmts(struct syscall *sc)
 {
-	struct tep_format_field *last_field = syscall_arg_fmt__init_array(sc->arg_fmt, sc->args,
-									  &sc->use_btf);
+	struct tep_format_field *last_field = syscall_arg_fmt__init_array(sc->arg_fmt, sc->nr_args,
+									  sc->args, &sc->use_btf);
 
 	if (last_field)
 		sc->args_size = last_field->offset + last_field->size;
@@ -2373,7 +2394,8 @@ static int syscall__read_info(struct syscall *sc, struct trace *trace)
 {
 	char tp_name[128];
 	const char *name;
-	struct tep_format_field *field;
+	struct tep_format_field *args, *field;
+	int nr_args = 0;
 	int err;
 
 	if (sc->nonexistent)
@@ -2410,30 +2432,23 @@ static int syscall__read_info(struct syscall *sc, struct trace *trace)
 		return -errno;
 	}
 
-	/*
-	 * The tracepoint format contains __syscall_nr field, so it's one more
-	 * than the actual number of syscall arguments.
-	 */
-	if (syscall__alloc_arg_fmts(sc, sc->tp_format->format.nr_fields - 1))
-		return -ENOMEM;
-
-	sc->args = sc->tp_format->format.fields;
+	args = sc->tp_format->format.fields;
 	/*
 	 * We need to check and discard the first variable '__syscall_nr'
 	 * or 'nr' that mean the syscall number. It is needless here.
 	 * So drop '__syscall_nr' or 'nr' field but does not exist on older kernels.
 	 */
-	if (sc->args && (!strcmp(sc->args->name, "__syscall_nr") || !strcmp(sc->args->name, "nr"))) {
-		sc->args = sc->args->next;
-		--sc->nr_args;
-	}
+	if (args && (!strcmp(args->name, "__syscall_nr") || !strcmp(args->name, "nr")))
+		args = args->next;
 
-	field = sc->args;
-	while (field) {
-		if (is_internal_field(field))
-			--sc->nr_args;
-		field = field->next;
-	}
+	/* Internal fields follow the syscall arguments. */
+	for (field = args; field && !is_internal_field(field); field = field->next)
+		nr_args++;
+
+	if (syscall__alloc_arg_fmts(sc, nr_args))
+		return -ENOMEM;
+
+	sc->args = args;
 
 	sc->is_exit = !strcmp(name, "exit_group") || !strcmp(name, "exit");
 	sc->is_open = !strcmp(name, "open") || !strcmp(name, "openat");
@@ -2455,7 +2470,8 @@ static int evsel__init_tp_arg_scnprintf(struct evsel *evsel, bool *use_btf)
 		const struct tep_event *tp_format = evsel__tp_format(evsel);
 
 		if (tp_format) {
-			syscall_arg_fmt__init_array(fmt, tp_format->format.fields, use_btf);
+			syscall_arg_fmt__init_array(fmt, tp_format->format.nr_fields,
+						    tp_format->format.fields, use_btf);
 			return 0;
 		}
 	}
@@ -2647,6 +2663,9 @@ static size_t syscall__scnprintf_args(struct syscall *sc, char *bf, size_t size,
 
 		for (field = sc->args; field;
 		     field = field->next, ++arg.idx, bit <<= 1) {
+			if (is_internal_field(field))
+				break;
+
 			if (arg.mask & bit)
 				continue;
 
@@ -2949,7 +2968,8 @@ static int trace__fprintf_sample(struct trace *trace, struct perf_sample *sample
 	return printed;
 }
 
-static void *syscall__augmented_args(struct syscall *sc, struct perf_sample *sample, int *augmented_args_size, int raw_augmented_args_size)
+static void *syscall__augmented_args(struct trace *trace, struct syscall *sc,
+				     struct perf_sample *sample, int *augmented_args_size)
 {
 	/*
 	 * For now with BPF raw_augmented we hook into raw_syscalls:sys_enter
@@ -2965,8 +2985,13 @@ static void *syscall__augmented_args(struct syscall *sc, struct perf_sample *sam
 	 * use syscalls:sys_enter_NAME, so that we reduce the kernel/userspace
 	 * traffic to just what is needed for each syscall.
 	 */
-	int args_size = raw_augmented_args_size ?: sc->args_size;
+	int args_size = trace->raw_augmented_syscalls_args_size ?: sc->args_size;
 	static uintptr_t argbuf[1024]; /* assuming single-threaded */
+
+	*augmented_args_size = 0;
+	/* Only the BPF output event carries augmented arguments. */
+	if (sample->evsel != trace->syscalls.events.bpf_output)
+		return NULL;
 
 	*augmented_args_size = sample->raw_size - args_size;
 	/*
@@ -3017,7 +3042,10 @@ static int trace__sys_enter(struct trace *trace,
 
 	trace__fprintf_sample(trace, sample, thread);
 
-	args = perf_evsel__sc_tp_ptr(args, sample);
+	if (evsel == trace->syscalls.events.bpf_output)
+		args = sys_enter_tp.args.pointer(&sys_enter_tp.args, sample);
+	else
+		args = perf_evsel__sc_tp_ptr(args, sample);
 
 	if (ttrace->entry_str == NULL) {
 		ttrace->entry_str = malloc(trace__entry_str_size);
@@ -3027,18 +3055,7 @@ static int trace__sys_enter(struct trace *trace,
 
 	if (!(trace->duration_filter || trace->summary_only || trace->min_stack))
 		trace__printf_interrupted_entry(trace);
-	/*
-	 * If this is raw_syscalls.sys_enter, then it always comes with the 6 possible
-	 * arguments, even if the syscall being handled, say "openat", uses only 4 arguments
-	 * this breaks syscall__augmented_args() check for augmented args, as we calculate
-	 * syscall->args_size using each syscalls:sys_enter_NAME tracefs format file,
-	 * so when handling, say the openat syscall, we end up getting 6 args for the
-	 * raw_syscalls:sys_enter event, when we expected just 4, we end up mistakenly
-	 * thinking that the extra 2 u64 args are the augmented filename, so just check
-	 * here and avoid using augmented syscalls when the evsel is the raw_syscalls one.
-	 */
-	if (evsel != trace->syscalls.events.sys_enter)
-		augmented_args = syscall__augmented_args(sc, sample, &augmented_args_size, trace->raw_augmented_syscalls_args_size);
+	augmented_args = syscall__augmented_args(trace, sc, sample, &augmented_args_size);
 	ttrace->entry_time = sample->time;
 	ttrace->entry_cpu = sample->cpu;
 	msg = ttrace->entry_str;
@@ -3101,7 +3118,7 @@ static int trace__fprintf_sys_enter(struct trace *trace, struct perf_sample *sam
 		goto out_put;
 
 	args = perf_evsel__sc_tp_ptr(args, sample);
-	augmented_args = syscall__augmented_args(sc, sample, &augmented_args_size, trace->raw_augmented_syscalls_args_size);
+	augmented_args = syscall__augmented_args(trace, sc, sample, &augmented_args_size);
 	printed += syscall__scnprintf_args(sc, msg, sizeof(msg), args, augmented_args, augmented_args_size, trace, thread);
 	fprintf(trace->output, "%.*s", (int)printed, msg);
 	err = 0;
@@ -3166,7 +3183,10 @@ static int trace__sys_exit(struct trace *trace,
 
 	trace__fprintf_sample(trace, sample, thread);
 
-	ret = perf_evsel__sc_tp_uint(ret, sample);
+	if (evsel == trace->syscalls.events.bpf_output)
+		ret = sys_exit_tp.ret.integer(&sys_exit_tp.ret, sample);
+	else
+		ret = perf_evsel__sc_tp_uint(ret, sample);
 
 	if (trace->summary)
 		thread__update_stats(thread, ttrace, id, sample, ret, trace);
@@ -3279,6 +3299,18 @@ out:
 out_put:
 	thread__put(thread);
 	return err;
+}
+
+/* The BPF output event carries both entry and exit, tagged in common_type. */
+static int trace__bpf_output(struct trace *trace, union perf_event *event,
+			     struct perf_sample *sample)
+{
+	u16 type = *(u16 *)sample->raw_data;
+
+	if (type == SYSCALL_TRACE_ENTER)
+		return trace__sys_enter(trace, event, sample);
+
+	return trace__sys_exit(trace, event, sample);
 }
 
 static int trace__vfs_getname(struct trace *trace,
@@ -3592,27 +3624,6 @@ static int trace__event_handler(struct trace *trace,
 	if (thread)
 		trace__fprintf_comm_tid(trace, thread, trace->output);
 
-	if (evsel == trace->syscalls.events.bpf_output) {
-		int id = perf_evsel__sc_tp_uint(id, sample);
-		int e_machine = thread
-			? thread__e_machine(thread, trace->host, /*e_flags=*/NULL)
-			: EM_HOST;
-		struct syscall *sc = trace__syscall_info(trace, evsel, e_machine, id);
-
-		if (sc) {
-			fprintf(trace->output, "%s(", sc->name);
-			trace__fprintf_sys_enter(trace, sample);
-			fputc(')', trace->output);
-			goto newline;
-		}
-
-		/*
-		 * XXX: Not having the associated syscall info or not finding/adding
-		 * 	the thread should never happen, but if it does...
-		 * 	fall thru and print it as a bpf_output event.
-		 */
-	}
-
 	fprintf(trace->output, "%s(", evsel->name);
 
 	if (evsel__is_bpf_output(evsel)) {
@@ -3632,7 +3643,6 @@ static int trace__event_handler(struct trace *trace,
 		}
 	}
 
-newline:
 	fprintf(trace->output, ")\n");
 
 	if (callchain_ret > 0)
@@ -4091,7 +4101,7 @@ out_found:
 	pr_debug("Couldn't find BPF prog \"%s\" to associate with syscalls:sys_%s_%s, not augmenting it\n",
 		 prog_name, type, sc->name);
 out_unaugmented:
-	return unaugmented_prog;
+	return strcmp(type, "exit") ? unaugmented_prog : augmented_syscalls__unaugmented_exit();
 }
 
 static void trace__init_syscall_bpf_progs(struct trace *trace, int e_machine, int id)
@@ -4108,13 +4118,15 @@ static void trace__init_syscall_bpf_progs(struct trace *trace, int e_machine, in
 static int trace__bpf_prog_sys_enter_fd(struct trace *trace, int e_machine, int id)
 {
 	struct syscall *sc = trace__syscall_info(trace, NULL, e_machine, id);
-	return sc ? bpf_program__fd(sc->bpf_prog.sys_enter) : bpf_program__fd(unaugmented_prog);
+	return sc ? bpf_program__fd(sc->bpf_prog.sys_enter) :
+		bpf_program__fd(augmented_syscalls__unaugmented_enter());
 }
 
 static int trace__bpf_prog_sys_exit_fd(struct trace *trace, int e_machine, int id)
 {
 	struct syscall *sc = trace__syscall_info(trace, NULL, e_machine, id);
-	return sc ? bpf_program__fd(sc->bpf_prog.sys_exit) : bpf_program__fd(unaugmented_prog);
+	return sc ? bpf_program__fd(sc->bpf_prog.sys_exit) :
+		bpf_program__fd(augmented_syscalls__unaugmented_exit());
 }
 
 static int trace__bpf_sys_enter_beauty_map(struct trace *trace, int e_machine, int key, unsigned int *beauty_array)
@@ -4134,6 +4146,9 @@ static int trace__bpf_sys_enter_beauty_map(struct trace *trace, int e_machine, i
 		return -1;
 
 	for (i = 0, field = sc->args; field; ++i, field = field->next) {
+		if (is_internal_field(field))
+			break;
+
 		// XXX We're only collecting pointer payloads _from_ user space
 		if (!sc->arg_fmt[i].from_user)
 			continue;
@@ -4159,7 +4174,17 @@ static int trace__bpf_sys_enter_beauty_map(struct trace *trace, int e_machine, i
 				continue;
 
 			bt = sc->arg_fmt[i].type;
-			beauty_array[i] = bt->size;
+			/*
+			 * Copy a sockaddr as a buffer sized by the next
+			 * argument (i + 1), e.g. addrlen. A negative entry
+			 * -(j + 1) encodes the 0-based length argument index j
+			 * as 1-based so arg 0 is -1 rather than 0.
+			 */
+			if (strcmp(name, "sockaddr") == 0 && field->next &&
+			    strstr(field->next->name, "len"))
+				beauty_array[i] = -((i + 1) + 1);
+			else
+				beauty_array[i] = bt->size;
 			can_augment = true;
 		} else if (field->flags & TEP_FIELD_IS_POINTER && /* string */
 			   strcmp(field->type, "const char *") == 0 &&
@@ -4183,11 +4208,14 @@ static int trace__bpf_sys_enter_beauty_map(struct trace *trace, int e_machine, i
 
 			/* find the size of the buffer that appears in pairs with buf */
 			for (j = 0, field_tmp = sc->args; field_tmp; ++j, field_tmp = field_tmp->next) {
+				if (is_internal_field(field_tmp))
+					break;
 				if (!(field_tmp->flags & TEP_FIELD_IS_POINTER) && /* only integers */
 				    (strstr(field_tmp->name, "count") ||
 				     strstr(field_tmp->name, "siz") ||  /* size, bufsiz */
 				     (strstr(field_tmp->name, "len") && strcmp(field_tmp->name, "filename")))) {
 					 /* filename's got 'len' in it, we don't want that */
+					/* 1-based negative index of length arg j. */
 					beauty_array[i] = -(j + 1);
 					can_augment = true;
 					break;
@@ -4315,7 +4343,7 @@ static int trace__init_syscalls_bpf_prog_array_maps(struct trace *trace, int e_m
 	if (augmented_syscalls__get_map_fds(&map_enter_fd, &map_exit_fd, &beauty_map_fd) < 0)
 		return -1;
 
-	unaugmented_prog = augmented_syscalls__unaugmented();
+	unaugmented_prog = augmented_syscalls__unaugmented_enter();
 
 	for (int i = 0, num_idx = syscalltbl__num_idx(e_machine); i < num_idx; ++i) {
 		int prog_fd, key = syscalltbl__id_at_idx(e_machine, i);
@@ -4481,6 +4509,22 @@ static int trace__set_filter_pids(struct trace *trace)
 	}
 
 	return err;
+}
+
+/* The BPF programs see every task, tell them which are the target's. */
+static void trace__set_target_pids(struct trace *trace)
+{
+	struct perf_thread_map *threads = evlist__core(trace->evlist)->threads;
+	struct target *target = &trace->opts.target;
+	bool inherit = !trace->opts.no_inherit;
+	/* Key by process when inheriting, unless given threads, noting -p also sets tid. */
+	bool uses_tgid = inherit && (target->pid || !target->tid);
+
+	if (perf_thread_map__pid(threads, 0) == -1)
+		return;
+
+	augmented_syscalls__set_target_pids(threads, inherit, uses_tgid,
+					    target__enable_on_exec(target));
 }
 
 static int __trace__deliver_event(struct trace *trace, union perf_event *event)
@@ -4690,7 +4734,7 @@ static int trace__run(struct trace *trace, int argc, const char **argv)
 {
 	struct evlist *evlist = trace->evlist;
 	struct evsel *evsel, *pgfault_maj = NULL, *pgfault_min = NULL;
-	int err = -1, i;
+	int err = -1, i, lost_tasks;
 	unsigned long before;
 	const bool forks = argc > 0;
 	bool draining = false;
@@ -4763,6 +4807,25 @@ static int trace__run(struct trace *trace, int argc, const char **argv)
 	if (trace->cgroup)
 		evlist__set_default_cgroup(trace->evlist, trace->cgroup);
 
+	/* BPF picks the target's tasks, so take their output on every CPU. */
+	if (trace->syscalls.events.bpf_output && !target__has_cpu(&trace->opts.target)) {
+		struct evsel *bpf_output = trace->syscalls.events.bpf_output;
+
+		bpf_output->core.system_wide = true;
+		/* Exec doesn't enable a CPU event, BPF waits for the exec instead. */
+		bpf_output->immediate = target__enable_on_exec(&trace->opts.target);
+		/* Track the target, and see it exit, with a per-task event. */
+		if (evlist__get_tracking_event(evlist) == bpf_output) {
+			struct evsel *tracking =
+				evlist__findnew_tracking_event(evlist, /*system_wide=*/false);
+
+			if (!tracking)
+				goto out_error_mem;
+			/* --sort-events can't queue events without a timestamp. */
+			evsel__set_sample_bit(tracking, TIME);
+		}
+	}
+
 create_maps:
 	err = evlist__create_maps(evlist, &trace->opts.target);
 	if (err < 0) {
@@ -4793,6 +4856,9 @@ create_maps:
 		workload_pid = evlist__workload_pid(evlist);
 	}
 
+	/* Seed before opening, so BPF follows new tasks as inherit would. */
+	trace__set_target_pids(trace);
+
 	err = evlist__open(evlist);
 	if (err < 0)
 		goto out_error_open;
@@ -4819,6 +4885,10 @@ create_maps:
 				 trace->syscalls.events.sys_exit->filter);
 		}
 	}
+
+	err = augmented_syscalls__attach();
+	if (err < 0)
+		goto out_error_bpf;
 
 	/*
 	 * If the "close" syscall is not traced, then we will not have the
@@ -4850,20 +4920,22 @@ create_maps:
 	if (!target__none(&trace->opts.target) && !trace->opts.target.initial_delay)
 		evlist__enable(evlist);
 
+	if (trace->summary_bpf && !trace->opts.target.initial_delay)
+		trace_start_bpf_summary();
+
 	if (forks)
 		evlist__start_workload(evlist);
 
 	if (trace->opts.target.initial_delay) {
 		usleep(trace->opts.target.initial_delay * 1000);
 		evlist__enable(evlist);
+		if (trace->summary_bpf)
+			trace_start_bpf_summary();
 	}
-
-	if (trace->summary_bpf)
-		trace_start_bpf_summary();
 
 	trace->multiple_threads = perf_thread_map__pid(evlist__core(evlist)->threads, 0) == -1 ||
 		perf_thread_map__nr(evlist__core(evlist)->threads) > 1 ||
-		evlist__first(evlist)->core.attr.inherit;
+		!trace->opts.no_inherit;
 
 	/*
 	 * Now that we already used evsel->core.attr to ask the kernel to setup the
@@ -4934,6 +5006,13 @@ out_disable:
 	if (trace->sort_events)
 		ordered_events__flush(&trace->oe.data, OE_FLUSH__FINAL);
 
+	lost_tasks = augmented_syscalls__lost_tasks();
+	if (lost_tasks)
+		color_fprintf(trace->output, PERF_COLOR_RED,
+			      "LOST the syscalls of %d tasks, too many to trace at once!\n"
+			      "Use --no-syscall-augment to trace them without augmentation.\n",
+			      lost_tasks);
+
 	if (!err) {
 		if (trace->summary) {
 			if (trace->summary_bpf)
@@ -4989,6 +5068,11 @@ out_error_apply_filters:
 	fprintf(trace->output,
 		"Failed to set filter \"%s\" on event %s: %m\n",
 		evsel->filter, evsel__name(evsel));
+	goto out_put_evlist;
+
+out_error_bpf:
+	fprintf(trace->output, "Failed to set up the augmented syscalls BPF programs: %s\n",
+		str_error_r(-err, errbuf, sizeof(errbuf)));
 	goto out_put_evlist;
 }
 out_error_mem:
@@ -5712,6 +5796,7 @@ int cmd_trace(int argc, const char **argv)
 		.show_arg_names = true,
 		.args_alignment = 70,
 		.trace_syscalls = false,
+		.syscall_augment = true,
 		.kernel_syscallchains = false,
 		.max_stack = UINT_MAX,
 		.max_events = ULONG_MAX,
@@ -5767,6 +5852,8 @@ int cmd_trace(int argc, const char **argv)
 	OPT_CALLBACK_DEFAULT('F', "pf", &trace.trace_pgfaults, "all|maj|min",
 		     "Trace pagefaults", parse_pagefaults, "maj"),
 	OPT_BOOLEAN(0, "syscalls", &trace.trace_syscalls, "Trace syscalls"),
+	OPT_BOOLEAN(0, "syscall-augment", &trace.syscall_augment,
+		    "Augment syscalls using BPF"),
 	OPT_BOOLEAN('f', "force", &trace.force, "don't complain, do it"),
 	OPT_CALLBACK(0, "call-graph", &trace.opts,
 		     "record_mode[,record_size]", record_callchain_help,
@@ -5806,7 +5893,6 @@ int cmd_trace(int argc, const char **argv)
 	};
 	bool __maybe_unused max_stack_user_set = true;
 	bool mmap_pages_user_set = true;
-	struct evsel *evsel;
 	const char * const trace_subcommands[] = { "record", NULL };
 	int err = -1;
 	char bf[BUFSIZ];
@@ -5907,11 +5993,12 @@ int cmd_trace(int argc, const char **argv)
 			goto skip_augmentation;
 	}
 
+	if (!trace.syscall_augment)
+		goto skip_augmentation;
+
 	err = augmented_syscalls__prepare();
 	if (err < 0)
 		goto skip_augmentation;
-
-	trace__add_syscall_newtp(&trace);
 
 	err = augmented_syscalls__create_bpf_output(trace.evlist);
 	if (err == 0)
@@ -5948,6 +6035,7 @@ skip_augmentation:
 
 	if (evlist__nr_entries(trace.evlist) > 0) {
 		bool use_btf = false;
+		struct evsel *augmented = trace.syscalls.events.bpf_output;
 
 		evlist__set_default_evsel_handler(trace.evlist, trace__event_handler);
 		if (evlist__set_syscall_tp_fields(trace.evlist, &use_btf)) {
@@ -5957,82 +6045,19 @@ skip_augmentation:
 
 		if (use_btf)
 			trace__load_vmlinux_btf(&trace);
-	}
 
-	/*
-	 * If we are augmenting syscalls, then combine what we put in the
-	 * __augmented_syscalls__ BPF map with what is in the
-	 * syscalls:sys_exit_FOO tracepoints, i.e. just like we do without BPF,
-	 * combining raw_syscalls:sys_enter with raw_syscalls:sys_exit.
-	 *
-	 * We'll switch to look at two BPF maps, one for sys_enter and the
-	 * other for sys_exit when we start augmenting the sys_exit paths with
-	 * buffers that are being copied from kernel to userspace, think 'read'
-	 * syscall.
-	 */
-	if (trace.syscalls.events.bpf_output) {
-		evlist__for_each_entry(trace.evlist, evsel) {
-			bool raw_syscalls_sys_exit = evsel__name_is(evsel, "raw_syscalls:sys_exit");
-
-			if (raw_syscalls_sys_exit) {
-				trace.raw_augmented_syscalls = true;
-				goto init_augmented_syscall_tp;
+		if (augmented) {
+			if (evsel__init_bpf_output_tp(augmented) < 0) {
+				pr_err("Failed to initialize the BPF output event fields\n");
+				goto out;
 			}
-
-			if (trace.syscalls.events.bpf_output->priv == NULL &&
-			    strstr(evsel__name(evsel), "syscalls:sys_enter")) {
-				struct evsel *augmented = trace.syscalls.events.bpf_output;
-				if (evsel__init_augmented_syscall_tp(augmented, evsel) ||
-				    evsel__init_augmented_syscall_tp_args(augmented))
-					goto out;
-				/*
-				 * Augmented is __augmented_syscalls__ BPF_OUTPUT event
-				 * Above we made sure we can get from the payload the tp fields
-				 * that we get from syscalls:sys_enter tracefs format file.
-				 */
-				augmented->handler = trace__sys_enter;
-				/*
-				 * Now we do the same for the *syscalls:sys_enter event so that
-				 * if we handle it directly, i.e. if the BPF prog returns 0 so
-				 * as not to filter it, then we'll handle it just like we would
-				 * for the BPF_OUTPUT one:
-				 */
-				if (evsel__init_augmented_syscall_tp(evsel, evsel) ||
-				    evsel__init_augmented_syscall_tp_args(evsel))
-					goto out;
-				evsel->handler = trace__sys_enter;
-			}
-
-			if (strstarts(evsel__name(evsel), "syscalls:sys_exit_")) {
-				struct syscall_tp *sc;
-init_augmented_syscall_tp:
-				if (evsel__init_augmented_syscall_tp(evsel, evsel))
-					goto out;
-				sc = __evsel__syscall_tp(evsel);
-				/*
-				 * For now with BPF raw_augmented we hook into
-				 * raw_syscalls:sys_enter and there we get all
-				 * 6 syscall args plus the tracepoint common
-				 * fields and the syscall_nr (another long).
-				 * So we check if that is the case and if so
-				 * don't look after the sc->args_size but
-				 * always after the full raw_syscalls:sys_enter
-				 * payload, which is fixed.
-				 *
-				 * We'll revisit this later to pass
-				 * s->args_size to the BPF augmenter (now
-				 * tools/perf/examples/bpf/augmented_raw_syscalls.c,
-				 * so that it copies only what we need for each
-				 * syscall, like what happens when we use
-				 * syscalls:sys_enter_NAME, so that we reduce
-				 * the kernel/userspace traffic to just what is
-				 * needed for each syscall.
-				 */
-				if (trace.raw_augmented_syscalls)
-					trace.raw_augmented_syscalls_args_size = (6 + 1) * sizeof(long) + sc->id.offset;
-				evsel__init_augmented_syscall_tp_ret(evsel);
-				evsel->handler = trace__sys_exit;
-			}
+			augmented->handler = trace__bpf_output;
+			/* Just the user space callchain leading to the syscall. */
+			if (callchain_param.enabled && !trace.kernel_syscallchains)
+				augmented->core.attr.exclude_callchain_kernel = 1;
+			trace.raw_augmented_syscalls_args_size = sys_enter_tp.id.offset;
+			trace.raw_augmented_syscalls_args_size += (6 + 1) * sizeof(long);
+			trace.raw_augmented_syscalls = true;
 		}
 	}
 
