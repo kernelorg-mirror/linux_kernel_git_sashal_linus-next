@@ -30,6 +30,7 @@ use crate::{
     process::{GetWorkOrRegister, Process},
     ptr_align,
     stats::GLOBAL_STATS,
+    trace::{trace_transaction_alloc_buf, trace_transaction_buffer_release},
     transaction::{Transaction, TransactionFlag, TransactionFlags, TransactionInfo},
     BinderReturnWriter, DArc, DLArc, DTRWrap, DeliverCode, DeliverToRead,
 };
@@ -1076,6 +1077,8 @@ impl Thread {
             }
         };
 
+        trace_transaction_alloc_buf(debug_id, data_size, offsets_size, buffers_size);
+
         let mut buffer_reader = UserSlice::new(info.data_ptr, data_size).reader();
         let mut end_of_previous_object = 0;
         let mut sg_state = None;
@@ -1329,6 +1332,7 @@ impl Thread {
             self.push_return_work(err.reply);
             if err.reply != BR_TRANSACTION_COMPLETE {
                 info.reply = err.reply;
+                info.error_line = Some(err.line);
                 if let Some(source) = &err.source {
                     info.errno = source.to_errno();
 
@@ -1340,7 +1344,7 @@ impl Thread {
 
                     binder_debug!(
                         FailedTransaction,
-                        "transaction {} to {}:{} failed {:?}, code {} size {}-{}",
+                        "transaction {} to {}:{} failed {:?}, code {} size {}-{} line {}",
                         if info.is_reply {
                             "reply"
                         } else if info.is_oneway() {
@@ -1353,11 +1357,14 @@ impl Thread {
                         err,
                         info.code,
                         info.data_size,
-                        info.offsets_size
+                        info.offsets_size,
+                        err.line
                     );
                 }
             }
         }
+
+        info.write_log(&self.process.ctx);
 
         if info.oneway_spam_suspect {
             // If this is both a oneway spam suspect and a failure, we report it twice. This is
@@ -1374,6 +1381,7 @@ impl Thread {
     fn transaction_inner(self: &Arc<Self>, info: &mut TransactionInfo) -> BinderResult {
         let node_ref = self.process.get_transaction_node(info.target_handle)?;
         info.to_pid = node_ref.node.owner.task.pid();
+        info.to_node_debug_id = node_ref.node.debug_id;
         security::binder_transaction(&self.process.cred, &node_ref.node.owner.cred)?;
         // TODO: We need to ensure that there isn't a pending transaction in the work queue. How
         // could this happen?
@@ -1468,6 +1476,8 @@ impl Thread {
             orig.from
                 .deliver_reply(Err(BR_FAILED_REPLY), &orig, Some(ee));
             info.reply = BR_FAILED_REPLY;
+            info.errno = param;
+            info.error_line = Some(err.line);
             err.reply = BR_TRANSACTION_COMPLETE;
             err
         });
@@ -1478,6 +1488,7 @@ impl Thread {
     fn oneway_transaction_inner(self: &Arc<Self>, info: &mut TransactionInfo) -> BinderResult {
         let node_ref = self.process.get_transaction_node(info.target_handle)?;
         info.to_pid = node_ref.node.owner.task.pid();
+        info.to_node_debug_id = node_ref.node.debug_id;
         security::binder_transaction(&self.process.cred, &node_ref.node.owner.cred)?;
         let transaction = Transaction::new(node_ref, None, self, info)?;
         let code = if self.process.is_oneway_spam_detection_enabled() && info.oneway_spam_suspect {
@@ -1521,6 +1532,7 @@ impl Thread {
                         if buffer.looper_need_return_on_free() {
                             self.inner.lock().looper_need_return = true;
                         }
+                        trace_transaction_buffer_release(buffer.debug_id);
                         drop(buffer);
                     }
                 }
