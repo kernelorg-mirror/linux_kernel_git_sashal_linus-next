@@ -75,7 +75,8 @@ endif
 cfgs-to-flags = $(patsubst %,--cfg='%',$1)
 
 core-cfgs := \
-    no_fp_fmt_parse
+    no_fp_fmt_parse \
+    no_io_statics
 
 core-edition := $(if $(call rustc-min-version,108700),2024,2021)
 
@@ -85,6 +86,7 @@ core-skip_flags := \
 
 core-flags := \
     --edition=$(core-edition) \
+    -Aunused_variables \
     $(call cfgs-to-flags,$(core-cfgs))
 
 zerocopy-cfgs := \
@@ -100,6 +102,7 @@ zerocopy-envs := \
 proc_macro2-cfgs := \
     feature="proc-macro" \
     wrap_proc_macro \
+    proc_macro_span \
     $(if $(call rustc-min-version,108800),proc_macro_span_file proc_macro_span_location)
 
 proc_macro2-flags := \
