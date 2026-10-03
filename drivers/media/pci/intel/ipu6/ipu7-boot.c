@@ -12,16 +12,12 @@
 #include "ipu6-bus.h"
 #include "ipu6-buttress.h"
 #include "ipu6-dma.h"
-#include "ipu6-isys.h"
 #include "ipu6-platform-buttress-regs.h"
 #include "ipu7-boot.h"
 #include "ipu7-platform-regs.h"
 
 #define IPU7_FW_START_STOP_TIMEOUT		2000
 #define IPU7_BOOT_CELL_RESET_TIMEOUT		(2 * USEC_PER_SEC)
-#define IPU7_BOOT_STATE_CRITICAL(s)		(((s) & 0xffff0000U) == 0xdead0000U)
-#define IPU7_BOOT_STATE_READY(s)		((s) == 0x57a7e100U)
-#define IPU7_BOOT_STATE_INACTIVE(s)		((s) == 0x57a7e300U)
 #define IPU7_BUTTRESS_REG_FW_BOOT_PARAMS0				0x4000
 #define IPU7_BUTTRESS_FW_BOOT_PARAMS_ENTRY(i) \
 	(IPU7_BUTTRESS_REG_FW_BOOT_PARAMS0 + ((i) * 4U))
@@ -163,11 +159,10 @@ static void ipu7_boot_cell_stop(const struct ipu6_bus_device *adev)
 	writel(val, base + regs->status_ctrl_reg);
 }
 
-static int ipu7_boot_cell_init(const struct ipu6_bus_device *adev)
+static int ipu7_boot_cell_init(const struct ipu6_bus_device *adev,
+			       const struct ipu7_fw_com_context *fwctx)
 {
 	const struct boot_regs *regs = &boot_regs[adev->ctrl->subsys_id];
-	struct ipu6_isys *isys = ipu6_bus_get_drvdata(adev);
-	struct ipu7_fw_com_context *fwctx = isys->fwctx;
 	void __iomem *base = adev->isp->base;
 
 	writel(fwctx->fw_entry, base + regs->fw_start_address_reg);
@@ -191,12 +186,11 @@ static void init_cfg_versions(struct ipu7_boot_abi_cfg *boot_cfg, u32 length, u8
 }
 
 int ipu6_ipu7_init_boot_config(struct ipu6_bus_device *adev,
+			       struct ipu7_fw_com_context *fwctx,
 			       struct ipu7_fw_com_queue_config *qconfigs,
 			       int num_queues, u32 uc_freq,
 			       dma_addr_t subsys_config, u8 major)
 {
-	struct ipu6_isys *isys = ipu6_bus_get_drvdata(adev);
-	struct ipu7_fw_com_context *fwctx = isys->fwctx;
 	struct ipu7_boot_abi_cfg *boot_config;
 	struct ipu7_fw_com_queue_params_config *cfgs;
 	struct device *dev = &adev->auxdev.dev;
@@ -269,15 +263,11 @@ int ipu6_ipu7_init_boot_config(struct ipu6_bus_device *adev,
 }
 EXPORT_SYMBOL_NS_GPL(ipu6_ipu7_init_boot_config, "INTEL_IPU6");
 
-void ipu6_ipu7_release_boot_config(struct ipu6_bus_device *adev)
+void ipu6_ipu7_release_boot_config(struct ipu6_bus_device *adev,
+				   struct ipu7_fw_com_context *fwctx)
 {
-	struct ipu6_isys *isys = ipu6_bus_get_drvdata(adev);
-	struct ipu7_fw_com_context *fwctx;
-
-	if (!isys || !isys->fwctx)
+	if (!fwctx)
 		return;
-
-	fwctx = isys->fwctx;
 
 	if (fwctx->queue_mem) {
 		ipu6_dma_free(adev, fwctx->queue_mem_size,
@@ -297,18 +287,17 @@ void ipu6_ipu7_release_boot_config(struct ipu6_bus_device *adev)
 }
 EXPORT_SYMBOL_NS_GPL(ipu6_ipu7_release_boot_config, "INTEL_IPU6");
 
-int ipu6_ipu7_boot_start_fw(const struct ipu6_bus_device *adev)
+int ipu6_ipu7_boot_start_fw(const struct ipu6_bus_device *adev,
+			    struct ipu7_fw_com_context *fwctx)
 {
 	const struct device *dev = &adev->auxdev.dev;
-	struct ipu6_isys *isys = ipu6_bus_get_drvdata(adev);
-	struct ipu7_fw_com_context *fwctx = isys->fwctx;
 	u32 timeout = IPU7_FW_START_STOP_TIMEOUT;
 	void __iomem *base = adev->isp->base;
 	u32 boot_state, last_boot_state;
 	u32 indices_addr, msg_ver, id;
 	int ret;
 
-	ret = ipu7_boot_cell_init(adev);
+	ret = ipu7_boot_cell_init(adev, fwctx);
 	if (ret)
 		return ret;
 
@@ -403,3 +392,9 @@ int ipu6_ipu7_boot_stop_fw(const struct ipu6_bus_device *adev)
 	return 0;
 }
 EXPORT_SYMBOL_NS_GPL(ipu6_ipu7_boot_stop_fw, "INTEL_IPU6");
+
+u32 ipu6_ipu7_boot_get_state(const struct ipu6_bus_device *adev)
+{
+	return read_fw_boot_param(adev, IPU7_FW_BOOT_STATE_ID);
+}
+EXPORT_SYMBOL_NS_GPL(ipu6_ipu7_boot_get_state, "INTEL_IPU6");
