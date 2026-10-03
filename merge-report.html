@@ -58,10 +58,556 @@ nav a:hover { text-decoration: underline; }
 </head>
 <body>
 <h1>linux-next Merge Run Report</h1>
-<p class="timestamp">Generated: 2026-10-03 08:07 UTC</p>
+<p class="timestamp">Generated: 2026-10-03 09:04 UTC</p>
+<p class="time-range">Run window: 2026-10-03 08:50 UTC &mdash; 2026-10-03 08:57 UTC</p>
 
-<div class="empty-state">
-<div class="icon">&#10003;</div>
-<p>No interventions were needed for this merge run.</p>
+<nav>
+    <a href="#summary">Summary</a>
+    <a href="#interventions">All Interventions</a>
+    <a href="#by-category">By Category</a>
+</nav>
+
+<h2 id="summary">Summary</h2>
+<div class="summary">
+    <div class="stat"><div class="number">2</div><div class="label">Total Interventions</div></div>
+    <div class="stat conflict"><div class="number">0</div><div class="label">Conflicts</div></div>
+    <div class="stat rerere"><div class="number">2</div><div class="label">Rerere</div></div>
+    <div class="stat build-fix"><div class="number">0</div><div class="label">Build Fixes</div></div>
+    <div class="stat"><div class="number">2</div><div class="label">Trees Affected</div></div>
+    <div class="stat"><div class="number">1</div><div class="label">Categories</div></div>
 </div>
+
+<h2 id="interventions">All Interventions</h2>
+<div class="controls">
+    <label>Filter: <select id="type-filter" onchange="filterByType(this.value)">
+        <option value="all">All types</option>
+        <option value="conflict">Conflicts</option>
+        <option value="rerere">Rerere</option>
+        <option value="build-fix">Build Fixes</option>
+    </select></label>
+    <button onclick="toggleAll()">Expand / Collapse All</button>
+</div>
+<table id="main-table">
+<thead>
+<tr><th>Tree</th><th>Category</th><th>Type</th><th>Files</th><th>Time</th><th>Details</th></tr>
+</thead>
+<tbody>
+<tr data-type="rerere" data-category="virt">
+<td><code>kvm-arm</code></td>
+<td>virt</td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>Documentation/virt/kvm/api.rst, arch/arm64/kvm/arm.c, arch/arm64/kvm/hyp/include/nvhe/pkvm.h (+16 more)</code></td>
+<td>08:50 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">beceb1be66dd3bacff0d33057def05a1b61bde2f
+<span class="hdr">diff --cc arch/arm64/kvm/hyp/nvhe/hyp-main.c</span>
+<span class="ctx">index ac64a036b0a95,1018c36ec39d1..10f060af9c1c4</span>
+<span class="hdr">--- a/arch/arm64/kvm/hyp/nvhe/hyp-main.c</span>
+<span class="hdr">+++ b/arch/arm64/kvm/hyp/nvhe/hyp-main.c</span>
+<span class="ctx">@@@ -229,9 -707,13 +707,13 @@@ static void flush_hyp_vcpu(struct pkvm_</span>
+  	if (!pkvm_hyp_vcpu_is_protected(hyp_vcpu)) {
+  		if (vcpu_get_flag(host_vcpu, PKVM_HOST_STATE_DIRTY))
+  			flush_hyp_vcpu_state(hyp_vcpu);
+<span class="del">- 		host_hcr_mask = PKVM_HCR_EL2_HOST_NPVM;</span>
+<span class="del">- 	} else {</span>
+<span class="del">- 		hyp_vcpu-&gt;vcpu.arch.ctxt = host_vcpu-&gt;arch.ctxt;</span>
+<span class="add">+ </span>
+ -		hyp_vcpu-&gt;vcpu.arch.hcr_el2 &amp;= ~(HCR_TWI | HCR_TWE);
+<span class="add">++		hyp_vcpu-&gt;vcpu.arch.hcr_el2 &amp;= ~PKVM_HCR_EL2_HOST_NPVM;</span>
+<span class="add">+ 		hyp_vcpu-&gt;vcpu.arch.hcr_el2 |= READ_ONCE(host_vcpu-&gt;arch.hcr_el2) &amp;</span>
+ -							 (HCR_TWI | HCR_TWE);
+<span class="add">++							 PKVM_HCR_EL2_HOST_NPVM;</span>
+<span class="add">+ </span>
+<span class="add">+ 		hyp_vcpu-&gt;vcpu.arch.mdcr_el2 = host_vcpu-&gt;arch.mdcr_el2;</span>
+<span class="add">+ 		hyp_vcpu-&gt;vcpu.arch.iflags = host_vcpu-&gt;arch.iflags;</span>
+  	}
+  
+  	/* __hyp_running_vcpu must be NULL in a guest context. */
+<span class="hdr">diff --cc arch/arm64/kvm/mmu.c</span>
+<span class="ctx">index 46d5892e6aa31,635ca30890da2..4382b93f9d806</span>
+<span class="hdr">--- a/arch/arm64/kvm/mmu.c</span>
+<span class="hdr">+++ b/arch/arm64/kvm/mmu.c</span>
+<span class="ctx">@@@ -1628,11 -1755,14 +1734,14 @@@ static int gmem_abort(const struct kvm_</span>
+  	/* Pairs with the smp_wmb() in kvm_mmu_invalidate_end(). */
+  	smp_rmb();
+  
+<span class="del">- 	ret = kvm_gmem_get_pfn(kvm, s2fd-&gt;memslot, gfn, &amp;pfn, NULL);</span>
+ -	ret = kvm_gmem_get_pfn(kvm, s2fd-&gt;memslot, canonical_gfn, &amp;s2vi.pfn, &amp;s2vi.page, NULL);
+<span class="add">++	ret = kvm_gmem_get_pfn(kvm, s2fd-&gt;memslot, canonical_gfn, &amp;s2vi.pfn, NULL);</span>
+  	if (ret) {
+<span class="del">- 		kvm_prepare_memory_fault_exit(s2fd-&gt;vcpu, s2fd-&gt;fault_ipa, PAGE_SIZE,</span>
+<span class="del">- 					      write_fault, exec_fault, false);</span>
+<span class="del">- 		return ret;</span>
+<span class="add">+ 		/* If result is non-NULL this is a synthetic fault. */</span>
+<span class="add">+ 		if (!result)</span>
+<span class="add">+ 			kvm_prepare_memory_fault_exit(s2fd-&gt;vcpu, gfn_to_gpa(canonical_gfn),</span>
+<span class="add">+ 						      s2vi.vma_pagesize, write_fault, exec_fault,</span>
+<span class="add">+ 						      false);</span>
+<span class="add">+ 		kfree(mapping);</span>
+  	}
+  
+  	if (!(s2fd-&gt;memslot-&gt;flags &amp; KVM_MEM_READONLY))
+<span class="ctx">@@@ -1668,28 -1809,21 +1788,20 @@@</span>
+  	}
+  
+  out_unlock:
+ -	kvm_release_faultin_page(kvm, s2vi.page, !!ret, prot &amp; KVM_PGTABLE_PROT_W);
+  	kvm_fault_unlock(kvm);
+<span class="add">+ 	kfree(mapping);</span>
+  
+  	if ((prot &amp; KVM_PGTABLE_PROT_W) &amp;&amp; !ret)
+<span class="del">- 		mark_page_dirty_in_slot(kvm, s2fd-&gt;memslot, gfn);</span>
+<span class="add">+ 		mark_page_dirty_in_slot(kvm, s2fd-&gt;memslot, canonical_gfn);</span>
+  
+<span class="del">- 	return ret != -EAGAIN ? ret : 0;</span>
+<span class="del">- }</span>
+<span class="add">+ 	if (ret == -EAGAIN)</span>
+<span class="add">+ 		return result ? ret : 0;</span>
+  
+<span class="del">- struct kvm_s2_fault_vma_info {</span>
+<span class="del">- 	unsigned long	mmu_seq;</span>
+<span class="del">- 	long		vma_pagesize;</span>
+<span class="del">- 	vm_flags_t	vm_flags;</span>
+<span class="del">- 	unsigned long	max_map_size;</span>
+<span class="del">- 	struct page	*page;</span>
+<span class="del">- 	kvm_pfn_t	pfn;</span>
+<span class="del">- 	gfn_t		gfn;</span>
+<span class="del">- 	bool		device;</span>
+<span class="del">- 	bool		mte_allowed;</span>
+<span class="del">- 	bool		is_vma_cacheable;</span>
+<span class="del">- 	bool		map_writable;</span>
+<span class="del">- 	bool		map_non_cacheable;</span>
+<span class="del">- };</span>
+<span class="add">+ 	if (result &amp;&amp; !ret)</span>
+<span class="add">+ 		result-&gt;mapping_size = s2vi.vma_pagesize;</span>
+<span class="add">+ </span>
+<span class="add">+ 	return ret;</span>
+<span class="add">+ }</span>
+  
+  static int pkvm_mem_abort(const struct kvm_s2_fault_desc *s2fd)
+  {
+<span class="ctx">@@@ -2102,7 -2268,18 +2236,14 @@@ static int user_mem_abort(const struct </span>
+  			return ret;
+  	}
+  
+ -	/*
+ -	 * Let&#x27;s check if we will get back a huge page backed by hugetlbfs, or
+ -	 * get block mapping for device MMIO region.
+ -	 */
+  	ret = kvm_s2_fault_pin_pfn(s2fd, &amp;s2vi);
+<span class="add">+ 	if (ret == -EHWPOISON) {</span>
+<span class="add">+ 		/* If result is specified, let the caller handle this. */</span>
+<span class="add">+ 		if (result)</span>
+<span class="add">+ 			return -EHWPOISON;</span>
+<span class="add">+ 		kvm_send_hwpoison_signal(s2fd-&gt;hva, __ffs(s2vi.vma_pagesize));</span>
+<span class="add">+ 		return 0;</span>
+<span class="add">+ 	}</span>
+  	if (ret != 1)
+  		return ret;
+  
+<span class="hdr">diff --cc arch/s390/kvm/s390/s390.c</span>
+<span class="ctx">index 3ec0839b22ac7,47fe032444f45..18fb200f854a8</span>
+<span class="hdr">--- a/arch/s390/kvm/s390/s390.c</span>
+<span class="hdr">+++ b/arch/s390/kvm/s390/s390.c</span>
+<span class="ctx">@@@ -5778,8 -5781,17 +5778,16 @@@ void kvm_arch_commit_memory_region(stru</span>
+  				   const struct kvm_memory_slot *new,
+  				   enum kvm_mr_change change)
+  {
+ -	s390_kvm_mmu_commit_memory_region(kvm, old, new, change);
+  }
+  
+<span class="add">+ int kvm_arch_pre_fault_allowed(struct kvm_vcpu *vcpu)</span>
+<span class="add">+ {</span>
+<span class="add">+ 	if (kvm_is_ucontrol(vcpu-&gt;kvm))</span>
+<span class="add">+ 		return -EINVAL;</span>
+<span class="add">+ </span>
+<span class="add">+ 	return 0;</span>
+<span class="add">+ }</span>
+<span class="add">+ </span>
+  /**
+   * kvm_arch_vcpu_pre_fault_memory() -- pre-fault and link gmap dat tables
+   * @vcpu: the vcpu that shall appear to have generated the fault-in.
+</div>
+</details></td>
+</tr>
+<tr data-type="rerere" data-category="virt">
+<td><code>virt-next</code></td>
+<td>virt</td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>arch/arm64/Makefile, arch/arm64/include/asm/ptrace.h, arch/arm64/include/asm/sysreg.h (+7 more)</code></td>
+<td>08:57 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">20ff85c116af85c5c82614e2c5aa27da401eedcb
+<span class="hdr">diff --cc arch/arm64/include/asm/ptrace.h</span>
+<span class="ctx">index bd291bd6cfac7,4d88ed5cc4259..ad0ad30b36cda</span>
+<span class="hdr">--- a/arch/arm64/include/asm/ptrace.h</span>
+<span class="hdr">+++ b/arch/arm64/include/asm/ptrace.h</span>
+<span class="ctx">@@@ -66,6 -68,14 +68,8 @@@</span>
+  #define PSR_AA32_IT_MASK	0x0600fc00	/* If-Then execution state mask */
+  #define PSR_AA32_GE_MASK	0x000f0000
+  
+<span class="add">+ #endif /* ARM64_S390_COMMON == 1 */</span>
+<span class="add">+ </span>
+ -#ifdef CONFIG_CPU_BIG_ENDIAN
+ -#define PSR_AA32_ENDSTATE	PSR_AA32_E_BIT
+ -#else
+ -#define PSR_AA32_ENDSTATE	0
+ -#endif
+ -
+  /* AArch32 CPSR bits, as seen in AArch32 */
+  #define COMPAT_PSR_DIT_BIT	0x00200000
+  
+<span class="hdr">diff --cc arch/arm64/include/asm/sysreg.h</span>
+<span class="ctx">index cec36606f6a43,b4f5dedff5ae8..e3b60ee030230</span>
+<span class="hdr">--- a/arch/arm64/include/asm/sysreg.h</span>
+<span class="hdr">+++ b/arch/arm64/include/asm/sysreg.h</span>
+<span class="ctx">@@@ -826,27 -838,43 +829,30 @@@</span>
+  #define SCTLR_ELx_A	 (BIT(1))
+  #define SCTLR_ELx_M	 (BIT(0))
+  
+<span class="add">+ #endif /* ARM64_S390_COMMON == 1 */</span>
+<span class="add">+ </span>
+ -#ifdef CONFIG_CPU_BIG_ENDIAN
+ -#define ENDIAN_SET_EL2		SCTLR_ELx_EE
+ -#else
+ -#define ENDIAN_SET_EL2		0
+ -#endif
+ -
+  #define INIT_SCTLR_EL2_MMU_ON						\
+  	(SCTLR_ELx_M  | SCTLR_ELx_C | SCTLR_ELx_SA | SCTLR_ELx_I |	\
+ -	 SCTLR_ELx_IESB | SCTLR_ELx_WXN | ENDIAN_SET_EL2 |		\
+ -	 SCTLR_ELx_ITFSB | SCTLR_ELx_EIS | SCTLR_ELx_EOS | SCTLR_EL2_RES1)
+ +	 SCTLR_ELx_IESB | SCTLR_ELx_WXN | SCTLR_ELx_ITFSB |		\
+ +	 SCTLR_ELx_EIS | SCTLR_ELx_EOS | SCTLR_EL2_RES1)
+  
+ -#define INIT_SCTLR_EL2_MMU_OFF \
+ -	(SCTLR_EL2_RES1 | ENDIAN_SET_EL2)
+ +#define INIT_SCTLR_EL2_MMU_OFF	(SCTLR_EL2_RES1)
+  
+  /* SCTLR_EL1 specific flags. */
+ -#ifdef CONFIG_CPU_BIG_ENDIAN
+ -#define ENDIAN_SET_EL1		(SCTLR_EL1_E0E | SCTLR_ELx_EE)
+ -#else
+ -#define ENDIAN_SET_EL1		0
+ -#endif
+ -
+  #define INIT_SCTLR_EL1_MMU_OFF \
+ -	(ENDIAN_SET_EL1 | SCTLR_EL1_LSMAOE | SCTLR_EL1_nTLSMD | \
+ -	 SCTLR_EL1_EIS  | SCTLR_EL1_TSCXT  | SCTLR_EL1_EOS)
+ +	(SCTLR_EL1_LSMAOE | SCTLR_EL1_nTLSMD | SCTLR_EL1_EIS  |		\
+ +	 SCTLR_EL1_TSCXT  | SCTLR_EL1_EOS)
+  
+  #define INIT_SCTLR_EL1_MMU_ON \
+ -	(SCTLR_ELx_M      | SCTLR_ELx_C      | SCTLR_ELx_SA    | \
+ -	 SCTLR_EL1_SA0    | SCTLR_EL1_SED    | SCTLR_ELx_I     | \
+ -	 SCTLR_EL1_DZE    | SCTLR_EL1_UCT    | SCTLR_EL1_nTWE  | \
+ -	 SCTLR_ELx_IESB   | SCTLR_EL1_SPAN   | SCTLR_ELx_ITFSB | \
+ -	 ENDIAN_SET_EL1   | SCTLR_EL1_UCI    | SCTLR_EL1_EPAN  | \
+ -	 SCTLR_EL1_LSMAOE | SCTLR_EL1_nTLSMD | SCTLR_EL1_EIS   | \
+ -	 SCTLR_EL1_TSCXT  | SCTLR_EL1_EOS)
+ +	(SCTLR_ELx_M      | SCTLR_ELx_C      | SCTLR_ELx_SA     | \
+ +	 SCTLR_EL1_SA0    | SCTLR_EL1_SED    | SCTLR_ELx_I      | \
+ +	 SCTLR_EL1_DZE    | SCTLR_EL1_UCT    | SCTLR_EL1_nTWE   | \
+ +	 SCTLR_ELx_IESB   | SCTLR_EL1_SPAN   | SCTLR_ELx_ITFSB  | \
+ +	 SCTLR_EL1_UCI    | SCTLR_EL1_EPAN   | SCTLR_EL1_LSMAOE | \
+ +	 SCTLR_EL1_nTLSMD | SCTLR_EL1_EIS    | SCTLR_EL1_TSCXT  | \
+ +	 SCTLR_EL1_EOS)
+  
+<span class="add">+ #if ARM64_S390_COMMON == 1</span>
+  /* MAIR_ELx memory attributes (used by Linux) */
+  #define MAIR_ATTR_DEVICE_nGnRnE		UL(0x00)
+  #define MAIR_ATTR_DEVICE_nGnRE		UL(0x04)
+<span class="hdr">diff --cc arch/x86/kvm/vmx/tdx.c</span>
+<span class="ctx">index 76ded07134cb2,271c2f94b8ddc..8a593159c9b7c</span>
+<span class="hdr">--- a/arch/x86/kvm/vmx/tdx.c</span>
+<span class="hdr">+++ b/arch/x86/kvm/vmx/tdx.c</span>
+<span class="ctx">@@@ -1756,12 -1724,8 +1756,12 @@@ static int tdx_sept_map_leaf_spte(struc</span>
+  
+  	WARN_ON_ONCE((new_spte &amp; VMX_EPT_RWX_MASK) != VMX_EPT_RWX_MASK);
+  
+ +	ret = tdx_pamt_get(pfn, &amp;to_tdx(vcpu)-&gt;pamt_cache);
+ +	if (KVM_BUG_ON(ret, kvm))
+ +		return ret;
+ +
+  	/*
+<span class="del">- 	 * Ensure pre_fault_allowed is read by kvm_arch_vcpu_pre_fault_memory()</span>
+<span class="add">+ 	 * Ensure pre_fault_allowed is read by kvm_arch_pre_fault_allowed()</span>
+  	 * before kvm_tdx-&gt;state.  Userspace must not be allowed to pre-fault
+  	 * arbitrary memory until the initial memory image is finalized.  Pairs
+  	 * with the smp_wmb() in tdx_td_finalize().
+</div>
+</details></td>
+</tr>
+</tbody></table>
+<h2 id="by-category">By Category</h2>
+<h3>virt <span class="category-count">2</span></h3>
+<table>
+<thead>
+<tr><th>Tree</th><th>Type</th><th>Files</th><th>Time</th><th>Details</th></tr>
+</thead>
+<tbody>
+<tr>
+<td><code>kvm-arm</code></td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>Documentation/virt/kvm/api.rst, arch/arm64/kvm/arm.c, arch/arm64/kvm/hyp/include/nvhe/pkvm.h (+16 more)</code></td>
+<td>08:50 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">beceb1be66dd3bacff0d33057def05a1b61bde2f
+<span class="hdr">diff --cc arch/arm64/kvm/hyp/nvhe/hyp-main.c</span>
+<span class="ctx">index ac64a036b0a95,1018c36ec39d1..10f060af9c1c4</span>
+<span class="hdr">--- a/arch/arm64/kvm/hyp/nvhe/hyp-main.c</span>
+<span class="hdr">+++ b/arch/arm64/kvm/hyp/nvhe/hyp-main.c</span>
+<span class="ctx">@@@ -229,9 -707,13 +707,13 @@@ static void flush_hyp_vcpu(struct pkvm_</span>
+  	if (!pkvm_hyp_vcpu_is_protected(hyp_vcpu)) {
+  		if (vcpu_get_flag(host_vcpu, PKVM_HOST_STATE_DIRTY))
+  			flush_hyp_vcpu_state(hyp_vcpu);
+<span class="del">- 		host_hcr_mask = PKVM_HCR_EL2_HOST_NPVM;</span>
+<span class="del">- 	} else {</span>
+<span class="del">- 		hyp_vcpu-&gt;vcpu.arch.ctxt = host_vcpu-&gt;arch.ctxt;</span>
+<span class="add">+ </span>
+ -		hyp_vcpu-&gt;vcpu.arch.hcr_el2 &amp;= ~(HCR_TWI | HCR_TWE);
+<span class="add">++		hyp_vcpu-&gt;vcpu.arch.hcr_el2 &amp;= ~PKVM_HCR_EL2_HOST_NPVM;</span>
+<span class="add">+ 		hyp_vcpu-&gt;vcpu.arch.hcr_el2 |= READ_ONCE(host_vcpu-&gt;arch.hcr_el2) &amp;</span>
+ -							 (HCR_TWI | HCR_TWE);
+<span class="add">++							 PKVM_HCR_EL2_HOST_NPVM;</span>
+<span class="add">+ </span>
+<span class="add">+ 		hyp_vcpu-&gt;vcpu.arch.mdcr_el2 = host_vcpu-&gt;arch.mdcr_el2;</span>
+<span class="add">+ 		hyp_vcpu-&gt;vcpu.arch.iflags = host_vcpu-&gt;arch.iflags;</span>
+  	}
+  
+  	/* __hyp_running_vcpu must be NULL in a guest context. */
+<span class="hdr">diff --cc arch/arm64/kvm/mmu.c</span>
+<span class="ctx">index 46d5892e6aa31,635ca30890da2..4382b93f9d806</span>
+<span class="hdr">--- a/arch/arm64/kvm/mmu.c</span>
+<span class="hdr">+++ b/arch/arm64/kvm/mmu.c</span>
+<span class="ctx">@@@ -1628,11 -1755,14 +1734,14 @@@ static int gmem_abort(const struct kvm_</span>
+  	/* Pairs with the smp_wmb() in kvm_mmu_invalidate_end(). */
+  	smp_rmb();
+  
+<span class="del">- 	ret = kvm_gmem_get_pfn(kvm, s2fd-&gt;memslot, gfn, &amp;pfn, NULL);</span>
+ -	ret = kvm_gmem_get_pfn(kvm, s2fd-&gt;memslot, canonical_gfn, &amp;s2vi.pfn, &amp;s2vi.page, NULL);
+<span class="add">++	ret = kvm_gmem_get_pfn(kvm, s2fd-&gt;memslot, canonical_gfn, &amp;s2vi.pfn, NULL);</span>
+  	if (ret) {
+<span class="del">- 		kvm_prepare_memory_fault_exit(s2fd-&gt;vcpu, s2fd-&gt;fault_ipa, PAGE_SIZE,</span>
+<span class="del">- 					      write_fault, exec_fault, false);</span>
+<span class="del">- 		return ret;</span>
+<span class="add">+ 		/* If result is non-NULL this is a synthetic fault. */</span>
+<span class="add">+ 		if (!result)</span>
+<span class="add">+ 			kvm_prepare_memory_fault_exit(s2fd-&gt;vcpu, gfn_to_gpa(canonical_gfn),</span>
+<span class="add">+ 						      s2vi.vma_pagesize, write_fault, exec_fault,</span>
+<span class="add">+ 						      false);</span>
+<span class="add">+ 		kfree(mapping);</span>
+  	}
+  
+  	if (!(s2fd-&gt;memslot-&gt;flags &amp; KVM_MEM_READONLY))
+<span class="ctx">@@@ -1668,28 -1809,21 +1788,20 @@@</span>
+  	}
+  
+  out_unlock:
+ -	kvm_release_faultin_page(kvm, s2vi.page, !!ret, prot &amp; KVM_PGTABLE_PROT_W);
+  	kvm_fault_unlock(kvm);
+<span class="add">+ 	kfree(mapping);</span>
+  
+  	if ((prot &amp; KVM_PGTABLE_PROT_W) &amp;&amp; !ret)
+<span class="del">- 		mark_page_dirty_in_slot(kvm, s2fd-&gt;memslot, gfn);</span>
+<span class="add">+ 		mark_page_dirty_in_slot(kvm, s2fd-&gt;memslot, canonical_gfn);</span>
+  
+<span class="del">- 	return ret != -EAGAIN ? ret : 0;</span>
+<span class="del">- }</span>
+<span class="add">+ 	if (ret == -EAGAIN)</span>
+<span class="add">+ 		return result ? ret : 0;</span>
+  
+<span class="del">- struct kvm_s2_fault_vma_info {</span>
+<span class="del">- 	unsigned long	mmu_seq;</span>
+<span class="del">- 	long		vma_pagesize;</span>
+<span class="del">- 	vm_flags_t	vm_flags;</span>
+<span class="del">- 	unsigned long	max_map_size;</span>
+<span class="del">- 	struct page	*page;</span>
+<span class="del">- 	kvm_pfn_t	pfn;</span>
+<span class="del">- 	gfn_t		gfn;</span>
+<span class="del">- 	bool		device;</span>
+<span class="del">- 	bool		mte_allowed;</span>
+<span class="del">- 	bool		is_vma_cacheable;</span>
+<span class="del">- 	bool		map_writable;</span>
+<span class="del">- 	bool		map_non_cacheable;</span>
+<span class="del">- };</span>
+<span class="add">+ 	if (result &amp;&amp; !ret)</span>
+<span class="add">+ 		result-&gt;mapping_size = s2vi.vma_pagesize;</span>
+<span class="add">+ </span>
+<span class="add">+ 	return ret;</span>
+<span class="add">+ }</span>
+  
+  static int pkvm_mem_abort(const struct kvm_s2_fault_desc *s2fd)
+  {
+<span class="ctx">@@@ -2102,7 -2268,18 +2236,14 @@@ static int user_mem_abort(const struct </span>
+  			return ret;
+  	}
+  
+ -	/*
+ -	 * Let&#x27;s check if we will get back a huge page backed by hugetlbfs, or
+ -	 * get block mapping for device MMIO region.
+ -	 */
+  	ret = kvm_s2_fault_pin_pfn(s2fd, &amp;s2vi);
+<span class="add">+ 	if (ret == -EHWPOISON) {</span>
+<span class="add">+ 		/* If result is specified, let the caller handle this. */</span>
+<span class="add">+ 		if (result)</span>
+<span class="add">+ 			return -EHWPOISON;</span>
+<span class="add">+ 		kvm_send_hwpoison_signal(s2fd-&gt;hva, __ffs(s2vi.vma_pagesize));</span>
+<span class="add">+ 		return 0;</span>
+<span class="add">+ 	}</span>
+  	if (ret != 1)
+  		return ret;
+  
+<span class="hdr">diff --cc arch/s390/kvm/s390/s390.c</span>
+<span class="ctx">index 3ec0839b22ac7,47fe032444f45..18fb200f854a8</span>
+<span class="hdr">--- a/arch/s390/kvm/s390/s390.c</span>
+<span class="hdr">+++ b/arch/s390/kvm/s390/s390.c</span>
+<span class="ctx">@@@ -5778,8 -5781,17 +5778,16 @@@ void kvm_arch_commit_memory_region(stru</span>
+  				   const struct kvm_memory_slot *new,
+  				   enum kvm_mr_change change)
+  {
+ -	s390_kvm_mmu_commit_memory_region(kvm, old, new, change);
+  }
+  
+<span class="add">+ int kvm_arch_pre_fault_allowed(struct kvm_vcpu *vcpu)</span>
+<span class="add">+ {</span>
+<span class="add">+ 	if (kvm_is_ucontrol(vcpu-&gt;kvm))</span>
+<span class="add">+ 		return -EINVAL;</span>
+<span class="add">+ </span>
+<span class="add">+ 	return 0;</span>
+<span class="add">+ }</span>
+<span class="add">+ </span>
+  /**
+   * kvm_arch_vcpu_pre_fault_memory() -- pre-fault and link gmap dat tables
+   * @vcpu: the vcpu that shall appear to have generated the fault-in.
+</div>
+</details></td>
+</tr>
+<tr>
+<td><code>virt-next</code></td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>arch/arm64/Makefile, arch/arm64/include/asm/ptrace.h, arch/arm64/include/asm/sysreg.h (+7 more)</code></td>
+<td>08:57 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">20ff85c116af85c5c82614e2c5aa27da401eedcb
+<span class="hdr">diff --cc arch/arm64/include/asm/ptrace.h</span>
+<span class="ctx">index bd291bd6cfac7,4d88ed5cc4259..ad0ad30b36cda</span>
+<span class="hdr">--- a/arch/arm64/include/asm/ptrace.h</span>
+<span class="hdr">+++ b/arch/arm64/include/asm/ptrace.h</span>
+<span class="ctx">@@@ -66,6 -68,14 +68,8 @@@</span>
+  #define PSR_AA32_IT_MASK	0x0600fc00	/* If-Then execution state mask */
+  #define PSR_AA32_GE_MASK	0x000f0000
+  
+<span class="add">+ #endif /* ARM64_S390_COMMON == 1 */</span>
+<span class="add">+ </span>
+ -#ifdef CONFIG_CPU_BIG_ENDIAN
+ -#define PSR_AA32_ENDSTATE	PSR_AA32_E_BIT
+ -#else
+ -#define PSR_AA32_ENDSTATE	0
+ -#endif
+ -
+  /* AArch32 CPSR bits, as seen in AArch32 */
+  #define COMPAT_PSR_DIT_BIT	0x00200000
+  
+<span class="hdr">diff --cc arch/arm64/include/asm/sysreg.h</span>
+<span class="ctx">index cec36606f6a43,b4f5dedff5ae8..e3b60ee030230</span>
+<span class="hdr">--- a/arch/arm64/include/asm/sysreg.h</span>
+<span class="hdr">+++ b/arch/arm64/include/asm/sysreg.h</span>
+<span class="ctx">@@@ -826,27 -838,43 +829,30 @@@</span>
+  #define SCTLR_ELx_A	 (BIT(1))
+  #define SCTLR_ELx_M	 (BIT(0))
+  
+<span class="add">+ #endif /* ARM64_S390_COMMON == 1 */</span>
+<span class="add">+ </span>
+ -#ifdef CONFIG_CPU_BIG_ENDIAN
+ -#define ENDIAN_SET_EL2		SCTLR_ELx_EE
+ -#else
+ -#define ENDIAN_SET_EL2		0
+ -#endif
+ -
+  #define INIT_SCTLR_EL2_MMU_ON						\
+  	(SCTLR_ELx_M  | SCTLR_ELx_C | SCTLR_ELx_SA | SCTLR_ELx_I |	\
+ -	 SCTLR_ELx_IESB | SCTLR_ELx_WXN | ENDIAN_SET_EL2 |		\
+ -	 SCTLR_ELx_ITFSB | SCTLR_ELx_EIS | SCTLR_ELx_EOS | SCTLR_EL2_RES1)
+ +	 SCTLR_ELx_IESB | SCTLR_ELx_WXN | SCTLR_ELx_ITFSB |		\
+ +	 SCTLR_ELx_EIS | SCTLR_ELx_EOS | SCTLR_EL2_RES1)
+  
+ -#define INIT_SCTLR_EL2_MMU_OFF \
+ -	(SCTLR_EL2_RES1 | ENDIAN_SET_EL2)
+ +#define INIT_SCTLR_EL2_MMU_OFF	(SCTLR_EL2_RES1)
+  
+  /* SCTLR_EL1 specific flags. */
+ -#ifdef CONFIG_CPU_BIG_ENDIAN
+ -#define ENDIAN_SET_EL1		(SCTLR_EL1_E0E | SCTLR_ELx_EE)
+ -#else
+ -#define ENDIAN_SET_EL1		0
+ -#endif
+ -
+  #define INIT_SCTLR_EL1_MMU_OFF \
+ -	(ENDIAN_SET_EL1 | SCTLR_EL1_LSMAOE | SCTLR_EL1_nTLSMD | \
+ -	 SCTLR_EL1_EIS  | SCTLR_EL1_TSCXT  | SCTLR_EL1_EOS)
+ +	(SCTLR_EL1_LSMAOE | SCTLR_EL1_nTLSMD | SCTLR_EL1_EIS  |		\
+ +	 SCTLR_EL1_TSCXT  | SCTLR_EL1_EOS)
+  
+  #define INIT_SCTLR_EL1_MMU_ON \
+ -	(SCTLR_ELx_M      | SCTLR_ELx_C      | SCTLR_ELx_SA    | \
+ -	 SCTLR_EL1_SA0    | SCTLR_EL1_SED    | SCTLR_ELx_I     | \
+ -	 SCTLR_EL1_DZE    | SCTLR_EL1_UCT    | SCTLR_EL1_nTWE  | \
+ -	 SCTLR_ELx_IESB   | SCTLR_EL1_SPAN   | SCTLR_ELx_ITFSB | \
+ -	 ENDIAN_SET_EL1   | SCTLR_EL1_UCI    | SCTLR_EL1_EPAN  | \
+ -	 SCTLR_EL1_LSMAOE | SCTLR_EL1_nTLSMD | SCTLR_EL1_EIS   | \
+ -	 SCTLR_EL1_TSCXT  | SCTLR_EL1_EOS)
+ +	(SCTLR_ELx_M      | SCTLR_ELx_C      | SCTLR_ELx_SA     | \
+ +	 SCTLR_EL1_SA0    | SCTLR_EL1_SED    | SCTLR_ELx_I      | \
+ +	 SCTLR_EL1_DZE    | SCTLR_EL1_UCT    | SCTLR_EL1_nTWE   | \
+ +	 SCTLR_ELx_IESB   | SCTLR_EL1_SPAN   | SCTLR_ELx_ITFSB  | \
+ +	 SCTLR_EL1_UCI    | SCTLR_EL1_EPAN   | SCTLR_EL1_LSMAOE | \
+ +	 SCTLR_EL1_nTLSMD | SCTLR_EL1_EIS    | SCTLR_EL1_TSCXT  | \
+ +	 SCTLR_EL1_EOS)
+  
+<span class="add">+ #if ARM64_S390_COMMON == 1</span>
+  /* MAIR_ELx memory attributes (used by Linux) */
+  #define MAIR_ATTR_DEVICE_nGnRnE		UL(0x00)
+  #define MAIR_ATTR_DEVICE_nGnRE		UL(0x04)
+<span class="hdr">diff --cc arch/x86/kvm/vmx/tdx.c</span>
+<span class="ctx">index 76ded07134cb2,271c2f94b8ddc..8a593159c9b7c</span>
+<span class="hdr">--- a/arch/x86/kvm/vmx/tdx.c</span>
+<span class="hdr">+++ b/arch/x86/kvm/vmx/tdx.c</span>
+<span class="ctx">@@@ -1756,12 -1724,8 +1756,12 @@@ static int tdx_sept_map_leaf_spte(struc</span>
+  
+  	WARN_ON_ONCE((new_spte &amp; VMX_EPT_RWX_MASK) != VMX_EPT_RWX_MASK);
+  
+ +	ret = tdx_pamt_get(pfn, &amp;to_tdx(vcpu)-&gt;pamt_cache);
+ +	if (KVM_BUG_ON(ret, kvm))
+ +		return ret;
+ +
+  	/*
+<span class="del">- 	 * Ensure pre_fault_allowed is read by kvm_arch_vcpu_pre_fault_memory()</span>
+<span class="add">+ 	 * Ensure pre_fault_allowed is read by kvm_arch_pre_fault_allowed()</span>
+  	 * before kvm_tdx-&gt;state.  Userspace must not be allowed to pre-fault
+  	 * arbitrary memory until the initial memory image is finalized.  Pairs
+  	 * with the smp_wmb() in tdx_td_finalize().
+</div>
+</details></td>
+</tr>
+</tbody></table>
+
+<script>
+function filterByType(type) {
+    var rows = document.querySelectorAll('#main-table tbody tr');
+    for (var i = 0; i < rows.length; i++) {
+        rows[i].style.display = (type === 'all' || rows[i].dataset.type === type) ? '' : 'none';
+    }
+}
+function toggleAll() {
+    var details = document.querySelectorAll('details');
+    var anyOpen = false;
+    for (var i = 0; i < details.length; i++) {
+        if (details[i].open) { anyOpen = true; break; }
+    }
+    for (var i = 0; i < details.length; i++) {
+        details[i].open = !anyOpen;
+    }
+}
+</script>
 </body></html>
