@@ -184,6 +184,13 @@ static const struct dmi_system_id upside_down_sensor_dmi_ids[] = {
 		},
 		.driver_data = "OVTI08F4",
 	},
+	{
+		.matches = {
+			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Dell Inc."),
+			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Dell 14 Premium DA14250"),
+		},
+		.driver_data = "OVTI02C1",
+	},
 	/*
 	 * The first four characters of DMI_BOARD_NAME identify the Lenovo
 	 * machine type/model. For example, a DMI_BOARD_NAME starting with
@@ -247,6 +254,30 @@ static const struct dmi_system_id upside_down_sensor_dmi_ids[] = {
 		},
 		.driver_data = "OVTI02C1",
 	},
+	{
+		/* Samsung Galaxy Book3 Pro */
+		.matches = {
+			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "SAMSUNG ELECTRONICS CO., LTD."),
+			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "960XFG"),
+		},
+		.driver_data = "OVTI02C1",
+	},
+	{
+		/* Microsoft Surface Pro 9, front sensor */
+		.matches = {
+			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Pro 9"),
+		},
+		.driver_data = "OVTI5693",
+	},
+	{
+		/* Microsoft Surface Pro 9, rear sensor */
+		.matches = {
+			DMI_EXACT_MATCH(DMI_SYS_VENDOR, "Microsoft Corporation"),
+			DMI_EXACT_MATCH(DMI_PRODUCT_NAME, "Surface Pro 9"),
+		},
+		.driver_data = "OVTID858",
+	},
 	{} /* Terminating entry */
 };
 
@@ -258,6 +289,7 @@ static const struct ipu_property_names prop_names = {
 	.data_lanes = "data-lanes",
 	.remote_endpoint = "remote-endpoint",
 	.link_frequencies = "link-frequencies",
+	.clock_noncontinuous = "clock-noncontinuous",
 };
 
 static const char * const ipu_vcm_types[] = {
@@ -612,7 +644,7 @@ static void ipu_bridge_create_fwnode_properties(
 
 	if (cfg->flags & IPU_BR_FL_CSI2_CLK_NONCONTINUOUS)
 		sensor->ep_properties[IPU_BRIDGE_NEXT_PROPERTY(i, EP_CLOCK_NONCONTINUOUS)] =
-			PROPERTY_ENTRY_BOOL("clock-noncontinuous");
+			PROPERTY_ENTRY_BOOL(names->clock_noncontinuous);
 
 	sensor->ipu_properties[0] = PROPERTY_ENTRY_U32_ARRAY_LEN(
 					sensor->prop_names.data_lanes,
