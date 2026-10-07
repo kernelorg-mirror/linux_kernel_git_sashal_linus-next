@@ -28,6 +28,13 @@
  */
 DEFINE_STATIC_KEY_FALSE(__scx_has_subs);
 
+/*
+ * On while a loaded sched implements ops.sub_cid_sched_updated(), see
+ * scx_ops_cid_sched_updated_enable().
+ */
+static DEFINE_STATIC_KEY_FALSE(__scx_ops_cid_sched_updated_enabled);
+static s32 scx_nr_ops_cid_sched_updated;	/* such scheds, under scx_enable_mutex */
+
 /* latched at root enable before any rescue runs */
 static s32 scx_rescue_bw_1024;
 static s64 scx_rescue_quantum_ns;
@@ -90,6 +97,161 @@ struct scx_sched *scx_next_descendant_pre(struct scx_sched *pos, struct scx_sche
 
 	/* no child, visit my or the closest ancestor's next sibling */
 	return scx_skip_subtree_pre(pos, root);
+}
+
+/**
+ * scx_cid_sched_id_from - Resolve what @from sees when @sch runs on a cid
+ * @sch: sched whose task runs there, %NULL for none
+ * @from: sched asking
+ *
+ * Return %SCX_CID_SCHED_NONE when @sch is %NULL or outside @from's subtree,
+ * %SCX_CID_SCHED_SELF for @from itself, or else the cgroup id of the direct
+ * child of @from on the way down to @sch.
+ */
+static u64 scx_cid_sched_id_from(struct scx_sched *sch, struct scx_sched *from)
+{
+	if (!sch || !scx_is_descendant(sch, from))
+		return SCX_CID_SCHED_NONE;
+	if (sch == from)
+		return SCX_CID_SCHED_SELF;
+	return sch->ancestors[from->level + 1]->ops.sub_cgroup_id;
+}
+
+/* notify @from of what it now sees running on @rq's cid */
+static void scx_cid_notify_sched_updated(struct rq *rq, struct scx_sched *sch,
+					 struct scx_sched *from)
+{
+	if (SCX_HAS_OP(from, sub_cid_sched_updated))
+		SCX_CALL_OP(from, sub_cid_sched_updated, rq, __scx_cpu_to_cid(cpu_of(rq)),
+			    scx_cid_sched_id_from(sch, from));
+}
+
+/**
+ * scx_cid_sched_update - Update rq->scx.sched and notify the scheds affected
+ * @rq: rq whose running session opens or closes
+ * @sch: sched starting a session, %NULL to close the open one
+ *
+ * Every sched whose scx_cid_sched_id_from() value changes is notified of the
+ * new one. Above the deepest common ancestor of the two scheds, both map to the
+ * same child, so the walk stops there. With root R, children A and B, and A's
+ * child A1, a switch from an A1 task to a B task reports:
+ *
+ *         R        R:  A -> B
+ *        / \
+ *       A   B      A:  A1 -> NONE      B: NONE -> SELF
+ *       |
+ *       A1         A1: SELF -> NONE
+ *
+ * When the task on one side is not an ext task, there is no common ancestor and
+ * only the other side is walked.
+ */
+void scx_cid_sched_update(struct rq *rq, struct scx_sched *sch)
+{
+	struct scx_sched *prev = rq->scx.sched;
+	s32 level, common = -1;
+
+	lockdep_assert_rq_held(rq);
+
+	if (!static_branch_unlikely(&__scx_ops_cid_sched_updated_enabled) || prev == sch)
+		return;
+
+	rq->scx.sched = sch;
+
+	if (prev && sch) {
+		for (level = min(prev->level, sch->level); level >= 0; level--)
+			if (prev->ancestors[level] == sch->ancestors[level])
+				break;
+		common = level;
+		scx_cid_notify_sched_updated(rq, sch, prev->ancestors[common]);
+	}
+	if (prev)
+		for (level = common + 1; level <= prev->level; level++)
+			scx_cid_notify_sched_updated(rq, sch, prev->ancestors[level]);
+	if (sch)
+		for (level = common + 1; level <= sch->level; level++)
+			scx_cid_notify_sched_updated(rq, sch, sch->ancestors[level]);
+}
+
+/**
+ * scx_ops_cid_sched_updated_enable - Maintain rq->scx.sched if @sch has the op
+ * @sch: sched being enabled, its has_op filled in
+ *
+ * rq->scx.sched is maintained only while a loaded sched implements
+ * ops.sub_cid_sched_updated(), so that everyone else pays one static branch per
+ * session open or close. The first such sched turns the key on and then
+ * initializes every rq from the task running there, in that order so that no
+ * session change in between goes unrecorded. While the key is off every
+ * rq->scx.sched is NULL, see scx_ops_cid_sched_updated_disable().
+ */
+void scx_ops_cid_sched_updated_enable(struct scx_sched *sch)
+{
+	s32 cpu;
+
+	lockdep_assert_held(&scx_enable_mutex);
+
+	if (!SCX_HAS_OP(sch, sub_cid_sched_updated) || scx_nr_ops_cid_sched_updated++)
+		return;
+
+	static_branch_enable(&__scx_ops_cid_sched_updated_enabled);
+
+	for_each_possible_cpu(cpu) {
+		struct rq *rq = cpu_rq(cpu);
+		struct task_struct *p;
+
+		guard(rq_lock_irqsave)(rq);
+		p = rq->donor;
+		if (p->sched_class == &ext_sched_class &&
+		    (p->scx.flags & SCX_TASK_RUN_TRACKED))
+			rq->scx.sched = scx_task_sched(p);
+	}
+}
+
+/**
+ * scx_ops_cid_sched_updated_disable - Stop maintaining rq->scx.sched for @sch
+ * @sch: sched being disabled, its tasks all gone
+ *
+ * Close the session on every rq that still points at @sch, before ops.exit(),
+ * so that no sched is notified of @sch once it is gone. The last sched with the
+ * op turns the key off first and clears every rq, so while the key is off every
+ * rq->scx.sched is NULL. A sched whose enable failed before its has_op fill was
+ * never counted, so has_op gates the decrement.
+ */
+void scx_ops_cid_sched_updated_disable(struct scx_sched *sch)
+{
+	bool last;
+	s32 cpu;
+
+	lockdep_assert_held(&scx_enable_mutex);
+
+	last = SCX_HAS_OP(sch, sub_cid_sched_updated) && !--scx_nr_ops_cid_sched_updated;
+	if (last)
+		static_branch_disable(&__scx_ops_cid_sched_updated_enabled);
+
+	/*
+	 * Re-homing restarts a running task's session under its new sched. A
+	 * task that blocked while its cpu's dispatch had the rq lock dropped is
+	 * put and set next again without a restart, so rq->scx.sched keeps @sch
+	 * until the pick completes:
+	 *
+	 *   cpu 0, __schedule()                 cpu 1, scx_sub_disable(@sch)
+	 *   T of @sch blocks, stops running
+	 *   dispatch drops the rq lock
+	 *                                       re-home T, nothing to restart
+	 *                                       this sweep
+	 *   pick N, N's session opens
+	 *
+	 * Closing the session here reports NONE to @sch and its ancestors now
+	 * and lets the pick report N's sched from NONE instead of from @sch.
+	 */
+	for_each_possible_cpu(cpu) {
+		struct rq *rq = cpu_rq(cpu);
+
+		guard(rq_lock_irqsave)(rq);
+		if (rq->scx.sched == sch)
+			scx_cid_sched_update(rq, NULL);
+		if (last)
+			rq->scx.sched = NULL;
+	}
 }
 
 static struct scx_sched *scx_find_sub_sched(u64 cgroup_id)
@@ -1105,6 +1267,34 @@ void scx_offline_ecaps(struct rq *rq)
 }
 
 /*
+ * Clear every cap @sch holds. The pshard caps go first as they are the source a
+ * pending sync recomputes ecaps from. ecaps are then zeroed directly for the
+ * cap checks.
+ */
+static void clear_all_caps(struct scx_sched *sch)
+{
+	s32 si, cpu;
+	u32 cap_bit;
+
+	/* enable may have failed before scx_alloc_pshards() */
+	if (!sch->pshard)
+		return;
+
+	for (si = 0; si < sch->nr_pshards; si++) {
+		struct scx_pshard *ps = sch->pshard[si];
+
+		guard(raw_spinlock_irqsave)(&ps->lock);
+		for (cap_bit = 0; cap_bit < __SCX_NR_CAPS; cap_bit++)
+			scx_cmask_clear(&ps->caps[cap_bit].cmask);
+	}
+
+	for_each_possible_cpu(cpu) {
+		guard(rq_lock_irqsave)(cpu_rq(cpu));
+		WRITE_ONCE(per_cpu_ptr(sch->pcpu, cpu)->ecaps, 0);
+	}
+}
+
+/*
  * @pcpu's sched was unhashed before the grace period, so nothing re-queues its
  * sync node. Remove the node from @rq's pending list so the pcpu can be freed.
  */
@@ -1571,6 +1761,8 @@ dump:
 	scx_cgroup_unlock();
 	percpu_up_write(&scx_fork_rwsem);
 
+	scx_ops_cid_sched_updated_disable(sch);
+
 	/*
 	 * All tasks are moved off of @sch but there may still be on-going
 	 * operations (e.g. ops.select_cpu()). Drain them by flushing RCU. Use
@@ -1582,6 +1774,12 @@ dump:
 	scx_disable_bypass_dsp(sch);
 
 	scx_unlink_sched(sch);
+
+	/*
+	 * The parent restores what it delegated in ops.sub_detach(). @sch must
+	 * hold no caps by then.
+	 */
+	clear_all_caps(sch);
 
 	mutex_unlock(&scx_enable_mutex);
 
@@ -1792,6 +1990,8 @@ void scx_sub_enable_workfn(struct kthread_work *work)
 	for (i = SCX_OPI_BEGIN; i < SCX_OPI_END; i++)
 		if (((void (**)(void))ops)[i])
 			set_bit(i, sch->has_op);
+
+	scx_ops_cid_sched_updated_enable(sch);
 
 	percpu_down_write(&scx_fork_rwsem);
 	scx_cgroup_lock();
@@ -2266,8 +2466,8 @@ static s32 sub_cap_preamble(u64 cgroup_id, u64 caps, const struct bpf_prog_aux *
  * All-or-nothing keeps the caller-visible result binary per cid, so the denied
  * mask is one mask to interpret rather than a per-cap matrix.
  *
- * Return 0 on full success, -EPERM if any cid was refused, or a negative
- * errno on other failures.
+ * Return 0 on full success, -EPERM if any cid was refused, -ENODEV if the child
+ * is gone or being disabled, or a negative errno on other failures.
  */
 __bpf_kfunc s32 scx_bpf_sub_grant(u64 cgroup_id, u64 caps,
 				  const struct scx_cmask *cmask__arena,
@@ -2321,6 +2521,12 @@ __bpf_kfunc s32 scx_bpf_sub_grant(u64 cgroup_id, u64 caps,
 		scoped_guard (raw_spinlock, &pps->lock) {
 			guard(raw_spinlock_nested)(&cps->lock);
 
+			/* the child is being disabled, see clear_all_caps() */
+			if (unlikely(READ_ONCE(child->aborting))) {
+				ret = -ENODEV;
+				goto out;
+			}
+
 			/*
 			 * Narrow granted_cids to cids the parent holds every
 			 * requested cap on. All-or-nothing per cid.
@@ -2373,9 +2579,10 @@ __bpf_kfunc s32 scx_bpf_sub_grant(u64 cgroup_id, u64 caps,
 		}
 	}
 
+	ret = any_denied ? -EPERM : 0;
+out:
 	caps_updated_deliver(&to_deliver);
-
-	return any_denied ? -EPERM : 0;
+	return ret;
 }
 
 /**
