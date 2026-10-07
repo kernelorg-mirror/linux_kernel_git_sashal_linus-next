@@ -16,6 +16,7 @@
 #include <linux/acpi.h>
 #include <linux/backlight.h>
 #include <linux/bits.h>
+#include <linux/cleanup.h>
 #include <linux/debugfs.h>
 #include <linux/delay.h>
 #include <linux/dmi.h>
@@ -28,6 +29,7 @@
 #include <linux/leds.h>
 #include <linux/minmax.h>
 #include <linux/module.h>
+#include <linux/mutex.h>
 #include <linux/pci.h>
 #include <linux/pci_hotplug.h>
 #include <linux/platform_data/x86/asus-wmi.h>
@@ -320,7 +322,6 @@ struct asus_wmi {
 	struct fan_curve_data custom_fan_curves[3];
 
 	struct device *ppdev;
-	bool platform_profile_support;
 
 	// The RSOC controls the maximum charging percentage.
 	bool battery_rsoc_available;
@@ -330,7 +331,6 @@ struct asus_wmi {
 
 	struct hotplug_slot hotplug_slot;
 	struct mutex hotplug_lock;
-	struct mutex wmi_lock;
 	struct workqueue_struct *hotplug_workqueue;
 	struct work_struct hotplug_work;
 
@@ -353,6 +353,20 @@ static void asus_wmi_show_deprecated(void)
 
 /* WMI ************************************************************************/
 
+/*
+ * Concurrent evaluations of ASUS WMI methods can re-enter firmware
+ * SMI/EC mailbox handling and corrupt the mailbox.
+ */
+static DEFINE_MUTEX(asus_wmi_eval_lock);
+
+static acpi_status asus_wmi_evaluate_method_locked(u32 method_id,
+						   struct acpi_buffer *input,
+						   struct acpi_buffer *output)
+{
+	guard(mutex)(&asus_wmi_eval_lock);
+	return wmi_evaluate_method(ASUS_WMI_MGMT_GUID, 0, method_id, input, output);
+}
+
 static int asus_wmi_evaluate_method3(u32 method_id,
 		u32 arg0, u32 arg1, u32 arg2, u32 *retval)
 {
@@ -367,8 +381,7 @@ static int asus_wmi_evaluate_method3(u32 method_id,
 	union acpi_object *obj;
 	u32 tmp = 0;
 
-	status = wmi_evaluate_method(ASUS_WMI_MGMT_GUID, 0, method_id,
-				     &input, &output);
+	status = asus_wmi_evaluate_method_locked(method_id, &input, &output);
 
 	pr_debug("%s called (0x%08x) with args: 0x%08x, 0x%08x, 0x%08x\n",
 		__func__, method_id, arg0, arg1, arg2);
@@ -419,8 +432,7 @@ static int asus_wmi_evaluate_method5(u32 method_id,
 	union acpi_object *obj;
 	u32 tmp = 0;
 
-	status = wmi_evaluate_method(ASUS_WMI_MGMT_GUID, 0, method_id,
-				     &input, &output);
+	status = asus_wmi_evaluate_method_locked(method_id, &input, &output);
 
 	pr_debug("%s called (0x%08x) with args: 0x%08x, 0x%08x, 0x%08x, 0x%08x, 0x%08x\n",
 		__func__, method_id, arg0, arg1, arg2, arg3, arg4);
@@ -467,8 +479,7 @@ static int asus_wmi_evaluate_method_buf(u32 method_id,
 	union acpi_object *obj;
 	int err = 0;
 
-	status = wmi_evaluate_method(ASUS_WMI_MGMT_GUID, 0, method_id,
-				     &input, &output);
+	status = asus_wmi_evaluate_method_locked(method_id, &input, &output);
 
 	pr_debug("%s called (0x%08x) with args: 0x%08x, 0x%08x\n",
 		__func__, method_id, arg0, arg1);
@@ -2267,9 +2278,7 @@ static void asus_rfkill_hotplug(struct asus_wmi *asus)
 	bool absent;
 	u32 l;
 
-	mutex_lock(&asus->wmi_lock);
 	blocked = asus_wlan_rfkill_blocked(asus);
-	mutex_unlock(&asus->wmi_lock);
 
 	mutex_lock(&asus->hotplug_lock);
 	pci_lock_rescan_remove();
@@ -2471,30 +2480,6 @@ static void asus_rfkill_query(struct rfkill *rfkill, void *data)
 	rfkill_set_sw_state(priv->rfkill, !result);
 }
 
-static int asus_rfkill_wlan_set(void *data, bool blocked)
-{
-	struct asus_rfkill *priv = data;
-	struct asus_wmi *asus = priv->asus;
-	int ret;
-
-	/*
-	 * This handler is enabled only if hotplug is enabled.
-	 * In this case, the asus_wmi_set_devstate() will
-	 * trigger a wmi notification and we need to wait
-	 * this call to finish before being able to call
-	 * any wmi method
-	 */
-	mutex_lock(&asus->wmi_lock);
-	ret = asus_rfkill_set(data, blocked);
-	mutex_unlock(&asus->wmi_lock);
-	return ret;
-}
-
-static const struct rfkill_ops asus_rfkill_wlan_ops = {
-	.set_block = asus_rfkill_wlan_set,
-	.query = asus_rfkill_query,
-};
-
 static const struct rfkill_ops asus_rfkill_ops = {
 	.set_block = asus_rfkill_set,
 	.query = asus_rfkill_query,
@@ -2513,13 +2498,8 @@ static int asus_new_rfkill(struct asus_wmi *asus,
 	arfkill->dev_id = dev_id;
 	arfkill->asus = asus;
 
-	if (dev_id == ASUS_WMI_DEVID_WLAN &&
-	    asus->driver->quirks->hotplug_wireless)
-		*rfkill = rfkill_alloc(name, &asus->platform_device->dev, type,
-				       &asus_rfkill_wlan_ops, arfkill);
-	else
-		*rfkill = rfkill_alloc(name, &asus->platform_device->dev, type,
-				       &asus_rfkill_ops, arfkill);
+	*rfkill = rfkill_alloc(name, &asus->platform_device->dev, type,
+			       &asus_rfkill_ops, arfkill);
 
 	if (!*rfkill)
 		return -EINVAL;
@@ -2593,7 +2573,6 @@ static int asus_wmi_rfkill_init(struct asus_wmi *asus)
 	int result = 0;
 
 	mutex_init(&asus->hotplug_lock);
-	mutex_init(&asus->wmi_lock);
 
 	result = asus_new_rfkill(asus, &asus->wlan, "asus-wlan",
 				 RFKILL_TYPE_WLAN, ASUS_WMI_DEVID_WLAN);
@@ -3749,6 +3728,33 @@ static int fan_curve_write(struct asus_wmi *asus,
 					 arg1, arg2, arg3, arg4, &ret);
 }
 
+/*
+ * A fan curve is a set of points the firmware interpolates between, so it
+ * only makes sense if neither temperature nor PWM ever decreases along it.
+ */
+static int fan_curve_validate(struct device *dev, struct fan_curve_data *data)
+{
+	u8 *percents = data->percents;
+	u8 *temps = data->temps;
+	int i;
+
+	for (i = 1; i < FAN_CURVE_POINTS; i++) {
+		if (temps[i] < temps[i - 1]) {
+			dev_warn(dev, "fan curve: temperature decreases at point %d (%u < %u)\n",
+				 i, temps[i], temps[i - 1]);
+			return -EINVAL;
+		}
+
+		if (percents[i] < percents[i - 1]) {
+			dev_warn(dev, "fan curve: pwm decreases at point %d (%u < %u)\n",
+				 i, percents[i], percents[i - 1]);
+			return -EINVAL;
+		}
+	}
+
+	return 0;
+}
+
 static ssize_t fan_curve_store(struct device *dev,
 			       struct device_attribute *attr, const char *buf,
 			       size_t count)
@@ -3833,6 +3839,11 @@ static ssize_t fan_curve_enable_store(struct device *dev,
 	}
 
 	if (data->enabled) {
+		err = fan_curve_validate(dev, data);
+		if (err) {
+			data->enabled = false;
+			return err;
+		}
 		err = fan_curve_write(asus, data);
 		if (err)
 			return err;
@@ -4332,7 +4343,6 @@ static int platform_profile_setup(struct asus_wmi *asus)
 		return PTR_ERR(asus->ppdev);
 	}
 
-	asus->platform_profile_support = true;
 	return 0;
 }
 
@@ -5060,9 +5070,8 @@ static int show_call(struct seq_file *m, void *data)
 	union acpi_object *obj;
 	acpi_status status;
 
-	status = wmi_evaluate_method(ASUS_WMI_MGMT_GUID,
-				     0, asus->debug.method_id,
-				     &input, &output);
+	status = asus_wmi_evaluate_method_locked(asus->debug.method_id,
+						 &input, &output);
 
 	if (ACPI_FAILURE(status))
 		return -EIO;
