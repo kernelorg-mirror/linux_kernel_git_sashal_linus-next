@@ -2239,6 +2239,21 @@ menuconfig RUNTIME_TESTING_MENU
 
 if RUNTIME_TESTING_MENU
 
+config 842_DECOMPRESS_KUNIT_TEST
+	tristate "KUnit tests for the 842 decompressor" if !KUNIT_ALL_TESTS
+	depends on KUNIT
+	depends on 842_DECOMPRESS
+	default KUNIT_ALL_TESTS
+	help
+	  Enable stream-validation and boundary tests for the software 842
+	  decompressor. The tests exercise indexed copies, short data and
+	  repeat operations at valid and invalid output or history boundaries.
+
+	  For more information on KUnit and unit tests in general, refer to
+	  Documentation/dev-tools/kunit/.
+
+	  If unsure, say N.
+
 config TEST_DHRY
 	tristate "Dhrystone benchmark test"
 	help
@@ -3103,17 +3118,6 @@ config HW_BREAKPOINT_KUNIT_TEST
 	  If unsure, say N.
 
 source "lib/crypto/tests/Kconfig"
-
-config SIPHASH_KUNIT_TEST
-	tristate "Perform selftest on siphash functions" if !KUNIT_ALL_TESTS
-	depends on KUNIT
-	default KUNIT_ALL_TESTS
-	help
-	  Enable this option to test the kernel's siphash (<linux/siphash.h>) hash
-	  functions on boot (or module load).
-
-	  This is intended to help people writing architecture-specific
-	  optimized versions.  If unsure, say N.
 
 config USERCOPY_KUNIT_TEST
 	tristate "KUnit Test for user/kernel boundary protections"
