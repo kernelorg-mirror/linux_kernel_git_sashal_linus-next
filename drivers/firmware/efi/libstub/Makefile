@@ -41,7 +41,7 @@ KBUILD_CFLAGS			:= $(subst $(CC_FLAGS_FTRACE),,$(cflags-y)) \
 				   -ffreestanding \
 				   -fno-stack-protector \
 				   $(DISABLE_KSTACK_ERASE) \
-				   $(call cc-option,-fno-addrsig) \
+				   $(CONFIG_CC_OPT_NO_ADDRSIG) \
 				   -D__DISABLE_EXPORTS
 
 #
