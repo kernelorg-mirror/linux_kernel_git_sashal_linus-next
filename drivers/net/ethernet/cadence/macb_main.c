@@ -1282,6 +1282,7 @@ static void macb_tx_error_task(struct work_struct *work)
 	struct macb_tx_skb *tx_skb;
 	struct macb_dma_desc *desc;
 	bool halt_timeout = false;
+	bool buggy_driver = false;
 	struct sk_buff *skb;
 	unsigned long flags;
 	unsigned int tail;
@@ -1308,7 +1309,6 @@ static void macb_tx_error_task(struct work_struct *work)
 	 * macb/gem must be halted to write TBQP register
 	 */
 	if (macb_halt_tx(bp)) {
-		netdev_err(bp->netdev, "BUG: halt tx timed out\n");
 		macb_writel(bp, NCR, macb_readl(bp, NCR) & (~MACB_BIT(TE)));
 		halt_timeout = true;
 	}
@@ -1353,8 +1353,7 @@ static void macb_tx_error_task(struct work_struct *work)
 			 * those. Statistics are updated by hardware.
 			 */
 			if (ctrl & MACB_BIT(TX_BUF_EXHAUSTED))
-				netdev_err(bp->netdev,
-					   "BUG: TX buffers exhausted mid-frame\n");
+				buggy_driver = true;
 
 			desc->ctrl = ctrl | MACB_BIT(TX_USED);
 		}
@@ -1391,7 +1390,14 @@ static void macb_tx_error_task(struct work_struct *work)
 	macb_writel(bp, NCR, macb_readl(bp, NCR) | MACB_BIT(TSTART));
 
 	spin_unlock_irqrestore(&bp->lock, flags);
+
 	napi_enable(&queue->napi_tx);
+
+	if (halt_timeout)
+		netdev_err(bp->netdev, "BUG: halt tx timed out, we ignored it\n");
+
+	if (buggy_driver)
+		netdev_err(bp->netdev, "BUG: TX buffers exhausted mid-frame\n");
 }
 
 static bool ptp_one_step_sync(struct sk_buff *skb)
@@ -2143,10 +2149,7 @@ static void gem_wol_interrupt(struct macb_queue *queue, u32 status)
 static int macb_interrupt_misc(struct macb_queue *queue, u32 status)
 {
 	struct macb *bp = queue->bp;
-	struct net_device *netdev;
 	u32 ctrl;
-
-	netdev = bp->netdev;
 
 	if (unlikely(status & (MACB_TX_ERR_FLAGS))) {
 		queue_writel(queue, IDR, MACB_TX_INT_FLAGS);
@@ -2187,7 +2190,6 @@ static int macb_interrupt_misc(struct macb_queue *queue, u32 status)
 
 	if (status & MACB_BIT(HRESP)) {
 		queue_work(system_bh_wq, &bp->hresp_err_bh_work);
-		netdev_err(netdev, "DMA bus error: HRESP not OK\n");
 		macb_queue_isr_clear(bp, queue, MACB_BIT(HRESP));
 	}
 
@@ -2207,6 +2209,7 @@ static irqreturn_t macb_interrupt(int irq, void *dev_id)
 	struct macb_queue *queue = dev_id;
 	struct macb *bp = queue->bp;
 	struct net_device *netdev = bp->netdev;
+	bool hresp_err = false;
 	u32 status;
 
 	status = queue_readl(queue, ISR);
@@ -2253,14 +2256,21 @@ static irqreturn_t macb_interrupt(int irq, void *dev_id)
 			napi_schedule_irqoff(&queue->napi_tx);
 		}
 
-		if (unlikely(status & MACB_INT_MISC_FLAGS))
+		if (unlikely(status & MACB_INT_MISC_FLAGS)) {
 			if (macb_interrupt_misc(queue, status))
 				break;
+
+			if (status & MACB_BIT(HRESP))
+				hresp_err = true;
+		}
 
 		status = queue_readl(queue, ISR);
 	}
 
 	spin_unlock(&bp->lock);
+
+	if (hresp_err)
+		netdev_err(netdev, "DMA bus error: HRESP not OK\n");
 
 	return IRQ_HANDLED;
 }
@@ -4429,7 +4439,7 @@ static int macb_taprio_setup_replace(struct net_device *netdev,
 	struct macb_queue *queue;
 	u32 queue_mask;
 	u8 queue_id;
-	size_t i;
+	size_t i, q;
 	int err;
 
 	if (conf->num_entries > bp->num_queues) {
@@ -4457,7 +4467,7 @@ static int macb_taprio_setup_replace(struct net_device *netdev,
 		return -EINVAL;
 	}
 
-	enst_queue = kzalloc_objs(*enst_queue, conf->num_entries);
+	enst_queue = kzalloc_objs(*enst_queue, bp->num_queues);
 	if (unlikely(!enst_queue))
 		return -ENOMEM;
 
@@ -4516,13 +4526,12 @@ static int macb_taprio_setup_replace(struct net_device *netdev,
 			goto cleanup;
 		}
 
-		enst_queue[i].queue_id = queue_id;
-		enst_queue[i].start_time_mask =
+		enst_queue[queue_id].start_time_mask =
 			(start_time_sec << GEM_START_TIME_SEC_OFFSET) |
 			start_time_nsec;
-		enst_queue[i].on_time_bytes =
+		enst_queue[queue_id].on_time_bytes =
 			enst_ns_to_hw_units(entry->interval, speed);
-		enst_queue[i].off_time_bytes =
+		enst_queue[queue_id].off_time_bytes =
 			enst_ns_to_hw_units(conf->cycle_time - entry->interval, speed);
 
 		configured_queues |= entry->gate_mask;
@@ -4548,15 +4557,14 @@ static int macb_taprio_setup_replace(struct net_device *netdev,
 		gem_writel(bp, ENST_CONTROL,
 			   queue_mask << GEM_ENST_DISABLE_QUEUE_OFFSET);
 
-		for (i = 0; i < conf->num_entries; i++) {
-			queue = &bp->queues[enst_queue[i].queue_id];
+		for (q = 0, queue = bp->queues; q < bp->num_queues; ++q, ++queue) {
 			/* Configure queue timing registers */
 			queue_writel(queue, ENST_START_TIME,
-				     enst_queue[i].start_time_mask);
+				     enst_queue[q].start_time_mask);
 			queue_writel(queue, ENST_ON_TIME,
-				     enst_queue[i].on_time_bytes);
+				     enst_queue[q].on_time_bytes);
 			queue_writel(queue, ENST_OFF_TIME,
-				     enst_queue[i].off_time_bytes);
+				     enst_queue[q].off_time_bytes);
 		}
 
 		/* Enable ENST for all configured queues in one write */

@@ -129,7 +129,9 @@
 #include <linux/ip.h>
 #include <net/ip.h>
 #include <net/mpls.h>
+#include <net/route.h>
 #include <linux/ipv6.h>
+#include <net/ip6_route.h>
 #include <linux/in.h>
 #include <linux/jhash.h>
 #include <linux/random.h>
@@ -6995,7 +6997,7 @@ static void skb_defer_free_flush(void)
 	struct skb_defer_node *sdn;
 	int node;
 
-	for_each_node(node) {
+	for_each_online_node(node) {
 		sdn = this_cpu_ptr(net_hotdata.skb_defer_nodes) + node;
 		__skb_defer_free_flush(sdn, 1);
 	}
@@ -11454,6 +11456,31 @@ static void netdev_free_phy_link_topology(struct net_device *dev)
 	}
 }
 
+static int netdev_check_ops(struct net_device *dev)
+{
+	const struct net_device_ops *ops = dev->netdev_ops;
+
+	if (((dev->hw_features | dev->features) &
+	     NETIF_F_HW_VLAN_CTAG_FILTER) &&
+	    (!ops->ndo_vlan_rx_add_vid || !ops->ndo_vlan_rx_kill_vid)) {
+		netdev_WARN(dev, "Buggy VLAN acceleration in driver!\n");
+		return -EINVAL;
+	}
+
+	if (!ops->ndo_hwtstamp_get != !ops->ndo_hwtstamp_set) {
+		netdev_WARN(dev, "driver implements only one hwtstamp NDO\n");
+		return -EINVAL;
+	}
+
+	if (netdev_need_ops_lock(dev) && ops->ndo_set_rx_mode &&
+	    !ops->ndo_set_rx_mode_async) {
+		netdev_WARN(dev, "ops-locked drivers should use ndo_set_rx_mode_async\n");
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 /**
  * register_netdevice() - register a network device
  * @dev: device to register
@@ -11509,19 +11536,9 @@ int register_netdevice(struct net_device *dev)
 		}
 	}
 
-	if (((dev->hw_features | dev->features) &
-	     NETIF_F_HW_VLAN_CTAG_FILTER) &&
-	    (!dev->netdev_ops->ndo_vlan_rx_add_vid ||
-	     !dev->netdev_ops->ndo_vlan_rx_kill_vid)) {
-		netdev_WARN(dev, "Buggy VLAN acceleration in driver!\n");
-		ret = -EINVAL;
+	ret = netdev_check_ops(dev);
+	if (ret)
 		goto err_uninit;
-	}
-
-	if (netdev_need_ops_lock(dev) &&
-	    dev->netdev_ops->ndo_set_rx_mode &&
-	    !dev->netdev_ops->ndo_set_rx_mode_async)
-		netdev_WARN(dev, "ops-locked drivers should use ndo_set_rx_mode_async\n");
 
 	ret = netdev_do_alloc_pcpu_stats(dev);
 	if (ret)
@@ -11872,6 +11889,11 @@ void netdev_run_todo(void)
 		WRITE_ONCE(dev->reg_state, NETREG_UNREGISTERED);
 		netdev_unlock(dev);
 		linkwatch_sync_dev(dev);
+	}
+
+	if (!list_empty(&list)) {
+		rt_flush_dev(NULL);
+		rt6_uncached_list_flush_dev(NULL);
 	}
 
 	cnt = 0;

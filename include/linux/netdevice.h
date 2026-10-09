@@ -433,6 +433,7 @@ enum {
 	NAPI_STATE_SCHED_THREADED,	/* Napi is currently scheduled in threaded mode */
 	NAPI_STATE_HAS_NOTIFIER,	/* Napi has an IRQ notifier */
 	NAPI_STATE_THREADED_BUSY_POLL,	/* The threaded NAPI poller will busy poll */
+	NAPI_STATE_PERCPU,		/* NAPI handler is run per-CPU - incompatible with threaded mode */
 };
 
 enum {
@@ -448,6 +449,7 @@ enum {
 	NAPIF_STATE_SCHED_THREADED	= BIT(NAPI_STATE_SCHED_THREADED),
 	NAPIF_STATE_HAS_NOTIFIER	= BIT(NAPI_STATE_HAS_NOTIFIER),
 	NAPIF_STATE_THREADED_BUSY_POLL	= BIT(NAPI_STATE_THREADED_BUSY_POLL),
+	NAPIF_STATE_PERCPU		= BIT(NAPI_STATE_PERCPU),
 };
 
 enum gro_result {
@@ -5713,6 +5715,12 @@ static inline const char *netdev_name(const struct net_device *dev)
 	if (!dev->name[0] || strchr(dev->name, '%'))
 		return "(unnamed net_device)";
 	return dev->name;
+}
+
+/* Caller holds RTNL, netdev->lock or RCU */
+static inline bool netif_is_alive(const struct net_device *dev)
+{
+	return READ_ONCE(dev->reg_state) <= NETREG_REGISTERED;
 }
 
 static inline const char *netdev_reg_state(const struct net_device *dev)
