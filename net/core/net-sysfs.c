@@ -100,7 +100,7 @@ static int sysfs_rtnl_lock(struct kobject *kobj, struct attribute *attr,
 	/* Check dismantle on the device hasn't started, otherwise deny the
 	 * operation.
 	 */
-	if (!dev_isalive(ndev)) {
+	if (!netif_is_alive(ndev)) {
 		rtnl_unlock();
 		ret = -ENODEV;
 		goto unbreak;
@@ -143,7 +143,7 @@ static int sysfs_get_link_ksettings(struct device *dev,
 	}
 	netdev_lock_ops(netdev);
 
-	if (!dev_isalive(netdev)) {
+	if (!netif_is_alive(netdev)) {
 		ret = -ENODEV;
 		goto unlock;
 	}
@@ -170,7 +170,7 @@ static ssize_t netdev_show(const struct device *dev,
 	ssize_t ret = -EINVAL;
 
 	rcu_read_lock();
-	if (dev_isalive(ndev))
+	if (netif_is_alive(ndev))
 		ret = (*format)(ndev, buf);
 	rcu_read_unlock();
 
@@ -247,7 +247,7 @@ netdev_lock_store(struct device *dev, struct device_attribute *attr,
 
 	netdev_lock(netdev);
 
-	if (dev_isalive(netdev)) {
+	if (netif_is_alive(netdev)) {
 		ret = (*set)(netdev, new);
 		if (ret == 0)
 			ret = len;
@@ -303,7 +303,7 @@ static ssize_t address_show(struct device *dev, struct device_attribute *attr,
 	down_read(&dev_addr_sem);
 
 	rcu_read_lock();
-	if (dev_isalive(ndev))
+	if (netif_is_alive(ndev))
 		ret = sysfs_format_mac(buf, ndev->dev_addr, ndev->addr_len);
 	rcu_read_unlock();
 
@@ -319,7 +319,7 @@ static ssize_t broadcast_show(struct device *dev,
 	int ret = -EINVAL;
 
 	rcu_read_lock();
-	if (dev_isalive(ndev))
+	if (netif_is_alive(ndev))
 		ret = sysfs_format_mac(buf, ndev->broadcast, ndev->addr_len);
 	rcu_read_unlock();
 	return ret;
@@ -747,7 +747,7 @@ static ssize_t threaded_show(struct device *dev,
 
 	rcu_read_lock();
 
-	if (dev_isalive(netdev))
+	if (netif_is_alive(netdev))
 		ret = sysfs_emit(buf, fmt_dec, READ_ONCE(netdev->threaded));
 
 	rcu_read_unlock();
@@ -757,6 +757,7 @@ static ssize_t threaded_show(struct device *dev,
 
 static int modify_napi_threaded(struct net_device *dev, unsigned long val)
 {
+	struct napi_struct *napi;
 	int ret;
 
 	if (list_empty(&dev->napi_list))
@@ -764,6 +765,13 @@ static int modify_napi_threaded(struct net_device *dev, unsigned long val)
 
 	if (val != 0 && val != 1)
 		return -EOPNOTSUPP;
+
+	if (val) {
+		list_for_each_entry(napi, &dev->napi_list, dev_list) {
+			if (test_bit(NAPI_STATE_PERCPU, &napi->state))
+				return -EOPNOTSUPP;
+		}
+	}
 
 	ret = netif_set_threaded(dev, val);
 
@@ -824,7 +832,7 @@ static ssize_t netstat_show(const struct device *d,
 		offset % sizeof(u64) != 0);
 
 	rcu_read_lock();
-	if (dev_isalive(dev)) {
+	if (netif_is_alive(dev)) {
 		struct rtnl_link_stats64 temp;
 		const struct rtnl_link_stats64 *stats = dev_get_stats(dev, &temp);
 
@@ -1170,8 +1178,11 @@ static void rx_queue_release(struct kobject *kobj)
 		kvfree_rcu_mightsleep(rps_tag_to_table(tag_ptr));
 #endif
 
+	netdev_tracker_free(queue->dev, &queue->dev_tracker);
+	/* Pairs with the smp_mb() in rx_queue_add_kobject(). */
+	smp_mb();
 	memset(kobj, 0, sizeof(*kobj));
-	netdev_put(queue->dev, &queue->dev_tracker);
+	__dev_put(queue->dev);
 }
 
 static const struct ns_common *rx_queue_namespace(const struct kobject *kobj)
@@ -1243,6 +1254,9 @@ static int rx_queue_add_kobject(struct net_device *dev, int index)
 		netdev_warn_once(dev, "Cannot re-add rx queues before their removal completed");
 		return -EAGAIN;
 	}
+
+	/* Pairs with the smp_mb() in rx_queue_release(). */
+	smp_mb();
 
 	/* Kobject_put later will trigger rx_queue_release call which
 	 * decreases dev refcount: Take that reference here
@@ -1920,8 +1934,11 @@ static void netdev_queue_release(struct kobject *kobj)
 {
 	struct netdev_queue *queue = to_netdev_queue(kobj);
 
+	netdev_tracker_free(queue->dev, &queue->dev_tracker);
+	/* Pairs with the smp_mb() in netdev_queue_add_kobject(). */
+	smp_mb();
 	memset(kobj, 0, sizeof(*kobj));
-	netdev_put(queue->dev, &queue->dev_tracker);
+	__dev_put(queue->dev);
 }
 
 static const struct ns_common *netdev_queue_namespace(const struct kobject *kobj)
@@ -1980,6 +1997,9 @@ static int netdev_queue_add_kobject(struct net_device *dev, int index)
 		netdev_warn_once(dev, "Cannot re-add tx queues before their removal completed");
 		return -EAGAIN;
 	}
+
+	/* Pairs with the smp_mb() in netdev_queue_release(). */
+	smp_mb();
 
 	/* Kobject_put later will trigger netdev_queue_release call
 	 * which decreases dev refcount: Take that reference here

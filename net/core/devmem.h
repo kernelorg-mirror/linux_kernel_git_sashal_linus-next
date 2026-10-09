@@ -58,8 +58,8 @@ struct net_devmem_dmabuf_binding {
 	struct xarray bound_rxqs;
 
 	spinlock_t freelist_lock ____cacheline_aligned_in_smp;
-	size_t free_count;
-	struct net_iov **freelist;
+	u32 free_count;
+	u32 *freelist;
 
 	/* ID of this binding. Globally unique to all bindings currently
 	 * active.
@@ -112,8 +112,7 @@ static inline unsigned long net_iov_virtual_addr(const struct net_iov *niov)
 	struct net_devmem_dmabuf_binding *binding =
 		net_devmem_iov_binding(niov);
 
-	return net_iov_owner(niov)->base_virtual +
-	       ((unsigned long)net_iov_idx(niov) << binding->niov_shift);
+	return (unsigned long)net_iov_idx(niov) << binding->niov_shift;
 }
 
 static inline bool

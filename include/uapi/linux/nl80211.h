@@ -1383,6 +1383,13 @@
  *	from the device to perform an announced schedule update. See
  *	%NL80211_ATTR_NAN_SCHED_DEFERRED for more details.
  *	If not set, the schedule should be applied immediately.
+ *	Setting a new schedule is always allowed and is never treated as an
+ *	evacuation, even if it removes channels that were previously marked as
+ *	non-evacuable with %NL80211_CMD_NAN_SET_NON_EVAC_CHANNELS. The
+ *	non-evacuable marking is a per-channel property of the schedule:
+ *	channels that remain in the new schedule keep their marking, channels
+ *	that are removed simply lose it, and newly added channels are
+ *	evacuable by default.
  * @NL80211_CMD_NAN_SCHED_UPDATE_DONE: Event sent to user space to notify that
  *	a deferred local NAN schedule update (requested with
  *	%NL80211_CMD_NAN_SET_LOCAL_SCHED and %NL80211_ATTR_NAN_SCHED_DEFERRED)
@@ -1399,10 +1406,12 @@
  *	be provided.
  *	Each peer channel must be compatible with at least one local channel
  *	set by %NL80211_CMD_SET_LOCAL_NAN_SCHED. Different maps must not
- *	contain compatible channels.
- *	For single-radio devices (n_radio <= 1), different maps must not
- *	schedule the same time slot, as the device cannot operate on multiple
- *	channels simultaneously.
+ *	contain compatible channels. Two maps may schedule the same time slot.
+ *	The device decides at runtime which of the channels to follow.
+ *	For example, the local schedule may place slot S on channel c1 while
+ *	the peer advertises slot S on both c1 and c2. If the device is anyway
+ *	on c2 during slot S (e.g. via the ULW mechanism for non-NAN activity),
+ *	it may use slot S on c2 to communicate with the peer.
  *	When updating an existing peer schedule, the full new schedule must be
  *	provided - partial updates are not supported. The new schedule will
  *	completely replace the previous one.
@@ -1427,6 +1436,28 @@
  * @NL80211_CMD_STOP_PD: Stop the PD operation, identified by
  *	its %NL80211_ATTR_WDEV interface.
  *
+ * @NL80211_CMD_NAN_SET_NON_EVAC_CHANNELS: Set the list of NAN local schedule
+ *	channels that must not be evacuated. NAN must be operational
+ *	(%NL80211_CMD_START_NAN was executed) and a local schedule must have
+ *	been set (%NL80211_CMD_NAN_SET_LOCAL_SCHED). The command carries zero
+ *	or more nested %NL80211_ATTR_NAN_CHANNEL attributes, each identifying a
+ *	channel (by its channel definition) of the current local schedule that
+ *	must not be evacuated for concurrent operations. The provided list
+ *	replaces the previous set of non-evacuable channels; channels of the
+ *	current schedule that are not included become evacuable again. All
+ *	provided channels must exist in the current local schedule, otherwise
+ *	the command fails. This is used to protect channels carrying NDC or
+ *	immutable schedules, whose evacuation would break existing NDP
+ *	connections.
+ *	The non-evacuable marking is a per-channel property of the current
+ *	local schedule and only affects evacuation for concurrent operations;
+ *	it does not prevent the schedule itself from being changed. Removing a
+ *	channel from the schedule with %NL80211_CMD_NAN_SET_LOCAL_SCHED is a
+ *	user-initiated change, not an evacuation, and is allowed even for a
+ *	non-evacuable channel. Across a schedule update, channels that remain
+ *	keep their non-evacuable marking, removed channels lose it, and newly
+ *	added channels are evacuable by default; issue this command again to
+ *	change the non-evacuable set.
  * @NL80211_CMD_MAX: highest used command number
  * @__NL80211_CMD_AFTER_LAST: internal use
  */
@@ -1704,6 +1735,8 @@ enum nl80211_commands {
 
 	NL80211_CMD_START_PD,
 	NL80211_CMD_STOP_PD,
+
+	NL80211_CMD_NAN_SET_NON_EVAC_CHANNELS,
 
 	/* add new commands above here */
 
@@ -3190,6 +3223,14 @@ enum nl80211_commands {
  *	known station to transmit a frame. This is relevant to know whether
  *	MLD address translation happened or to disable it when sending a frame.
  *
+ * @NL80211_ATTR_ASSOC_CIP: Enable Control Integrity Protocol for the
+ *	association
+ * @NL80211_ATTR_CIP_CAPABILITIES: The Control Integrity Protocol for the
+ *	station.
+ *
+ * @NL80211_ATTR_ASSOC_PROTECTED_TWT: Enable protected TWT for the association,
+ *	requires protected TWT support (flag attribute)
+ *
  * @NUM_NL80211_ATTR: total number of nl80211_attrs available
  * @NL80211_ATTR_MAX: highest attribute number currently defined
  * @__NL80211_ATTR_AFTER_LAST: internal use
@@ -3792,6 +3833,11 @@ enum nl80211_attrs {
 
 	NL80211_ATTR_FRAME_NO_STA,
 
+	NL80211_ATTR_ASSOC_CIP,
+	NL80211_ATTR_CIP_CAPABILITIES,
+
+	NL80211_ATTR_ASSOC_PROTECTED_TWT,
+
 	/* add attributes here, update the policy in nl80211.c */
 
 	__NL80211_ATTR_AFTER_LAST,
@@ -3942,6 +3988,7 @@ enum nl80211_iftype {
  *	that support %NL80211_FEATURE_FULL_AP_CLIENT_STATE to transition a
  *	previously added station into associated state
  * @NL80211_STA_FLAG_SPP_AMSDU: station supports SPP A-MSDUs
+ * @NL80211_STA_FLAG_CIP: station has Control Integrity Protocol (CIP) enabled
  * @NL80211_STA_FLAG_MAX: highest station flag number currently defined
  * @__NL80211_STA_FLAG_AFTER_LAST: internal use
  */
@@ -3955,6 +4002,7 @@ enum nl80211_sta_flags {
 	NL80211_STA_FLAG_TDLS_PEER,
 	NL80211_STA_FLAG_ASSOCIATED,
 	NL80211_STA_FLAG_SPP_AMSDU,
+	NL80211_STA_FLAG_CIP,
 
 	/* keep last */
 	__NL80211_STA_FLAG_AFTER_LAST,
@@ -5786,12 +5834,16 @@ enum nl80211_auth_type {
  * @NL80211_KEYTYPE_GROUP: Group (broadcast/multicast) key
  * @NL80211_KEYTYPE_PAIRWISE: Pairwise (unicast/individual) key
  * @NL80211_KEYTYPE_PEERKEY: PeerKey (DLS)
+ * @NL80211_KEYTYPE_CIGTK: Control Integrity Group Temporal Key
+ *	The cipher is GMAC-256 but passed as GCMP-256,
+ *	same as the pairwise key when used for CIP.
  * @NUM_NL80211_KEYTYPES: number of defined key types
  */
 enum nl80211_key_type {
 	NL80211_KEYTYPE_GROUP,
 	NL80211_KEYTYPE_PAIRWISE,
 	NL80211_KEYTYPE_PEERKEY,
+	NL80211_KEYTYPE_CIGTK,
 
 	NUM_NL80211_KEYTYPES
 };
@@ -7843,6 +7895,11 @@ enum nl80211_nan_band_conf_attributes {
  *	the upcoming discovery window with
  *	%NL80211_CMD_NAN_NEXT_DW_NOTIFICATION.
  *	This is a flag attribute.
+ * @NL80211_NAN_CONF_INSTANT_COMM: If set, the NAN synchronization logic will
+ *	start Instant Communication (IC) as defined in Chapter 13 of the
+ *	Wi-Fi Aware Specification v4.0.
+ *	%NL80211_NAN_CONF_DISCOVERY_BEACON_INTERVAL must be set as well.
+ *	This is a flag attribute.
  * @NUM_NL80211_NAN_CONF_ATTR: Internal.
  * @NL80211_NAN_CONF_ATTR_MAX: Highest NAN configuration attribute.
  *
@@ -7858,6 +7915,7 @@ enum nl80211_nan_conf_attributes {
 	NL80211_NAN_CONF_SCAN_DWELL_TIME,
 	NL80211_NAN_CONF_DISCOVERY_BEACON_INTERVAL,
 	NL80211_NAN_CONF_NOTIFY_DW,
+	NL80211_NAN_CONF_INSTANT_COMM,
 
 	/* keep last */
 	NUM_NL80211_NAN_CONF_ATTR,
@@ -9074,6 +9132,11 @@ enum nl80211_s1g_short_beacon_attrs {
  *	specification Table 79 (Capabilities field).
  * @NL80211_NAN_CAPA_PHY: nested attribute containing band-agnostic
  *	capabilities for NAN data path. See &enum nl80211_nan_phy_cap_attr.
+ * @NL80211_NAN_CAPA_INSTANT_COMM: Flag attribute indicating that the device
+ *	can switch to Instant Communication (IC) mode, as defined in Chapter 13
+ *	of the Wi-Fi Aware Specification v4.0. Can only be set if
+ *	%NL80211_NAN_CAPA_CONFIGURABLE_SYNC is set. When IC is enabled, the IC
+ *	schedule is expected to be configured by user space.
  * @__NL80211_NAN_CAPABILITIES_LAST: Internal
  * @NL80211_NAN_CAPABILITIES_MAX: Highest NAN capability attribute.
  */
@@ -9087,6 +9150,7 @@ enum nl80211_nan_capabilities {
 	NL80211_NAN_CAPA_MAX_CHANNEL_SWITCH_TIME,
 	NL80211_NAN_CAPA_CAPABILITIES,
 	NL80211_NAN_CAPA_PHY,
+	NL80211_NAN_CAPA_INSTANT_COMM,
 	/* keep last */
 	__NL80211_NAN_CAPABILITIES_LAST,
 	NL80211_NAN_CAPABILITIES_MAX = __NL80211_NAN_CAPABILITIES_LAST - 1,
