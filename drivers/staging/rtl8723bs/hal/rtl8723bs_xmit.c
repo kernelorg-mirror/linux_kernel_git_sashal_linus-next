@@ -115,11 +115,10 @@ free_xmitbuf:
  *_SUCCESS	ok
  *_FAIL		something error
  */
-s32 rtl8723bs_xmit_buf_handler(struct adapter *padapter)
+bool rtl8723bs_xmit_buf_handler(struct adapter *padapter)
 {
 	struct xmit_priv *pxmitpriv = &padapter->xmitpriv;
 	bool queue_empty;
-	u8 queue_pending;
 	s32 ret;
 
 	if (wait_for_completion_interruptible(&pxmitpriv->xmit_comp)) {
@@ -132,15 +131,20 @@ s32 rtl8723bs_xmit_buf_handler(struct adapter *padapter)
 	if (ret)
 		return _FAIL;
 
-	queue_pending = check_pending_xmitbuf(pxmitpriv);
-
-	if (!queue_pending)
+	if (!has_pending_xmitbuf(pxmitpriv))
 		return _SUCCESS;
 
 	ret = rtw_register_tx_alive(padapter);
-	if (ret != _SUCCESS) {
+	if (ret == -EAGAIN) {
+		/*
+		 * Leave the buffers queued and XMIT_ALIVE registered so
+		 * cpwm_int_hdl() can wake this thread for another attempt.
+		 * Return success to keep the TX thread running.
+		 */
 		return _SUCCESS;
 	}
+	if (ret)
+		return _FAIL;
 
 	do {
 		queue_empty = rtl8723_dequeue_writeport(padapter);
@@ -199,7 +203,7 @@ static s32 xmit_xmitframes(struct adapter *padapter, struct xmit_priv *pxmitpriv
 		phwxmit = hwxmits + inx[idx];
 
 		if (
-			(check_pending_xmitbuf(pxmitpriv)) &&
+			(has_pending_xmitbuf(pxmitpriv)) &&
 			(padapter->mlmepriv.link_detect_info.higher_busy_tx_traffic)
 		) {
 			if ((phwxmit->accnt > 0) && (phwxmit->accnt < 5)) {

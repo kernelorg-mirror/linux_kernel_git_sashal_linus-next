@@ -458,7 +458,7 @@ u32 rtw_tkip_encrypt(struct adapter *padapter, u8 *pxmitframe)
 	if (is_multicast_ether_addr(pattrib->ra))
 		prwskey = psecuritypriv->dot118021XGrpKey[psecuritypriv->dot118021XGrpKeyid].skey;
 	else
-		prwskey = pattrib->dot118021x_UncstKey.skey;
+		prwskey = pattrib->dot118021x_uncst_key.skey;
 
 	for (curfragnum = 0; curfragnum < pattrib->nr_frags; curfragnum++) {
 		iv = pframe + pattrib->hdrlen;
@@ -573,7 +573,7 @@ u32 rtw_tkip_decrypt(struct adapter *padapter, u8 *precvframe)
 
 		prwskey = psecuritypriv->dot118021XGrpKey[prxattrib->key_index].skey;
 	} else {
-		prwskey = &stainfo->dot118021x_UncstKey.skey[0];
+		prwskey = &stainfo->dot118021x_uncst_key.skey[0];
 	}
 
 	iv = pframe + prxattrib->hdrlen;
@@ -628,12 +628,12 @@ static void aes128k128d(u8 *key, u8 *data, u8 *ciphertext)
 /* nonce                                        */
 /************************************************/
 static void construct_mic_iv(u8 *mic_iv,
-			     signed int qc_exists,
-			     signed int a4_exists,
+			     bool qc_exists,
+			     bool a4_exists,
 			     u8 *mpdu,
-			     uint payload_length,
+			     u32 payload_length,
 			     u8 *pn_vector,
-			     uint frtype)
+			     u8 frtype)
 {
 		signed int i;
 
@@ -669,7 +669,7 @@ static void construct_mic_iv(u8 *mic_iv,
 static void construct_mic_header1(u8 *mic_header1,
 				  signed int header_length,
 				  u8 *mpdu,
-				  uint frtype)
+				  u8 frtype)
 {
 		mic_header1[0] = (u8)((header_length - 2) / 256);
 		mic_header1[1] = (u8)((header_length - 2) % 256);
@@ -702,8 +702,8 @@ static void construct_mic_header1(u8 *mic_header1,
 /************************************************/
 static void construct_mic_header2(u8 *mic_header2,
 				  u8 *mpdu,
-				  signed int a4_exists,
-				  signed int qc_exists)
+				  bool a4_exists,
+				  bool qc_exists)
 {
 		signed int i;
 
@@ -752,7 +752,7 @@ static void construct_ctr_preload(u8 *ctr_preload,
 				  u8 *mpdu,
 				  u8 *pn_vector,
 				  signed int c,
-				  uint frtype)
+				  u8 frtype)
 {
 	signed int i = 0;
 
@@ -780,11 +780,14 @@ static void construct_ctr_preload(u8 *ctr_preload,
 	ctr_preload[15] = (unsigned char)(c % 256);
 }
 
-static signed int aes_cipher(u8 *key, uint hdrlen,
-			     u8 *pframe, uint plen)
+static signed int aes_cipher(u8 *key, u16 hdrlen,
+			     u8 *pframe, u32 plen)
 {
-	uint	qc_exists, a4_exists, i, j, payload_remainder,
-		num_blocks, payload_index;
+	bool qc_exists, a4_exists;
+	u8 payload_remainder;
+	u32 payload_index;
+	u32 num_blocks;
+	unsigned int i, j;
 
 	u8 pn_vector[6];
 	u8 mic_iv[16] = {};
@@ -797,20 +800,20 @@ static signed int aes_cipher(u8 *key, uint hdrlen,
 	u8 aes_out[16] = {};
 	u8 padded_buffer[16] = {};
 	u8 mic[8];
-	uint	frtype  = GetFrameType(pframe);
-	uint	frsubtype  = GetFrameSubType(pframe);
+	u8 frtype  = GetFrameType(pframe);
+	u8 frsubtype  = GetFrameSubType(pframe);
 
 	frsubtype = frsubtype >> 4;
 
 	if ((hdrlen == WLAN_HDR_A3_LEN) || (hdrlen ==  WLAN_HDR_A3_QOS_LEN))
-		a4_exists = 0;
+		a4_exists = false;
 	else
-		a4_exists = 1;
+		a4_exists = true;
 
 	if (((frtype | frsubtype) == WIFI_DATA_CFACK) ||
 	    ((frtype | frsubtype) == WIFI_DATA_CFPOLL) ||
 	    ((frtype | frsubtype) == WIFI_DATA_CFACKPOLL)) {
-		qc_exists = 1;
+		qc_exists = true;
 		if (hdrlen !=  WLAN_HDR_A3_QOS_LEN)
 			hdrlen += 2;
 
@@ -822,9 +825,9 @@ static signed int aes_cipher(u8 *key, uint hdrlen,
 		if (hdrlen !=  WLAN_HDR_A3_QOS_LEN)
 			hdrlen += 2;
 
-		qc_exists = 1;
+		qc_exists = true;
 	} else {
-		qc_exists = 0;
+		qc_exists = false;
 	}
 
 	pn_vector[0] = pframe[hdrlen];
@@ -960,7 +963,7 @@ u32 rtw_aes_encrypt(struct adapter *padapter, u8 *pxmitframe)
 	if (is_multicast_ether_addr(pattrib->ra))
 		prwskey = psecuritypriv->dot118021XGrpKey[psecuritypriv->dot118021XGrpKeyid].skey;
 	else
-		prwskey = pattrib->dot118021x_UncstKey.skey;
+		prwskey = pattrib->dot118021x_uncst_key.skey;
 
 	for (curfragnum = 0; curfragnum < pattrib->nr_frags; curfragnum++) {
 		if ((curfragnum + 1) == pattrib->nr_frags) {	/* 4 the last fragment */
@@ -980,12 +983,15 @@ u32 rtw_aes_encrypt(struct adapter *padapter, u8 *pxmitframe)
 	return res;
 }
 
-static signed int aes_decipher(u8 *key, uint hdrlen,
-			       u8 *pframe, uint plen)
+static signed int aes_decipher(u8 *key, u8 hdrlen,
+			       u8 *pframe, u32 plen)
 {
 	static u8 message[MAX_MSG_SIZE];
-	uint qc_exists, a4_exists, i, j, payload_remainder,
-			num_blocks, payload_index;
+	bool qc_exists, a4_exists;
+	u8 payload_remainder;
+	u32 payload_index;
+	u32 num_blocks;
+	unsigned int i, j;
 	signed int res = _SUCCESS;
 	u8 pn_vector[6];
 	u8 mic_iv[16] = {};
@@ -999,8 +1005,8 @@ static signed int aes_decipher(u8 *key, uint hdrlen,
 	u8 padded_buffer[16] = {};
 	u8 mic[8];
 
-	uint frtype  = GetFrameType(pframe);
-	uint frsubtype  = GetFrameSubType(pframe);
+	u8 frtype  = GetFrameType(pframe);
+	u8 frsubtype  = GetFrameSubType(pframe);
 
 	frsubtype = frsubtype >> 4;
 
@@ -1018,14 +1024,14 @@ static signed int aes_decipher(u8 *key, uint hdrlen,
 	pn_vector[5]  = pframe[hdrlen + 7];
 
 	if ((hdrlen == WLAN_HDR_A3_LEN) || (hdrlen ==  WLAN_HDR_A3_QOS_LEN))
-		a4_exists = 0;
+		a4_exists = false;
 	else
-		a4_exists = 1;
+		a4_exists = true;
 
 	if (((frtype | frsubtype) == WIFI_DATA_CFACK) ||
 	    ((frtype | frsubtype) == WIFI_DATA_CFPOLL) ||
 	    ((frtype | frsubtype) == WIFI_DATA_CFACKPOLL)) {
-		qc_exists = 1;
+		qc_exists = true;
 		if (hdrlen !=  WLAN_HDR_A3_QOS_LEN)
 			hdrlen += 2;
 
@@ -1037,9 +1043,9 @@ static signed int aes_decipher(u8 *key, uint hdrlen,
 		if (hdrlen !=  WLAN_HDR_A3_QOS_LEN)
 			hdrlen += 2;
 
-		qc_exists = 1;
+		qc_exists = true;
 	} else {
-		qc_exists = 0;
+		qc_exists = false;
 	}
 
 	/*  now, decrypt pframe with hdrlen offset and plen long */
@@ -1248,7 +1254,7 @@ u32 rtw_aes_decrypt(struct adapter *padapter, u8 *precvframe)
 			goto exit;
 		}
 	} else {
-		prwskey = &stainfo->dot118021x_UncstKey.skey[0];
+		prwskey = &stainfo->dot118021x_uncst_key.skey[0];
 	}
 
 	length = ((union recv_frame *)precvframe)->u.hdr.len -
@@ -1266,7 +1272,7 @@ u32 rtw_BIP_verify(struct adapter *padapter, u8 *precvframe)
 	u8 *pframe;
 	u8 *BIP_AAD, *p;
 	u32 res = _FAIL;
-	uint len, ori_len;
+	u32 len, ori_len;
 	struct ieee80211_hdr *pwlanhdr;
 	u8 mic[16];
 	struct mlme_ext_priv *pmlmeext = &padapter->mlmeextpriv;

@@ -58,7 +58,6 @@ struct	stainfo_rxcache	{
 */
 };
 
-
 struct signal_stat {
 	u8 update_req;		/* used to indicate */
 	u8 avg_val;		/* avg of valid elements */
@@ -139,7 +138,6 @@ struct rx_pkt_attrib {
 */
 	struct phy_info phy_info;
 };
-
 
 /* These definition is used for Rx packet reordering. */
 #define SN_LESS(a, b)		(((a - b) & 0x800) != 0)
@@ -248,7 +246,6 @@ struct recv_buf {
 	u8 reuse;
 };
 
-
 /*
 	head  ----->
 
@@ -257,7 +254,6 @@ struct recv_buf {
 			payload
 
 		tail  ----->
-
 
 	end   ----->
 
@@ -307,14 +303,14 @@ enum {
 	C2H_PACKET
 };
 
-extern union recv_frame *_rtw_alloc_recvframe(struct __queue *pfree_recv_queue);  /* get a free recv_frame from pfree_recv_queue */
-extern union recv_frame *rtw_alloc_recvframe(struct __queue *pfree_recv_queue);  /* get a free recv_frame from pfree_recv_queue */
-extern int rtw_free_recvframe(union recv_frame *precvframe, struct __queue *pfree_recv_queue);
+union recv_frame *_rtw_alloc_recvframe(struct __queue *pfree_recv_queue);  /* get a free recv_frame from pfree_recv_queue */
+union recv_frame *rtw_alloc_recvframe(struct __queue *pfree_recv_queue);  /* get a free recv_frame from pfree_recv_queue */
+int rtw_free_recvframe(union recv_frame *precvframe, struct __queue *pfree_recv_queue);
 
-extern int _rtw_enqueue_recvframe(union recv_frame *precvframe, struct __queue *queue);
-extern int rtw_enqueue_recvframe(union recv_frame *precvframe, struct __queue *queue);
+int _rtw_enqueue_recvframe(union recv_frame *precvframe, struct __queue *queue);
+int rtw_enqueue_recvframe(union recv_frame *precvframe, struct __queue *queue);
 
-extern void rtw_free_recvframe_queue(struct __queue *pframequeue,  struct __queue *pfree_recv_queue);
+void rtw_free_recvframe_queue(struct __queue *pframequeue,  struct __queue *pfree_recv_queue);
 u32 rtw_free_uc_swdec_pending_queue(struct adapter *adapter);
 
 signed int rtw_enqueue_recvbuf_to_head(struct recv_buf *precvbuf, struct __queue *queue);
@@ -342,10 +338,8 @@ static inline u8 *recvframe_pull(union recv_frame *precvframe, signed int sz)
 
 	/* used for extract sz bytes from rx_data, update rx_data and return the updated rx_data to the caller */
 
-
 	if (!precvframe)
 		return NULL;
-
 
 	precvframe->u.hdr.rx_data += sz;
 
@@ -386,8 +380,6 @@ static inline u8 *recvframe_put(union recv_frame *precvframe, signed int sz)
 
 }
 
-
-
 static inline u8 *recvframe_pull_tail(union recv_frame *precvframe, signed int sz)
 {
 	/*  rmv data from rx_tail (by yitsen) */
@@ -416,7 +408,6 @@ static inline signed int get_recvframe_len(union recv_frame *precvframe)
 	return precvframe->u.hdr.len;
 }
 
-
 static inline s32 translate_percentage_to_dbm(u32 SignalStrengthIndex)
 {
 	s32 SignalPower; /*  in dBm. */
@@ -428,11 +419,10 @@ static inline s32 translate_percentage_to_dbm(u32 SignalStrengthIndex)
 	return SignalPower;
 }
 
-
 struct sta_info;
 
-extern void _rtw_init_sta_recv_priv(struct sta_recv_priv *psta_recvpriv);
+void _rtw_init_sta_recv_priv(struct sta_recv_priv *psta_recvpriv);
 
-extern void mgt_dispatcher(struct adapter *padapter, union recv_frame *precv_frame);
+void mgt_dispatcher(struct adapter *padapter, union recv_frame *precv_frame);
 
 #endif

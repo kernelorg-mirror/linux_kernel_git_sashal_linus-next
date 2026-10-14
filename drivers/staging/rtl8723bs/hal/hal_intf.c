@@ -120,14 +120,10 @@ int rtw_hal_mgnt_xmit(struct adapter *padapter, struct xmit_frame *pmgntframe)
 	int ret;
 
 	update_mgntframe_attrib_addr(padapter, pmgntframe);
-	/* pframe = (u8 *)(pmgntframe->buf_addr) + TXDESC_OFFSET; */
-	/* pwlanhdr = (struct rtw_ieee80211_hdr *)pframe; */
-	/* memcpy(pmgntframe->attrib.ra, pwlanhdr->addr1, ETH_ALEN); */
 
 	if (padapter->securitypriv.binstallBIPkey) {
 		if (is_multicast_ether_addr(pmgntframe->attrib.ra)) {
 			pmgntframe->attrib.encrypt = _BIP_;
-			/* pmgntframe->attrib.bswenc = true; */
 		} else {
 			pmgntframe->attrib.encrypt = _AES_;
 			pmgntframe->attrib.bswenc = true;
@@ -229,7 +225,7 @@ void beacon_timing_control(struct adapter *padapter)
 	rtl8723b_SetBeaconRelatedRegisters(padapter);
 }
 
-s32 rtw_hal_xmit_thread_handler(struct adapter *padapter)
+bool rtw_hal_xmit_thread_handler(struct adapter *padapter)
 {
 	return rtl8723bs_xmit_buf_handler(padapter);
 }

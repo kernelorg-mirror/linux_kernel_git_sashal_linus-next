@@ -18,7 +18,7 @@ struct phy_rx_agc_info_t {
 	#endif
 };
 
-struct phy_status_rpt_8192cd_t {
+struct rtl8723bs_phy_status_rpt {
 	struct phy_rx_agc_info_t path_agc[2];
 	u8 ch_corr[2];
 	u8 cck_sig_qual_ofdm_pwdb_all;
@@ -57,25 +57,19 @@ struct phy_status_rpt_8192cd_t {
 };
 
 void odm_phy_status_query(struct dm_odm_t *dm_odm, struct odm_phy_info *phy_info,
-			  u8 *phy_status, struct odm_packet_info *pkt_info);
+			  struct rtl8723bs_phy_status_rpt *phy_status,
+			  struct odm_packet_info *pkt_info);
 
-enum hal_status ODM_ConfigRFWithTxPwrTrackHeaderFile(struct dm_odm_t *pDM_Odm);
+void ODM_ConfigRFWithTxPwrTrackHeaderFile(struct dm_odm_t *pDM_Odm);
 
-enum hal_status ODM_ConfigRFWithHeaderFile(
+void ODM_ConfigRFWithHeaderFile(
 	struct dm_odm_t *pDM_Odm,
 	enum ODM_RF_Config_Type ConfigType,
 	enum rf_path eRFPath
 );
 
-enum hal_status ODM_ConfigBBWithHeaderFile(
+void ODM_ConfigBBWithHeaderFile(
 	struct dm_odm_t *pDM_Odm, enum ODM_BB_Config_Type ConfigType
-);
-
-enum hal_status ODM_ConfigFWWithHeaderFile(
-	struct dm_odm_t *pDM_Odm,
-	enum ODM_FW_Config_Type ConfigType,
-	u8 *pFirmware,
-	u32 *pSize
 );
 
 s32 odm_signal_scale_mapping(struct dm_odm_t *pDM_Odm, s32 CurrSig);

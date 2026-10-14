@@ -90,7 +90,7 @@ struct sta_info {
 	uint dot118021_x_privacy; /* aes, tkip... */
 	union Keytype dot11tkiptxmickey;
 	union Keytype dot11tkiprxmickey;
-	union Keytype dot118021x_UncstKey;
+	union Keytype dot118021x_uncst_key;
 	union pn48 dot11txpn;			/*  PN48 used for Unicast xmit */
 	union pn48 dot11wtxpn;			/*  PN48 used for Unicast mgmt xmit. */
 	union pn48 dot11rxpn;			/*  PN48 used for Unicast recv. */
@@ -304,19 +304,19 @@ static inline u32 wifi_mac_hash(u8 *mac)
 }
 
 
-extern u32 _rtw_init_sta_priv(struct sta_priv *pstapriv);
-extern u32 _rtw_free_sta_priv(struct sta_priv *pstapriv);
+u32 _rtw_init_sta_priv(struct sta_priv *pstapriv);
+u32 _rtw_free_sta_priv(struct sta_priv *pstapriv);
 
 #define stainfo_offset_valid(offset) (offset < NUM_STA && offset >= 0)
 int rtw_stainfo_offset(struct sta_priv *stapriv, struct sta_info *sta);
 struct sta_info *rtw_get_stainfo_by_offset(struct sta_priv *stapriv, int offset);
 
-extern struct sta_info *rtw_alloc_stainfo(struct sta_priv *pstapriv, u8 *hwaddr);
-extern u32 rtw_free_stainfo(struct adapter *padapter, struct sta_info *psta);
-extern void rtw_free_all_stainfo(struct adapter *padapter);
-extern struct sta_info *rtw_get_stainfo(struct sta_priv *pstapriv, u8 *hwaddr);
-extern u32 rtw_init_bcmc_stainfo(struct adapter *padapter);
-extern struct sta_info *rtw_get_bcmc_stainfo(struct adapter *padapter);
-extern u8 rtw_access_ctrl(struct adapter *padapter, u8 *mac_addr);
+struct sta_info *rtw_alloc_stainfo(struct sta_priv *pstapriv, u8 *hwaddr);
+u32 rtw_free_stainfo(struct adapter *padapter, struct sta_info *psta);
+void rtw_free_all_stainfo(struct adapter *padapter);
+struct sta_info *rtw_get_stainfo(struct sta_priv *pstapriv, u8 *hwaddr);
+u32 rtw_init_bcmc_stainfo(struct adapter *padapter);
+struct sta_info *rtw_get_bcmc_stainfo(struct adapter *padapter);
+u8 rtw_access_ctrl(struct adapter *padapter, u8 *mac_addr);
 
 #endif /* _STA_INFO_H_ */
