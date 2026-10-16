@@ -453,7 +453,8 @@ int msm_tpg_register_entity(struct tpg_device *tpg,
 {
 	struct v4l2_subdev *sd = &tpg->subdev;
 	struct device *dev = tpg->camss->dev;
-	int ret;
+	u64 skip_mask = 0;
+	int ret, i;
 
 	v4l2_subdev_init(sd, &tpg_v4l2_ops);
 	sd->internal_ops = &tpg_v4l2_internal_ops;
@@ -470,9 +471,14 @@ int msm_tpg_register_entity(struct tpg_device *tpg,
 		return ret;
 	}
 
+	/* The mode names are indexed by hardware payload mode, skip the gaps */
+	for (i = 0; i <= tpg->testgen.nmodes; i++)
+		if (!tpg->testgen.modes[i])
+			skip_mask |= BIT_ULL(i);
+
 	tpg->testgen_mode = v4l2_ctrl_new_std_menu_items(&tpg->ctrls,
 							 &tpg_ctrl_ops, V4L2_CID_TEST_PATTERN,
-							 tpg->testgen.nmodes, 0, 0,
+							 tpg->testgen.nmodes, skip_mask, 0,
 							 tpg->testgen.modes);
 	if (tpg->ctrls.error) {
 		dev_err(dev, "Failed to init ctrl: %d\n", tpg->ctrls.error);
