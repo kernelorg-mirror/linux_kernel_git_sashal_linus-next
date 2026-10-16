@@ -306,6 +306,9 @@ mod private {
 pub trait TimeUnit: private::Sealed {
     /// The underlying representation of the time unit.
     type Repr: Copy + Clone + PartialEq + PartialOrd + Eq + Ord + core::fmt::Debug;
+
+    /// The zero value of [`Self::Repr`].
+    const ZERO: Self::Repr;
 }
 
 /// A time unit of nanoseconds.
@@ -317,6 +320,7 @@ pub enum Nsec {}
 
 impl TimeUnit for Nsec {
     type Repr = i64;
+    const ZERO: Self::Repr = 0;
 }
 
 /// A time unit of jiffies.
@@ -328,6 +332,7 @@ pub enum Jiffy {}
 
 impl TimeUnit for Jiffy {
     type Repr = isize;
+    const ZERO: Self::Repr = 0;
 }
 
 /// A span of time.
@@ -341,6 +346,11 @@ pub struct Delta<U: TimeUnit = Nsec> {
     value: U::Repr,
 }
 
+impl<U: TimeUnit> Delta<U> {
+    /// A span of time equal to zero.
+    pub const ZERO: Self = Self { value: U::ZERO };
+}
+
 impl Delta<Jiffy> {
     /// Create a new [`Delta`] from a number of jiffies.
     #[inline]
@@ -352,6 +362,27 @@ impl Delta<Jiffy> {
     #[inline]
     pub const fn as_jiffies(self) -> isize {
         self.value
+    }
+
+    /// Return the number of jiffies in the [`Delta`] as an unsigned value.
+    ///
+    /// If the number of jiffies is negative, zero is returned.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use kernel::time::Delta;
+    ///
+    /// // A negative span returns zero.
+    /// assert_eq!(Delta::from_jiffies(-1).as_jiffies_unsigned(), 0);
+    ///
+    /// // A positive span returns its value.
+    /// assert_eq!(Delta::from_jiffies(1).as_jiffies_unsigned(), 1);
+    /// ```
+    #[inline]
+    pub fn as_jiffies_unsigned(self) -> usize {
+        // CAST: `isize::max()` makes the value non-negative, so the cast keeps it.
+        isize::max(self.value, 0) as usize
     }
 }
 
@@ -428,9 +459,6 @@ impl ops::Div for Delta {
 }
 
 impl Delta {
-    /// A span of time equal to zero.
-    pub const ZERO: Self = Self { value: 0 };
-
     /// Create a new [`Delta`] from a number of nanoseconds.
     #[inline]
     pub const fn from_nanos(nanos: i64) -> Self {
