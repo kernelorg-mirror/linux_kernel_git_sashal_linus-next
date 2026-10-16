@@ -3051,11 +3051,12 @@ Kernel parameters
 			"0" | "off" | "n" - kexec handover is disabled
 			"1" | "on" | "y" - kexec handover is enabled
 
-	kho_scratch=	[KEXEC,EARLY]
+	kho_bootmem=	[KEXEC,EARLY]
 			Format: ll[KMG],mm[KMG],nn[KMG] | nn%
-			Defines the size of the KHO scratch region. The KHO
-			scratch regions are physically contiguous memory
-			ranges that can only be used for non-kernel
+
+			Defines the size of the KHO boot memory region. The
+			KHO boot memory regions are physically contiguous
+			memory ranges that can only be used for non-kernel
 			allocations. That way, even when memory is heavily
 			fragmented with handed over memory, the kexeced
 			kernel will always have enough contiguous ranges to
@@ -3064,10 +3065,10 @@ Kernel parameters
 			It is possible to specify the exact amount of
 			memory in the form of "ll[KMG],mm[KMG],nn[KMG]"
 			where the first parameter defines the size of a low
-			memory scratch area, the second parameter defines
-			the size of a global scratch area and the third
+			memory bootmem area, the second parameter defines
+			the size of a global bootmem area and the third
 			parameter defines the size of additional per-node
-			scratch areas.  The form "nn%" defines scale factor
+			bootmem areas.  The form "nn%" defines scale factor
 			(in percents) of memory that was used during boot.
 
 	kmac=		[MIPS] Korina ethernet MAC address.
@@ -5177,7 +5178,12 @@ Kernel parameters
 				explicitly which ones they are.
 		assign-busses	[X86] Always assign all PCI bus
 				numbers ourselves, overriding
-				whatever the firmware may have done.
+				whatever the firmware may have done. Ignored
+				if any device was preserved across a Live
+				Update, where the kernel must preserve the
+				PCI topology (including bus numbers) to
+				avoid interrupting ongoing memory transactions
+				of preserved devices.
 		usepirqmask	[X86] Honor the possible IRQ mask stored
 				in the BIOS $PIR table. This is needed on
 				some systems with broken BIOSes, notably
@@ -5706,9 +5712,12 @@ Kernel parameters
 			there is an ongoing too-long CSD-lock wait.
 
 	rcutree.do_rcu_barrier=	[KNL]
-			Request a call to rcu_barrier().  This is
-			throttled so that userspace tests can safely
-			hammer on the sysfs variable if they so choose.
+			Wait for deferred kfree_rcu() frees and ordinary
+			call_rcu() callbacks queued before this request to
+			complete.  This does not prevent new work from being
+			queued concurrently.  Requests are throttled so that
+			userspace tests can safely hammer on the sysfs
+			variable if they so choose.
 			If triggered before the RCU grace-period machinery
 			is fully active, this will error out with EAGAIN.
 
@@ -6180,6 +6189,13 @@ Kernel parameters
 			stress RCU, they don't participate in the actual
 			test, hence the "fake".
 
+	rcutorture.nmi_calls= [KNL]
+			Enable issuing RCU callbacks from an NMI, on the
+			RCU flavors that support it, to exercise the
+			any-context callback path.  Requires
+			CONFIG_PERF_EVENTS and a hardware PMU; without
+			both, nothing is issued.  Defaults to enabled.
+
 	rcutorture.nocbs_nthreads= [KNL]
 			Set number of RCU callback-offload togglers.
 			Zero (the default) disables toggling.
@@ -6408,6 +6424,13 @@ Kernel parameters
 			post-boot attempt at an expedited RCU grace
 			period to instead use normal non-expedited
 			grace-period processing.
+
+	rcupdate.rcu_task_collapse_debug= [KNL]
+			Enable debugging prints that record when RCU Tasks
+			and RCU Tasks Trace expand to per-CPU callback
+			queuing and collapse back to CPU-0 queuing.
+			This is default-disabled due to the fact that
+			some workloads can make it quite noisy.
 
 	rcupdate.rcu_task_collapse_lim= [KNL]
 			Set the maximum number of callbacks present
@@ -6842,6 +6865,18 @@ Kernel parameters
 			Enables or disables "proxy execution" style
 			solution to mutex-based priority inversion.
 			Format: <bool>
+
+	sched_smt_asym_packing= [KNL,SMP]
+			Format: on
+			Force asymmetric packing at the SMT scheduling domain.
+			Idle CPU selection prefers siblings with a higher
+			arch_asym_cpu_priority(). The default implementation
+			prefers lower-numbered logical CPUs, but architecture
+			overrides remain authoritative. Equal priorities do
+			not establish a sibling preference. For example, x86
+			with CONFIG_SCHED_MC_PRIO normally assigns the same
+			core priority to both SMT siblings, so this option
+			does not favor either sibling.
 
 	sched_verbose	[KNL,EARLY] Enables verbose scheduler debug messages.
 
@@ -7648,6 +7683,12 @@ Kernel parameters
 	tlbi=		[X86-64]
 			Format: {ipi}
 			ipi: switch to IPI-based TLB flushing
+
+	toolong_nmi_panic= [X86]
+			Cause a panic upon return from an NMI handler
+			that took longer than the specified number
+			of milliseconds.  The default value of zero
+			suppresses these panics.
 
 	topology=	[S390,EARLY]
 			Format: {off | on}
