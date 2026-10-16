@@ -470,7 +470,7 @@ static void reenable_adv(struct work_struct *work)
 static void cancel_adv_timeout(struct hci_dev *hdev)
 {
 	if (hdev->adv_instance_timeout) {
-		hdev->adv_instance_timeout = 0;
+		hdev->adv_instance_timeout = false;
 		cancel_delayed_work(&hdev->adv_instance_expire);
 	}
 }
@@ -570,7 +570,7 @@ static void adv_timeout_expire(struct work_struct *work)
 
 	hci_dev_lock(hdev);
 
-	hdev->adv_instance_timeout = 0;
+	hdev->adv_instance_timeout = false;
 
 	if (hdev->cur_adv_instance == 0x00)
 		goto unlock;
@@ -2134,7 +2134,7 @@ int hci_schedule_adv_instance_sync(struct hci_dev *hdev, u8 instance,
 
 	/* Only use work for scheduling instances with legacy advertising */
 	if (!ext_adv_capable(hdev)) {
-		hdev->adv_instance_timeout = timeout;
+		hdev->adv_instance_timeout = true;
 		queue_delayed_work(hdev->req_workqueue,
 				   &hdev->adv_instance_expire,
 				   adv->mesh ? msecs_to_jiffies(timeout) :
@@ -2618,7 +2618,7 @@ static int hci_le_set_privacy_mode_sync(struct hci_dev *hdev,
  */
 static int hci_le_add_accept_list_sync(struct hci_dev *hdev,
 				       struct conn_params *params,
-				       u8 *num_entries)
+				       u8 *num_entries, bool force_filter)
 {
 	struct hci_cp_le_add_to_accept_list cp;
 	int err;
@@ -2630,6 +2630,11 @@ static int hci_le_add_accept_list_sync(struct hci_dev *hdev,
 					    params->addr_type);
 		return 0;
 	}
+
+	/* Host-resolved peers need unfiltered scanning while awake. */
+	if (!force_filter && !hdev->suspended && !ll_privacy_capable(hdev) &&
+	    hci_find_irk_by_addr(hdev, &params->addr, params->addr_type))
+		return -EINVAL;
 
 	/* Select filter policy to accept all advertising */
 	if (*num_entries >= hdev->le_accept_list_size)
@@ -2956,7 +2961,7 @@ static u8 hci_update_accept_list_sync(struct hci_dev *hdev)
 
 			num_entries = 1;
 			err = hci_le_add_accept_list_sync(hdev, &pa,
-							  &num_entries);
+							  &num_entries, true);
 			goto done;
 		} else {
 			rcu_read_unlock();
@@ -3020,7 +3025,7 @@ static u8 hci_update_accept_list_sync(struct hci_dev *hdev)
 
 	for (i = 0; i < n; ++i) {
 		err = hci_le_add_accept_list_sync(hdev, &params[i],
-						  &num_entries);
+								&num_entries, false);
 		if (err) {
 			kvfree(params);
 			goto done;
@@ -3042,7 +3047,7 @@ static u8 hci_update_accept_list_sync(struct hci_dev *hdev)
 
 	for (i = 0; i < n; ++i) {
 		err = hci_le_add_accept_list_sync(hdev, &params[i],
-						  &num_entries);
+								&num_entries, false);
 		if (err) {
 			kvfree(params);
 			goto done;
@@ -4823,6 +4828,9 @@ static int hci_le_set_def_rate_sync(struct hci_dev *hdev)
 	struct hci_cp_le_set_def_rate cp;
 	u16 interval_min = 0x000a;	/* 1.25 ms */
 	u16 interval_max = 0x0078;	/* 15 ms */
+	u16 subrate_max = 0x0004;
+	u16 max_latency = 0x0000;
+	u32 supv_timeout;
 
 	if (!le_sci_capable(hdev))
 		return 0;
@@ -4847,10 +4855,31 @@ static int hci_le_set_def_rate_sync(struct hci_dev *hdev)
 	cp.interval_min = cpu_to_le16(interval_min);
 	cp.interval_max = cpu_to_le16(interval_max);
 	cp.subrate_min = cpu_to_le16(0x0001);
-	cp.subrate_max = cpu_to_le16(0x0004);
-	cp.max_latency = cpu_to_le16(0x0000);
+	cp.subrate_max = cpu_to_le16(subrate_max);
+	cp.max_latency = cpu_to_le16(max_latency);
 	cp.cont_num = cpu_to_le16(0x0001);
-	cp.supv_timeout = cpu_to_le16(0x000c);	/* 120 ms */
+
+	/* HOGP v1.2 recommends a Supervision_Timeout greater than or equal to
+	 * (1 + Max_Latency) x Subrate_Max x Connection_Interval_Max x 2, but
+	 * the Core spec treats the equality as invalid:
+	 *
+	 * BLUETOOTH CORE SPECIFICATION Version 6.3 | Vol 4, Part E
+	 * 7.8.158. LE Set Default Rate Parameters command
+	 *
+	 * If Connection_Interval_Max x Subrate_Max x (Max_Latency + 1) is
+	 * greater than or equal to Supervision_Timeout x 40, the Controller
+	 * shall return the error code Invalid HCI Command Parameters (0x12).
+	 *
+	 * So default to 2 s, 10x lower than the 20 s used for non-SCI
+	 * connections while still well above the minimum required, but make
+	 * sure it stays strictly above the minimum in case interval_max has
+	 * been raised.
+	 */
+	supv_timeout = (u32)interval_max * subrate_max * (max_latency + 1);
+	supv_timeout = supv_timeout / 40 + 1;
+	supv_timeout = clamp_t(u32, max_t(u32, supv_timeout, 0x00c8),
+			       0x000a, 0x0c80);
+	cp.supv_timeout = cpu_to_le16(supv_timeout);
 
 	/* The connection event length recommended in requests by a Peripheral
 	 * uses units of 125 us with a valid range of 0x0001 to 0x7CFF
@@ -5431,6 +5460,30 @@ static int hci_dev_init_sync(struct hci_dev *hdev)
 	return ret;
 }
 
+static void hci_dev_drop_last_cmd_req_and_close(struct hci_dev *hdev)
+{
+	/* Drop last sent command */
+	if (hdev->sent_cmd) {
+		cancel_delayed_work_sync(&hdev->cmd_timer);
+		kfree_skb(hdev->sent_cmd);
+		hdev->sent_cmd = NULL;
+	}
+
+	/* Drop last request */
+	if (hdev->req_skb) {
+		kfree_skb(hdev->req_skb);
+		hdev->req_skb = NULL;
+		hci_dev_clear_flag(hdev, HCI_CMD_PENDING);
+	}
+
+	clear_bit(HCI_RUNNING, &hdev->flags);
+	hci_sock_dev_event(hdev, HCI_DEV_CLOSE);
+
+	/* After this point our queues are empty and no tasks are scheduled. */
+	hdev->close(hdev);
+	hdev->flags &= BIT(HCI_RAW);
+}
+
 int hci_dev_open_sync(struct hci_dev *hdev)
 {
 	int ret;
@@ -5519,23 +5572,7 @@ int hci_dev_open_sync(struct hci_dev *hdev)
 		if (hdev->flush)
 			hdev->flush(hdev);
 
-		if (hdev->sent_cmd) {
-			cancel_delayed_work_sync(&hdev->cmd_timer);
-			kfree_skb(hdev->sent_cmd);
-			hdev->sent_cmd = NULL;
-		}
-
-		if (hdev->req_skb) {
-			kfree_skb(hdev->req_skb);
-			hdev->req_skb = NULL;
-			hci_dev_clear_flag(hdev, HCI_CMD_PENDING);
-		}
-
-		clear_bit(HCI_RUNNING, &hdev->flags);
-		hci_sock_dev_event(hdev, HCI_DEV_CLOSE);
-
-		hdev->close(hdev);
-		hdev->flags &= BIT(HCI_RAW);
+		hci_dev_drop_last_cmd_req_and_close(hdev);
 	}
 
 done:
@@ -5613,7 +5650,7 @@ int hci_dev_close_sync(struct hci_dev *hdev)
 
 	if (hdev->adv_instance_timeout) {
 		cancel_delayed_work_sync(&hdev->adv_instance_expire);
-		hdev->adv_instance_timeout = 0;
+		hdev->adv_instance_timeout = false;
 	}
 
 	err = hci_dev_shutdown(hdev);
@@ -5702,28 +5739,10 @@ int hci_dev_close_sync(struct hci_dev *hdev)
 	skb_queue_purge(&hdev->cmd_q);
 	skb_queue_purge(&hdev->raw_q);
 
-	/* Drop last sent command */
-	if (hdev->sent_cmd) {
-		cancel_delayed_work_sync(&hdev->cmd_timer);
-		kfree_skb(hdev->sent_cmd);
-		hdev->sent_cmd = NULL;
-	}
-
-	/* Drop last request */
-	if (hdev->req_skb) {
-		kfree_skb(hdev->req_skb);
-		hdev->req_skb = NULL;
-		hci_dev_clear_flag(hdev, HCI_CMD_PENDING);
-	}
-
-	clear_bit(HCI_RUNNING, &hdev->flags);
-	hci_sock_dev_event(hdev, HCI_DEV_CLOSE);
-
-	/* After this point our queues are empty and no tasks are scheduled. */
-	hdev->close(hdev);
+	/* Drop last sent command, last request and close */
+	hci_dev_drop_last_cmd_req_and_close(hdev);
 
 	/* Clear flags */
-	hdev->flags &= BIT(HCI_RAW);
 	hci_dev_clear_volatile_flags(hdev);
 	hci_dev_clear_flag(hdev, HCI_CMD_DRAIN_WORKQUEUE);
 

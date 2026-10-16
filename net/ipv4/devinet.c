@@ -157,7 +157,8 @@ struct net_device *__ip_dev_find(struct net *net, __be32 addr, bool devref)
 		 */
 		local = fib_get_table(net, RT_TABLE_LOCAL);
 		if (local &&
-		    !fib_table_lookup(local, &fl4, &res, FIB_LOOKUP_NOREF) &&
+		    !fib_table_lookup(net, local, &fl4, &res,
+				      FIB_LOOKUP_NOREF) &&
 		    res.type == RTN_LOCAL)
 			result = FIB_RES_DEV(res);
 	} else {
@@ -339,18 +340,6 @@ static void inetdev_destroy(struct in_device *in_dev)
 
 	in_dev_put(in_dev);
 }
-
-static int __init inet_blackhole_dev_init(void)
-{
-	struct in_device *in_dev;
-
-	rtnl_lock();
-	in_dev = inetdev_init(blackhole_netdev);
-	rtnl_unlock();
-
-	return PTR_ERR_OR_ZERO(in_dev);
-}
-late_initcall(inet_blackhole_dev_init);
 
 int inet_addr_onlink(struct in_device *in_dev, __be32 a, __be32 b)
 {
@@ -2973,4 +2962,9 @@ void __init devinet_init(void)
 		panic("Unable to register inet_af_ops\n");
 
 	rtnl_register_many(devinet_rtnl_msg_handlers);
+
+	rtnl_lock();
+	if (IS_ERR(inetdev_init(blackhole_netdev)))
+		panic("IP: failed to allocate in_device for blackhole_netdev\n");
+	rtnl_unlock();
 }
