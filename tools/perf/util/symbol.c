@@ -967,23 +967,6 @@ static int maps__split_kallsyms_for_kcore(struct maps *kmaps, struct dso *dso)
 	return count;
 }
 
-static uint16_t machine_or_dso_e_machine(struct machine *machine, struct dso *dso)
-{
-	uint16_t e_machine = EM_NONE;
-	/* DSO should be most accurate */
-	if (dso)
-		e_machine = dso__e_machine(dso, machine, /*e_flags=*/NULL);
-
-	if (e_machine != EM_NONE)
-		return e_machine;
-
-	/* Check the global environment next. */
-	if (machine && machine->env && machine->env->e_machine != EM_NONE)
-		return machine->env->e_machine;
-
-	return perf_env__e_machine(machine ? machine->env : NULL, /*e_flags=*/NULL);
-}
-
 /*
  * Split the symbols into maps, making sure there are no overlaps, i.e. the
  * kernel range is broken in several maps, named [kernel].N, as we don't have
@@ -1005,7 +988,7 @@ static int maps__split_kallsyms(struct maps *kmaps, struct dso *dso, u64 delta,
 		return -1;
 
 	machine = maps__machine(kmaps);
-	e_machine = machine_or_dso_e_machine(machine, dso);
+	e_machine = perf_env__e_machine(machine->env, /*e_flags=*/NULL);
 
 	while (next) {
 		char *module;
@@ -1099,6 +1082,13 @@ static int maps__split_kallsyms(struct maps *kmaps, struct dso *dso, u64 delta,
 				return -1;
 
 			dso__set_kernel(ndso, dso__kernel(dso));
+			if (dso__kernel(dso) == DSO_SPACE__KERNEL_GUEST) {
+				dso__set_binary_type(ndso, DSO_BINARY_TYPE__GUEST_KALLSYMS);
+				dso__set_symtab_type(ndso, DSO_BINARY_TYPE__GUEST_KALLSYMS);
+			} else {
+				dso__set_binary_type(ndso, DSO_BINARY_TYPE__KALLSYMS);
+				dso__set_symtab_type(ndso, DSO_BINARY_TYPE__KALLSYMS);
+			}
 			dso__set_loaded(ndso);
 
 			curr_map = map__new2(pos->start, ndso);
@@ -1560,7 +1550,7 @@ static int dso__load_kcore(struct dso *dso, struct map *map,
 		free(new_node);
 	}
 
-	if (machine_or_dso_e_machine(machine, dso) == EM_X86_64) {
+	if (perf_env__e_machine(machine->env, /*e_flags=*/NULL) == EM_X86_64) {
 		u64 addr;
 
 		/*
@@ -1848,7 +1838,7 @@ int dso__load(struct dso *dso, struct map *map)
 			ret = dso__load_guest_kernel_sym(dso, map);
 
 		machine = maps__machine(map__kmaps(map));
-		if (machine && machine_or_dso_e_machine(machine, dso) == EM_X86_64)
+		if (perf_env__e_machine(machine->env, /*e_flags=*/NULL) == EM_X86_64)
 			machine__map_x86_64_entry_trampolines(machine, dso);
 		goto out;
 	}
@@ -1857,6 +1847,7 @@ int dso__load(struct dso *dso, struct map *map)
 
 	if (perfmap) {
 		ret = dso__load_perf_map(map_path, dso);
+		dso__set_binary_type(dso, DSO_BINARY_TYPE__JAVA_JIT);
 		dso__set_symtab_type(dso, ret > 0
 				? DSO_BINARY_TYPE__JAVA_JIT
 				: DSO_BINARY_TYPE__NOT_FOUND);
@@ -1930,9 +1921,10 @@ int dso__load(struct dso *dso, struct map *map)
 		if (nsexit)
 			nsinfo__mountns_enter(dso__nsinfo(dso), &nsc);
 
-		if (bfdrc == 0) {
-			ret = 0;
-			break;
+		if (bfdrc > 0) {
+			dso__set_symtab_type(dso, symtab_type);
+			ret = 1;
+			goto out_destroy;
 		}
 
 		if (!is_reg || sirc < 0)
@@ -1952,19 +1944,6 @@ int dso__load(struct dso *dso, struct map *map)
 
 		if (next_slot) {
 			ss_pos++;
-
-			/*
-			 * The binary type is used to find the file containing
-			 * the executed instructions, so prefer the types that
-			 * refer to the actual object over debug-only files such
-			 * as DSO_BINARY_TYPE__DEBUGLINK.
-			 */
-			if (dso__binary_type(dso) == DSO_BINARY_TYPE__NOT_FOUND ||
-			    symtab_type == DSO_BINARY_TYPE__BUILD_ID_CACHE ||
-			    (symtab_type == DSO_BINARY_TYPE__SYSTEM_PATH_DSO &&
-			     dso__binary_type(dso) != DSO_BINARY_TYPE__BUILD_ID_CACHE))
-				dso__set_binary_type(dso, symtab_type);
-
 			if (syms_ss && runtime_ss)
 				break;
 		} else {
@@ -1997,6 +1976,7 @@ int dso__load(struct dso *dso, struct map *map)
 			ret += nr_plt;
 	}
 
+out_destroy:
 	for (; ss_pos > 0; ss_pos--)
 		symsrc__destroy(&ss_[ss_pos - 1]);
 out_free:
@@ -2079,7 +2059,7 @@ int dso__load_vmlinux_path(struct dso *dso, struct map *map)
 	if (filename != NULL) {
 		err = dso__load_vmlinux(dso, map, filename, true);
 		if (err > 0)
-			goto out;
+			dso__set_symtab_type(dso, DSO_BINARY_TYPE__BUILD_ID_CACHE);
 	}
 out:
 	return err;
@@ -2235,8 +2215,10 @@ static int dso__load_kernel_sym(struct dso *dso, struct map *map)
 		filename = __dso__build_id_filename(dso, NULL, 0, false, false);
 	if (filename != NULL) {
 		err = dso__load_vmlinux(dso, map, filename, true);
-		if (err > 0)
+		if (err > 0) {
+			dso__set_symtab_type(dso, DSO_BINARY_TYPE__BUILD_ID_CACHE);
 			return err;
+		}
 	}
 
 	if (!symbol_conf.ignore_vmlinux && vmlinux_path != NULL) {
