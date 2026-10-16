@@ -39,9 +39,6 @@ struct page;
 void load_mmu(void);
 void __init find_ramdisk(unsigned long end_of_phys_memory);
 
-#define pte_ERROR(e)   __builtin_trap()
-#define pmd_ERROR(e)   __builtin_trap()
-#define pgd_ERROR(e)   __builtin_trap()
 
 #define PTRS_PER_PTE    	64
 #define PTRS_PER_PMD    	64
