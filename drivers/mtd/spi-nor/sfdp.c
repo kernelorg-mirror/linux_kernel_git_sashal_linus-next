@@ -403,9 +403,12 @@ static void spi_nor_regions_sort_erase_types(struct spi_nor_erase_map *map)
  * @nor:	pointer to a 'struct spi_nor'
  * @bfpt_header:	pointer to the 'struct sfdp_parameter_header' describing
  *			the Basic Flash Parameter Table length and version
+ * @bfpt:	pointer to the 'struct sfdp_bfpt' to be fixed up
  *
  * Used to tweak various flash parameters when information provided by the SFDP
  * tables are wrong.
+ *
+ * Return: 0 on success, -errno otherwise.
  */
 static int spi_nor_post_bfpt_fixups(struct spi_nor *nor,
 				    const struct sfdp_parameter_header *bfpt_header,
@@ -1537,7 +1540,7 @@ int spi_nor_parse_sfdp(struct spi_nor *nor)
 {
 	const struct sfdp_parameter_header *param_header, *bfpt_header;
 	struct sfdp_parameter_header *param_headers = NULL;
-	struct spi_nor_flash_parameter params, params2;
+	struct spi_nor_flash_parameter *save_params;
 	struct sfdp_header header;
 	struct device *dev = nor->dev;
 	struct sfdp *sfdp;
@@ -1549,17 +1552,22 @@ int spi_nor_parse_sfdp(struct spi_nor *nor)
 	 * Get a backup of all the parameter to roll back to in case of an
 	 * error.
 	 */
-	memcpy(&params, nor->params, sizeof(params));
+	save_params = kmalloc_objs(*save_params, 2);
+	if (!save_params)
+		return -ENOMEM;
+	save_params[0] = *nor->params;
 
 	/* Get the SFDP header. */
 	err = spi_nor_read_sfdp_dma_unsafe(nor, 0, sizeof(header), &header);
 	if (err < 0)
-		return err;
+		goto free_save_params;
 
 	/* Check the SFDP header version. */
 	if (le32_to_cpu(header.signature) != SFDP_SIGNATURE ||
-	    header.major != SFDP_JESD216_MAJOR)
-		return -EINVAL;
+	    header.major != SFDP_JESD216_MAJOR) {
+		err = -EINVAL;
+		goto free_save_params;
+	}
 
 	/*
 	 * Verify that the first and only mandatory parameter header is a
@@ -1567,8 +1575,10 @@ int spi_nor_parse_sfdp(struct spi_nor *nor)
 	 */
 	bfpt_header = &header.bfpt_header;
 	if (SFDP_PARAM_HEADER_ID(bfpt_header) != SFDP_BFPT_ID ||
-	    bfpt_header->major != SFDP_JESD216_MAJOR)
-		return -EINVAL;
+	    bfpt_header->major != SFDP_JESD216_MAJOR) {
+		err = -EINVAL;
+		goto free_save_params;
+	}
 
 	sfdp_size = SFDP_PARAM_HEADER_PTP(bfpt_header) +
 		    SFDP_PARAM_HEADER_PARAM_LEN(bfpt_header);
@@ -1588,8 +1598,10 @@ int spi_nor_parse_sfdp(struct spi_nor *nor)
 		psize = header.nph * sizeof(*param_headers);
 
 		param_headers = kmalloc(psize, GFP_KERNEL);
-		if (!param_headers)
-			return -ENOMEM;
+		if (!param_headers) {
+			err = -ENOMEM;
+			goto free_save_params;
+		}
 
 		err = spi_nor_read_sfdp(nor, sizeof(header),
 					psize, param_headers);
@@ -1665,7 +1677,7 @@ int spi_nor_parse_sfdp(struct spi_nor *nor)
 
 	/* Parse optional parameter tables. */
 	for (i = 0; i < header.nph; i++) {
-		memcpy(&params2, nor->params, sizeof(params2));
+		save_params[1] = *nor->params;
 		param_header = &param_headers[i];
 
 		switch (SFDP_PARAM_HEADER_ID(param_header)) {
@@ -1703,7 +1715,7 @@ int spi_nor_parse_sfdp(struct spi_nor *nor)
 			 * spi_nor_flash_parameter data.
 			 */
 			err = 0;
-			memcpy(nor->params, &params2, sizeof(*nor->params));
+			*nor->params = save_params[1];
 		}
 	}
 
@@ -1712,6 +1724,7 @@ int spi_nor_parse_sfdp(struct spi_nor *nor)
 		goto clear_sfdp_ptr;
 
 	kfree(param_headers);
+	kfree(save_params);
 
 	return 0;
 
@@ -1724,7 +1737,9 @@ free_sfdp:
 free_param_headers:
 	kfree(param_headers);
 	if (err)
-		memcpy(nor->params, &params, sizeof(*nor->params));
+		*nor->params = save_params[0];
+free_save_params:
+	kfree(save_params);
 
 	return err;
 }
