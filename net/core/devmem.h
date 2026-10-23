@@ -10,6 +10,7 @@
 #ifndef _NET_DEVMEM_H
 #define _NET_DEVMEM_H
 
+#include <net/net_namespace.h>
 #include <net/netmem.h>
 #include <net/netdev_netlink.h>
 
@@ -27,6 +28,8 @@ struct net_devmem_dmabuf_binding {
 	 * dereferenced.
 	 */
 	void *vdev;
+	possible_net_t net;
+	kuid_t uid;
 	/* Protect dev */
 	struct mutex lock;
 
@@ -40,7 +43,7 @@ struct net_devmem_dmabuf_binding {
 	 * those refs are dropped and the binding is no longer desired or in
 	 * use.
 	 *
-	 * net_devmem_get_net_iov() on dmabuf net_iovs will increment this
+	 * net_devmem_net_iov_inc_ref() on dmabuf net_iovs will increment this
 	 * reference, making sure that the binding remains alive until all the
 	 * net_iovs are no longer used. net_iovs allocated from this binding
 	 * that are stuck in the TX path for any reason (such as awaiting
@@ -88,6 +91,7 @@ net_devmem_bind_dmabuf(struct net_device *dev, void *vdev,
 		       enum dma_data_direction direction,
 		       unsigned int dmabuf_fd, unsigned int niov_shift,
 		       struct netdev_nl_sock *priv,
+		       const struct sock *nl_sk,
 		       struct netlink_ext_ack *extack);
 struct net_devmem_dmabuf_binding *net_devmem_lookup_dmabuf(u32 id);
 void net_devmem_unbind_dmabuf(struct net_devmem_dmabuf_binding *binding);
@@ -112,8 +116,7 @@ static inline unsigned long net_iov_virtual_addr(const struct net_iov *niov)
 	struct net_devmem_dmabuf_binding *binding =
 		net_devmem_iov_binding(niov);
 
-	return net_iov_owner(niov)->base_virtual +
-	       ((unsigned long)net_iov_idx(niov) << binding->niov_shift);
+	return (unsigned long)net_iov_idx(niov) << binding->niov_shift;
 }
 
 static inline bool
@@ -128,8 +131,8 @@ net_devmem_dmabuf_binding_put(struct net_devmem_dmabuf_binding *binding)
 	percpu_ref_put(&binding->ref);
 }
 
-void net_devmem_get_net_iov(struct net_iov *niov);
-void net_devmem_put_net_iov(struct net_iov *niov);
+void net_devmem_net_iov_inc_ref(struct net_iov *niov);
+void net_devmem_net_iov_dec_ref(struct net_iov *niov);
 
 void net_devmem_free_dmabuf(struct net_iov *ppiov);
 
@@ -148,11 +151,11 @@ net_devmem_dmabuf_binding_put(struct net_devmem_dmabuf_binding *binding)
 {
 }
 
-static inline void net_devmem_get_net_iov(struct net_iov *niov)
+static inline void net_devmem_net_iov_inc_ref(struct net_iov *niov)
 {
 }
 
-static inline void net_devmem_put_net_iov(struct net_iov *niov)
+static inline void net_devmem_net_iov_dec_ref(struct net_iov *niov)
 {
 }
 
@@ -163,6 +166,7 @@ net_devmem_bind_dmabuf(struct net_device *dev, void *vdev,
 		       unsigned int dmabuf_fd,
 		       unsigned int niov_shift,
 		       struct netdev_nl_sock *priv,
+		       const struct sock *nl_sk,
 		       struct netlink_ext_ack *extack)
 {
 	return ERR_PTR(-EOPNOTSUPP);

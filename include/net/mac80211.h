@@ -640,7 +640,6 @@ struct ieee80211_bss_npca_params {
  *	mode only, set if the AP advertises TWT responder role)
  * @twt_responder: does this BSS support TWT requester (relevant for managed
  *	mode only, set if the AP advertises TWT responder role)
- * @twt_protected: does this BSS support protected TWT frames
  * @twt_broadcast: does this BSS support broadcast TWT
  * @use_cts_prot: use CTS protection
  * @use_short_preamble: use 802.11b short preamble
@@ -812,7 +811,6 @@ struct ieee80211_bss_conf {
 	bool he_support;
 	bool twt_requester;
 	bool twt_responder;
-	bool twt_protected;
 	bool twt_broadcast;
 	/* erp related data */
 	bool use_cts_prot;
@@ -2728,6 +2726,7 @@ struct ieee80211_link_sta {
  * @spp_amsdu: indicates whether the STA uses SPP A-MSDU or not.
  * @epp_peer: indicates that the peer is an EPP peer.
  * @cip: indicates whether the STA uses control frame protection or not.
+ * @twt_protected: does this STA support protected TWT frames
  * @nmi: For NDI stations, pointer to the NMI station of the peer.
  * @nan_sched: NAN peer schedule for this station. Valid only for NMI stations.
  * @ext_mld_capa_ops: the MLD's extended MLD capabilities and operations
@@ -2750,6 +2749,7 @@ struct ieee80211_sta {
 	u16 eml_cap;
 
 	bool cip;
+	bool twt_protected;
 
 	struct ieee80211_sta_aggregates *cur;
 
@@ -4369,6 +4369,13 @@ struct ieee80211_prep_tx_info {
  *	Statistics that the driver doesn't fill will be filled by mac80211.
  *	The callback can sleep.
  *
+ * @sta_statistics_atomic: Like @sta_statistics, but called under RCU, so it
+ *	must be atomic. This is called instead of @sta_statistics if available,
+ *	but may return -EAGAIN to fall back to @sta_statistics with the wiphy
+ *	mutex held.
+ *	Note that it's not guaranteed this will always be called first, some
+ *	(internal) calls may call @sta_statistics directly.
+ *
  * @link_sta_statistics: Get link statistics for this station. For example with
  *	beacon filtering, the statistics kept by mac80211 might not be
  *	accurate, so let the driver pre-fill the statistics. The driver can
@@ -4377,6 +4384,9 @@ struct ieee80211_prep_tx_info {
  *	ones are possible.
  *	Statistics that the driver doesn't fill will be filled by mac80211.
  *	The callback can sleep.
+ *
+ * @link_sta_statistics_atomic: Like @link_sta_statistics, with the same
+ *	locking/retry semantics as @sta_statistics_atomic. Must be atomic.
  *
  * @conf_tx: Configure TX queue parameters (EDCF (aifs, cw_min, cw_max),
  *	bursting) for a hardware TX queue.
@@ -4586,6 +4596,9 @@ struct ieee80211_prep_tx_info {
  *	just "paused" for scanning/ROC, which is indicated by the beacon being
  *	disabled/enabled via @bss_info_changed.
  * @stop_ap: Stop operation on the AP interface.
+ * @update_beacon: Update the templates indicated by @changed (beacon, probe
+ *	response, FILS discovery and/or unsolicitated bcast probe response)
+ *	without the wiphy mutex held. This callback must not sleep.
  *
  * @reconfig_complete: Called after a call to ieee80211_restart_hw() and
  *	during resume, when the reconfiguration has completed.
@@ -4783,6 +4796,10 @@ struct ieee80211_ops {
 			struct ieee80211_bss_conf *link_conf);
 	void (*stop_ap)(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 			struct ieee80211_bss_conf *link_conf);
+	void (*update_beacon)(struct ieee80211_hw *hw,
+			      struct ieee80211_vif *vif,
+			      struct ieee80211_bss_conf *link_conf,
+			      u64 changed);
 
 	u64 (*prepare_multicast)(struct ieee80211_hw *hw,
 				 struct netdev_hw_addr_list *mc_list);
@@ -4876,6 +4893,10 @@ struct ieee80211_ops {
 			       struct ieee80211_vif *vif,
 			       struct ieee80211_sta *sta,
 			       struct station_info *sinfo);
+	int (*sta_statistics_atomic)(struct ieee80211_hw *hw,
+				     struct ieee80211_vif *vif,
+				     struct ieee80211_sta *sta,
+				     struct station_info *sinfo);
 	int (*conf_tx)(struct ieee80211_hw *hw,
 		       struct ieee80211_vif *vif,
 		       unsigned int link_id, u16 ac,
@@ -4891,6 +4912,10 @@ struct ieee80211_ops {
 				    struct ieee80211_vif *vif,
 				    struct ieee80211_link_sta *link_sta,
 				    struct link_station_info *link_sinfo);
+	int (*link_sta_statistics_atomic)(struct ieee80211_hw *hw,
+					  struct ieee80211_vif *vif,
+					  struct ieee80211_link_sta *link_sta,
+					  struct link_station_info *link_sinfo);
 
 	/**
 	 * @ampdu_action:
