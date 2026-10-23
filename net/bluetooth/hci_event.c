@@ -6041,6 +6041,28 @@ static void le_conn_complete_evt(struct hci_dev *hdev, u8 status,
 			hci_conn_put(params->conn);
 			params->conn = NULL;
 		}
+
+		/* An explicit connect request is complete once connected, so
+		 * clean it up here: hci_connect_le_scan_cleanup() no longer
+		 * finds the params since they have just been removed from
+		 * pend_le_conns.
+		 */
+		if (params->explicit_connect) {
+			params->explicit_connect = false;
+
+			switch (params->auto_connect) {
+			case HCI_AUTO_CONN_EXPLICIT:
+				hci_conn_params_del(hdev, &conn->dst,
+						    conn->dst_type);
+				break;
+			case HCI_AUTO_CONN_REPORT:
+				hci_pend_le_list_add(params,
+						     &hdev->pend_le_reports);
+				break;
+			default:
+				break;
+			}
+		}
 	}
 
 	/* If we are central and have subrate parameters stored, queue a
@@ -6610,6 +6632,17 @@ static void hci_le_adv_report_evt(struct hci_dev *hdev, void *data,
 			break;
 
 		hci_store_wake_reason(hdev, &info->bdaddr, info->bdaddr_type);
+
+		/* Broadcom ROM firmware (BCM4364B3 on Apple T2 Macs, no
+		 * patchram) sets vendor bits in the legacy Event_Type.
+		 */
+		if (hdev->manufacturer == 15 && info->type > LE_ADV_SCAN_RSP) {
+			/* 0x0f masks out upper vendor bits (0x10, 0x20, 0x80),
+			 * extracting the standard legacy advertising type
+			 * (0x00-0x04) stored in the low nibble (bits 0-3).
+			 */
+			info->type &= 0x0f;
+		}
 
 		if (info->length <= max_adv_len(hdev)) {
 			rssi = info->data[info->length];
