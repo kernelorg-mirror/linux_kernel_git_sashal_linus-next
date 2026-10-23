@@ -239,6 +239,16 @@
 #define RTL_PHYSR_MASTER			BIT(11)
 #define RTL_PHYSR_SPEED_MASK			(RTL_PHYSR_SPEEDL | RTL_PHYSR_SPEEDH)
 
+/* MDI-X control and status of the RTL8365MB-VC internal PHY. The resolved
+ * MDI-X state is reported in RTL_PHYSR; the configuration lives in a
+ * chip-specific control register. Both are only known to apply to this model.
+ * On this chip a set select/resolved bit means MDI, not MDI-X (measured).
+ */
+#define RTL8365MB_VC_PHYCR1			0x18
+#define RTL8365MB_VC_PHYCR1_MDIX_FORCE		BIT(9)
+#define RTL8365MB_VC_PHYCR1_MDI			BIT(8)
+#define RTL8365MB_VC_PHYSR_MDI			BIT(1)
+
 #define	RTL_MDIO_PCS_EEE_ABLE			0xa5c4
 #define	RTL_MDIO_AN_EEE_ADV			0xa5d0
 #define	RTL_MDIO_AN_EEE_LPABLE			0xa5d2
@@ -1389,7 +1399,7 @@ static int rtl821x_resume(struct phy_device *phydev)
 
 	msleep(20);
 
-	return 0;
+	return rtl8211f_config_rgmii_delay(phydev);
 }
 
 static int rtl8211f_resume(struct phy_device *phydev)
@@ -2710,10 +2720,35 @@ exit:
 	return ret;
 }
 
-static int rtl8224_mdi_config_order(struct phy_device *phydev)
+static int rtl8224_get_base_addr(struct phy_device *phydev, u32 *base_addr)
+{
+	struct device *dev = &phydev->mdio.dev;
+	struct device_node *np;
+	int ret;
+
+	*base_addr = phydev->mdio.addr & ~3;
+	np = of_get_parent(dev->of_node);
+	if (of_node_name_eq(np, "ethernet-phy-package")) {
+		ret = of_property_read_u32(np, "reg", base_addr);
+		of_node_put(np);
+		if (ret)
+			return dev_err_probe(dev, ret,
+					     "Missing or invalid PHY package reg\n");
+
+		if (phydev->mdio.addr < *base_addr ||
+		    phydev->mdio.addr - *base_addr >= 4)
+			return dev_err_probe(dev, -EINVAL,
+					     "PHY address outside RTL8224 package\n");
+	} else {
+		of_node_put(np);
+	}
+
+	return 0;
+}
+
+static int rtl8224_mdi_config_order(struct phy_device *phydev, u8 port_offset)
 {
 	struct device_node *np = phydev->mdio.dev.of_node;
-	u8 port_offset = phydev->mdio.addr & 3;
 	u32 order = 0;
 	int ret;
 
@@ -2735,10 +2770,10 @@ static int rtl8224_mdi_config_order(struct phy_device *phydev)
 					  order ? BIT(port_offset) : 0);
 }
 
-static int rtl8224_mdi_config_polarity(struct phy_device *phydev)
+static int rtl8224_mdi_config_polarity(struct phy_device *phydev, u8 port_offset)
 {
 	struct device_node *np = phydev->mdio.dev.of_node;
-	u8 offset = (phydev->mdio.addr & 3) * 4;
+	u8 offset = port_offset * 4;
 	u32 polarity = 0;
 	int ret;
 
@@ -2762,20 +2797,33 @@ static int rtl8224_mdi_config_polarity(struct phy_device *phydev)
 
 static int rtl8224_config_init(struct phy_device *phydev)
 {
+	u32 base_addr;
+	u8 port_offset;
 	int ret;
 
-	ret = rtl8224_mdi_config_order(phydev);
+	ret = rtl8224_get_base_addr(phydev, &base_addr);
 	if (ret)
 		return ret;
 
-	return rtl8224_mdi_config_polarity(phydev);
+	port_offset = phydev->mdio.addr - base_addr;
+	ret = rtl8224_mdi_config_order(phydev, port_offset);
+	if (ret)
+		return ret;
+
+	return rtl8224_mdi_config_polarity(phydev, port_offset);
 }
 
 static int rtl8224_probe(struct phy_device *phydev)
 {
-	/* Chip exposes 4 ports, join all of them in the same package */
-	return devm_phy_package_join(&phydev->mdio.dev, phydev,
-				     phydev->mdio.addr & ~3, 0);
+	struct device *dev = &phydev->mdio.dev;
+	u32 base_addr;
+	int ret;
+
+	ret = rtl8224_get_base_addr(phydev, &base_addr);
+	if (ret)
+		return ret;
+
+	return devm_phy_package_join(dev, phydev, base_addr, 0);
 }
 
 static bool rtlgen_supports_2_5gbps(struct phy_device *phydev)
@@ -3056,6 +3104,74 @@ static irqreturn_t rtl8221b_handle_interrupt(struct phy_device *phydev)
 	phy_trigger_machine(phydev);
 
 	return IRQ_HANDLED;
+}
+
+static int rtl8365mb_config_mdix(struct phy_device *phydev)
+{
+	u16 val;
+
+	switch (phydev->mdix_ctrl) {
+	case ETH_TP_MDI:
+		val = RTL8365MB_VC_PHYCR1_MDIX_FORCE |
+		      RTL8365MB_VC_PHYCR1_MDI;
+		break;
+	case ETH_TP_MDI_X:
+		val = RTL8365MB_VC_PHYCR1_MDIX_FORCE;
+		break;
+	case ETH_TP_MDI_AUTO:
+		val = 0;
+		break;
+	default:
+		/* Leave the hardware configuration alone until user space
+		 * asks for a specific mode.
+		 */
+		return 0;
+	}
+
+	return phy_modify_changed(phydev, RTL8365MB_VC_PHYCR1,
+				  RTL8365MB_VC_PHYCR1_MDIX_FORCE |
+				  RTL8365MB_VC_PHYCR1_MDI, val);
+}
+
+static int rtl8365mb_config_aneg(struct phy_device *phydev)
+{
+	int ret;
+
+	ret = rtl8365mb_config_mdix(phydev);
+	if (ret < 0)
+		return ret;
+
+	/* The pair assignment is only evaluated while the link is brought up,
+	 * so renegotiate if the crossover configuration changed.
+	 */
+	return __genphy_config_aneg(phydev, ret);
+}
+
+static int rtl8365mb_read_status(struct phy_device *phydev)
+{
+	int ret;
+
+	ret = phy_read(phydev, RTL8365MB_VC_PHYCR1);
+	if (ret < 0)
+		return ret;
+
+	if (ret & RTL8365MB_VC_PHYCR1_MDIX_FORCE) {
+		if (ret & RTL8365MB_VC_PHYCR1_MDI)
+			phydev->mdix_ctrl = ETH_TP_MDI;
+		else
+			phydev->mdix_ctrl = ETH_TP_MDI_X;
+	} else {
+		phydev->mdix_ctrl = ETH_TP_MDI_AUTO;
+	}
+
+	ret = phy_read(phydev, RTL_PHYSR);
+	if (ret < 0)
+		return ret;
+
+	phydev->mdix = (ret & RTL8365MB_VC_PHYSR_MDI) ? ETH_TP_MDI :
+							ETH_TP_MDI_X;
+
+	return genphy_read_status(phydev);
 }
 
 static struct phy_driver realtek_drvs[] = {
@@ -3354,6 +3470,8 @@ static struct phy_driver realtek_drvs[] = {
 		/* Interrupt handling analogous to RTL8366RB */
 		.config_intr	= genphy_no_config_intr,
 		.handle_interrupt = genphy_handle_interrupt_no_ack,
+		.config_aneg	= rtl8365mb_config_aneg,
+		.read_status	= rtl8365mb_read_status,
 		.suspend	= genphy_suspend,
 		.resume		= genphy_resume,
 	}, {

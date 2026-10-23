@@ -34,24 +34,6 @@ static struct net_bridge_vlan *br_vlan_lookup(struct rhashtable *tbl, u16 vid)
 	return rhashtable_lookup_fast(tbl, &vid, br_vlan_rht_params);
 }
 
-static void __vlan_add_pvid(struct net_bridge_vlan_group *vg,
-			    struct net_bridge_vlan *v)
-{
-	if (rcu_access_pointer(vg->pvid) == v)
-		return;
-
-	RCU_INIT_POINTER(vg->pvid, v);
-}
-
-static void __vlan_delete_pvid(struct net_bridge_vlan_group *vg,
-			       struct net_bridge_vlan *v)
-{
-	if (rcu_access_pointer(vg->pvid) != v)
-		return;
-
-	RCU_INIT_POINTER(vg->pvid, NULL);
-}
-
 /* Update the BRIDGE_VLAN_INFO_PVID and BRIDGE_VLAN_INFO_UNTAGGED flags of @v.
  * If @commit is false, return just whether the BRIDGE_VLAN_INFO_PVID and
  * BRIDGE_VLAN_INFO_UNTAGGED bits of @flags would produce any change onto @v.
@@ -78,10 +60,12 @@ static bool __vlan_flags_update(struct net_bridge_vlan *v, u16 flags,
 	if (!commit)
 		goto out;
 
-	if (flags & BRIDGE_VLAN_INFO_PVID)
-		__vlan_add_pvid(vg, v);
-	else
-		__vlan_delete_pvid(vg, v);
+	if (flags & BRIDGE_VLAN_INFO_PVID) {
+		if (pvid != v)
+			RCU_INIT_POINTER(vg->pvid, v);
+	} else if (pvid == v) {
+		RCU_INIT_POINTER(vg->pvid, NULL);
+	}
 
 	if (flags & BRIDGE_VLAN_INFO_UNTAGGED)
 		vlan_flags |= BRIDGE_VLAN_INFO_UNTAGGED;
@@ -429,22 +413,35 @@ out_filt:
 	goto out;
 }
 
-static void __vlan_del(struct net_bridge_vlan *v)
+static void __vlan_unpublish(struct net_bridge_vlan_group *vg,
+			     struct net_bridge_vlan *v)
+{
+	if (rcu_access_pointer(vg->pvid) == v)
+		RCU_INIT_POINTER(vg->pvid, NULL);
+	if (!br_vlan_is_master(v)) {
+		struct net_bridge_vlan *masterv = v->brvlan;
+
+		rhashtable_remove_fast(&vg->vlan_hash, &v->vnode,
+				       br_vlan_rht_params);
+		__vlan_del_list(v);
+		/* -1 because br_vlan_put_master() is called later */
+		br_vlan_rebuild_port_array(masterv,
+					   br_vlan_num_ports(masterv) - 1);
+	}
+}
+
+static void __vlan_del(struct net_bridge_vlan_group *vg,
+		       struct net_bridge_vlan *v)
 {
 	struct net_bridge_vlan *masterv = v;
-	struct net_bridge_vlan_group *vg;
 	struct net_bridge_port *p = NULL;
 	int err;
 
-	if (br_vlan_is_master(v)) {
-		vg = br_vlan_group(v->br);
-	} else {
+	if (!br_vlan_is_master(v)) {
 		p = v->port;
-		vg = nbp_vlan_group(v->port);
 		masterv = v->brvlan;
 	}
 
-	__vlan_delete_pvid(vg, v);
 	if (p) {
 		err = __vlan_vid_del(p->dev, p->br, v);
 		if (err)
@@ -467,12 +464,6 @@ static void __vlan_del(struct net_bridge_vlan *v)
 
 	if (masterv != v) {
 		vlan_tunnel_info_del(vg, v);
-		rhashtable_remove_fast(&vg->vlan_hash, &v->vnode,
-				       br_vlan_rht_params);
-		__vlan_del_list(v);
-		/* -1 because br_vlan_put_master() is called later */
-		br_vlan_rebuild_port_array(masterv,
-					   br_vlan_num_ports(masterv) - 1);
 		nbp_vlan_set_vlan_dev_state(p, v->vid);
 		br_multicast_toggle_one_vlan(v, false);
 		br_multicast_port_ctx_deinit(&v->port_mcast_ctx);
@@ -497,7 +488,7 @@ static void __vlan_flush(const struct net_bridge *br,
 	struct net_bridge_vlan *vlan, *tmp;
 	u16 v_start = 0, v_end = 0;
 
-	__vlan_delete_pvid(vg, rtnl_dereference(vg->pvid));
+	RCU_INIT_POINTER(vg->pvid, NULL);
 	list_for_each_entry_safe(vlan, tmp, &vg->vlan_list, vlist) {
 		/* take care of disjoint ranges */
 		if (!v_start) {
@@ -509,7 +500,8 @@ static void __vlan_flush(const struct net_bridge *br,
 		}
 		v_end = vlan->vid;
 
-		__vlan_del(vlan);
+		__vlan_unpublish(vg, vlan);
+		__vlan_del(vg, vlan);
 	}
 
 	/* notify about the last/whole vlan range */
@@ -583,13 +575,13 @@ out:
 /* Called under RCU */
 static bool __allowed_ingress(const struct net_bridge *br,
 			      struct net_bridge_vlan_group *vg,
-			      struct sk_buff *skb, u16 *vid,
-			      u8 *state,
+			      struct sk_buff *skb, u8 *state,
 			      struct net_bridge_vlan **vlan)
 {
 	struct pcpu_sw_netstats *stats;
 	struct net_bridge_vlan *v;
 	bool tagged;
+	u16 vid;
 
 	BR_INPUT_SKB_CB(skb)->vlan_filtered = true;
 	/* If vlan tx offload is disabled on bridge device and frame was
@@ -603,7 +595,7 @@ static bool __allowed_ingress(const struct net_bridge *br,
 			return false;
 	}
 
-	if (!br_vlan_get_tag(skb, vid)) {
+	if (!br_vlan_get_tag(skb, &vid)) {
 		/* Tagged frame */
 		if (skb->vlan_proto != br->vlan_proto) {
 			/* Protocol-mismatch, empty out vlan_tci for new tag */
@@ -615,7 +607,7 @@ static bool __allowed_ingress(const struct net_bridge *br,
 
 			skb_pull(skb, ETH_HLEN);
 			skb_reset_mac_len(skb);
-			*vid = 0;
+			vid = 0;
 			tagged = false;
 		} else {
 			tagged = true;
@@ -625,7 +617,7 @@ static bool __allowed_ingress(const struct net_bridge *br,
 		tagged = false;
 	}
 
-	if (!*vid) {
+	if (!vid) {
 		v = vg ? rcu_dereference(vg->pvid) : NULL;
 		/* Frame had a tag with VID 0 or did not have a tag.
 		 * See if pvid is set on this port.  That tells us which
@@ -637,7 +629,6 @@ static bool __allowed_ingress(const struct net_bridge *br,
 		/* PVID is set on this port.  Any untagged or priority-tagged
 		 * ingress frame is considered to belong to this vlan.
 		 */
-		*vid = v->vid;
 		if (likely(!tagged))
 			/* Untagged Frame. */
 			__vlan_hwaccel_put_tag(skb, br->vlan_proto, v->vid);
@@ -649,7 +640,7 @@ static bool __allowed_ingress(const struct net_bridge *br,
 			 */
 			skb->vlan_tci |= v->vid;
 	} else {
-		v = br_vlan_find(vg, *vid);
+		v = br_vlan_find(vg, vid);
 	}
 
 	if (!v || !br_vlan_should_use(v))
@@ -680,8 +671,7 @@ drop:
 
 bool br_allowed_ingress(const struct net_bridge *br,
 			struct net_bridge_vlan_group *vg, struct sk_buff *skb,
-			u16 *vid, u8 *state,
-			struct net_bridge_vlan **vlan)
+			u8 *state, struct net_bridge_vlan **vlan)
 {
 	/* If VLAN filtering is disabled on the bridge, all packets are
 	 * permitted.
@@ -692,7 +682,7 @@ bool br_allowed_ingress(const struct net_bridge *br,
 		return true;
 	}
 
-	return __allowed_ingress(br, vg, skb, vid, state, vlan);
+	return __allowed_ingress(br, vg, skb, state, vlan);
 }
 
 /* Called under RCU. */
@@ -716,11 +706,15 @@ bool br_allowed_egress(struct net_bridge_vlan_group *vg,
 }
 
 /* Called under RCU */
-bool br_should_learn(struct net_bridge_port *p, struct sk_buff *skb, u16 *vid)
+bool br_should_learn(struct net_bridge_port *p, struct sk_buff *skb,
+		     struct net_bridge_vlan **vlan)
 {
 	struct net_bridge_vlan_group *vg;
 	struct net_bridge *br = p->br;
 	struct net_bridge_vlan *v;
+	u16 vid;
+
+	*vlan = NULL;
 
 	/* If filtering was disabled at input, let it pass. */
 	if (!br_opt_get(br, BROPT_VLAN_ENABLED))
@@ -730,22 +724,19 @@ bool br_should_learn(struct net_bridge_port *p, struct sk_buff *skb, u16 *vid)
 	if (!vg || !READ_ONCE(vg->num_vlans))
 		return false;
 
-	if (!br_vlan_get_tag(skb, vid) && skb->vlan_proto != br->vlan_proto)
-		*vid = 0;
+	if (!br_vlan_get_tag(skb, &vid) && skb->vlan_proto != br->vlan_proto)
+		vid = 0;
 
-	if (!*vid) {
+	if (vid)
+		v = br_vlan_find(vg, vid);
+	else
 		v = rcu_dereference(vg->pvid);
-		if (!v || !br_vlan_state_allowed(br_vlan_get_state(v), true))
-			return false;
-		*vid = v->vid;
-		return true;
-	}
 
-	v = br_vlan_find(vg, *vid);
-	if (v && br_vlan_state_allowed(br_vlan_get_state(v), true))
-		return true;
+	if (!v || !br_vlan_state_allowed(br_vlan_get_state(v), true))
+		return false;
 
-	return false;
+	*vlan = v;
+	return true;
 }
 
 static int br_vlan_add_existing(struct net_bridge *br,
@@ -866,10 +857,11 @@ int br_vlan_delete(struct net_bridge *br, u16 vid)
 		return -ENOENT;
 
 	br_fdb_find_delete_local(br, NULL, br->dev->dev_addr, vid);
-	br_fdb_delete_by_port(br, NULL, vid, 0);
+	br_fdb_cleanup_by_dst(br, br_port_to_dst(NULL), vid, 0);
 
 	vlan_tunnel_info_del(vg, v);
-	__vlan_del(v);
+	__vlan_unpublish(vg, v);
+	__vlan_del(vg, v);
 
 	return 0;
 }
@@ -1385,30 +1377,41 @@ int nbp_vlan_add(struct net_bridge_port *port, u16 vid, u16 flags,
  */
 int nbp_vlan_delete(struct net_bridge_port *port, u16 vid)
 {
+	struct net_bridge_vlan_group *vg;
 	struct net_bridge_vlan *v;
 
 	ASSERT_RTNL();
 
-	v = br_vlan_find(nbp_vlan_group(port), vid);
+	vg = nbp_vlan_group(port);
+	v = br_vlan_find(vg, vid);
 	if (!v)
 		return -ENOENT;
-	br_fdb_find_delete_local(port->br, port, port->dev->dev_addr, vid);
-	br_fdb_delete_by_port(port->br, port, vid, 0);
-	__vlan_del(v);
+	__vlan_unpublish(vg, v);
+	synchronize_net();
+	/* Traffic may still use v through cached fdb dsts until they are
+	 * cleaned below. This is acceptable during vlan deletion. Above we
+	 * drain the readers that could republish the dst before cleaning it
+	 */
+	br_fdb_cleanup_by_dst(port->br, br_vlan_to_dst(v), vid, 0);
+	__vlan_del(vg, v);
 
 	return 0;
 }
 
-void nbp_vlan_flush(struct net_bridge_port *port)
+void nbp_vlan_group_unpublish(struct net_bridge_port *port)
 {
-	struct net_bridge_vlan_group *vg;
-
 	ASSERT_RTNL();
 
-	vg = nbp_vlan_group(port);
-	__vlan_flush(port->br, port, vg);
 	RCU_INIT_POINTER(port->vlgrp, NULL);
 	synchronize_net();
+}
+
+void nbp_vlan_flush(struct net_bridge_port *port,
+		    struct net_bridge_vlan_group *vg)
+{
+	ASSERT_RTNL();
+
+	__vlan_flush(port->br, port, vg);
 	__vlan_group_free(vg);
 }
 

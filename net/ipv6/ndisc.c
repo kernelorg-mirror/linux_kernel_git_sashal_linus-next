@@ -947,8 +947,12 @@ have_ifp:
 	 *	update / create cache entry
 	 *	for the source address
 	 */
-	neigh = __neigh_lookup(tbl, saddr, dev,
-			       !inc || lladdr || !dev->addr_len);
+	neigh = ipv6_neigh_lookup(dev, saddr);
+	if (!neigh && (!inc || lladdr || !dev->addr_len)) {
+		neigh = ipv6_neigh_create(dev, saddr);
+		if (IS_ERR(neigh))
+			neigh = NULL;
+	}
 	if (neigh)
 		ndisc_update(dev, neigh, lladdr, NUD_STALE,
 			     NEIGH_UPDATE_F_WEAK_OVERRIDE|
@@ -973,13 +977,13 @@ out:
 static int accept_untracked_na(struct inet6_dev *idev, struct in6_addr *saddr)
 {
 	switch (READ_ONCE(idev->cnf.accept_untracked_na)) {
-	case 0: /* Don't accept untracked na (absent in neighbor cache) */
+	case 0: /* Don't accept untracked NA (absent or FAILED) */
 		return 0;
-	case 1: /* Create new entries from na if currently untracked */
+	case 1: /* Create new or update FAILED entries from NA */
 		return 1;
-	case 2: /* Create new entries from untracked na only if saddr is in the
+	case 2: /* Create new or update FAILED entries only if saddr is in the
 		 * same subnet as an address configured on the interface that
-		 * received the na
+		 * received the NA
 		 */
 		return !!ipv6_chk_prefix(saddr, idev->dev);
 	default:
@@ -998,7 +1002,6 @@ static enum skb_drop_reason ndisc_recv_na(struct sk_buff *skb)
 	struct net *net = dev_net(dev);
 	struct ndisc_options ndopts;
 	struct inet6_ifaddr *ifp;
-	struct neigh_table *tbl;
 	struct neighbour *neigh;
 	struct inet6_dev *idev;
 	u8 *lladdr = NULL;
@@ -1063,37 +1066,41 @@ static enum skb_drop_reason ndisc_recv_na(struct sk_buff *skb)
 		return reason;
 	}
 
-	tbl = nd_table(net);
-	neigh = neigh_lookup(tbl, &msg->target, dev);
+	neigh = ipv6_neigh_lookup(dev, &msg->target);
 
 	/* RFC 9131 updates original Neighbour Discovery RFC 4861.
-	 * NAs with Target LL Address option without a corresponding
-	 * entry in the neighbour cache can now create a STALE neighbour
-	 * cache entry on routers.
+	 * NAs with Target LL Address option can now create a STALE neighbor
+	 * cache entry on routers if the NA does not have a corresponding entry
+	 * in the neighbour cache or has a corresponding FAILED entry.
 	 *
-	 *   entry accept  fwding  solicited        behaviour
-	 * ------- ------  ------  ---------    ----------------------
-	 * present      X       X         0     Set state to STALE
-	 * present      X       X         1     Set state to REACHABLE
-	 *  absent      0       X         X     Do nothing
-	 *  absent      1       0         X     Do nothing
-	 *  absent      1       1         X     Add a new STALE entry
+	 *       entry accept  fwding  solicited        behaviour
+	 * ----------- ------  ------  ---------    ----------------------
+	 *  non-FAILED      X       X         0     Set state to STALE
+	 *  non-FAILED      X       X         1     Set state to REACHABLE
+	 *      FAILED      0       X         X     Do nothing
+	 *      FAILED      1       0         X     Do nothing
+	 *      FAILED      1       1         X     Set state to STALE
+	 *      absent      0       X         X     Do nothing
+	 *      absent      1       0         X     Do nothing
+	 *      absent      1       1         X     Add a new STALE entry
 	 *
 	 * Note that we don't do a (daddr == all-routers-mcast) check.
 	 */
 	new_state = msg->icmph.icmp6_solicited ? NUD_REACHABLE : NUD_STALE;
-	if (!neigh && lladdr && idev && READ_ONCE(idev->cnf.forwarding)) {
-		if (accept_untracked_na(idev, saddr)) {
-			neigh = neigh_create(tbl, &msg->target, dev);
-			new_state = NUD_STALE;
+	if (!neigh || (READ_ONCE(neigh->nud_state) & NUD_FAILED)) {
+		if (!lladdr || !idev || !READ_ONCE(idev->cnf.forwarding) ||
+		    !accept_untracked_na(idev, saddr)) {
+			if (neigh)
+				neigh_release(neigh);
+			return reason;
 		}
+		if (!neigh)
+			neigh = ipv6_neigh_create(dev, &msg->target);
+		new_state = NUD_STALE;
 	}
 
 	if (neigh && !IS_ERR(neigh)) {
 		u8 old_flags = neigh->flags;
-
-		if (READ_ONCE(neigh->nud_state) & NUD_FAILED)
-			goto out;
 
 		/*
 		 * Don't update the neighbor cache entry on a proxy NA from
@@ -1103,7 +1110,7 @@ static enum skb_drop_reason ndisc_recv_na(struct sk_buff *skb)
 		if (lladdr && !memcmp(lladdr, dev->dev_addr, dev->addr_len) &&
 		    READ_ONCE(net->ipv6.devconf_all->forwarding) &&
 		    READ_ONCE(net->ipv6.devconf_all->proxy_ndp) &&
-		    pneigh_lookup(tbl, &msg->target, dev)) {
+		    pneigh_lookup(nd_table(dev_net(dev)), &msg->target, dev)) {
 			/* XXX: idev->cnf.proxy_ndp */
 			goto out;
 		}
@@ -1136,7 +1143,6 @@ static enum skb_drop_reason ndisc_recv_rs(struct sk_buff *skb)
 	unsigned long ndoptlen = skb->len - sizeof(*rs_msg);
 	struct net_device *dev = skb->dev;
 	struct ndisc_options ndopts;
-	struct neigh_table *tbl;
 	struct neighbour *neigh;
 	struct inet6_dev *idev;
 	u8 *lladdr = NULL;
@@ -1172,8 +1178,12 @@ static enum skb_drop_reason ndisc_recv_rs(struct sk_buff *skb)
 			goto out;
 	}
 
-	tbl = nd_table(dev_net(dev));
-	neigh = __neigh_lookup(tbl, saddr, dev, 1);
+	neigh = ipv6_neigh_lookup(dev, saddr);
+	if (!neigh) {
+		neigh = ipv6_neigh_create(dev, saddr);
+		if (IS_ERR(neigh))
+			goto out;
+	}
 	if (neigh) {
 		ndisc_update(dev, neigh, lladdr, NUD_STALE,
 			     NEIGH_UPDATE_F_WEAK_OVERRIDE|
@@ -1354,9 +1364,9 @@ static enum skb_drop_reason ndisc_router_discovery(struct sk_buff *skb)
 	/* routes added from RAs do not use nexthop objects */
 	rt = rt6_get_dflt_router(net, &ipv6_hdr(skb)->saddr, skb->dev);
 	if (rt) {
-		neigh = ip6_neigh_lookup(&rt->fib6_nh->fib_nh_gw6,
-					 rt->fib6_nh->fib_nh_dev, NULL,
-					  &ipv6_hdr(skb)->saddr);
+		neigh = __ip6_dst_neigh_lookup(&rt->fib6_nh->fib_nh_gw6,
+					       rt->fib6_nh->fib_nh_dev, NULL,
+					       &ipv6_hdr(skb)->saddr);
 		if (!neigh) {
 			net_err_ratelimited("RA: %s got default router without neighbour\n",
 					    __func__);
@@ -1390,9 +1400,9 @@ static enum skb_drop_reason ndisc_router_discovery(struct sk_buff *skb)
 			return reason;
 		}
 
-		neigh = ip6_neigh_lookup(&rt->fib6_nh->fib_nh_gw6,
-					 rt->fib6_nh->fib_nh_dev, NULL,
-					  &ipv6_hdr(skb)->saddr);
+		neigh = __ip6_dst_neigh_lookup(&rt->fib6_nh->fib_nh_gw6,
+					       rt->fib6_nh->fib_nh_dev, NULL,
+					       &ipv6_hdr(skb)->saddr);
 		if (!neigh) {
 			net_err_ratelimited("RA: %s got default router without neighbour\n",
 					    __func__);
@@ -1473,9 +1483,14 @@ skip_linkparms:
 	 *	Process options.
 	 */
 
-	if (!neigh)
-		neigh = __neigh_lookup(nd_table(net), &ipv6_hdr(skb)->saddr,
-				       skb->dev, 1);
+	if (!neigh) {
+		neigh = ipv6_neigh_lookup(skb->dev, &ipv6_hdr(skb)->saddr);
+		if (!neigh) {
+			neigh = ipv6_neigh_create(skb->dev, &ipv6_hdr(skb)->saddr);
+			if (IS_ERR(neigh))
+				neigh = NULL;
+		}
+	}
 	if (neigh) {
 		u8 *lladdr = NULL;
 		if (ndopts.nd_opts_src_lladdr) {

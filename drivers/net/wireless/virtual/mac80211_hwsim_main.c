@@ -1133,6 +1133,8 @@ static ssize_t hwsim_background_cac_write(struct file *file,
 	if (copy_from_user(buf, user_buf, count))
 		return -EFAULT;
 
+	guard(wiphy)(data->hw->wiphy);
+
 	/* Check if background radar channel is configured */
 	if (!data->radar_background_chandef.chan)
 		return -ENOENT;
@@ -1150,6 +1152,7 @@ static ssize_t hwsim_background_cac_write(struct file *file,
 }
 
 static const struct file_operations hwsim_background_cac_ops = {
+	.owner = THIS_MODULE,
 	.write = hwsim_background_cac_write,
 	.open = simple_open,
 	.llseek = default_llseek,
@@ -1210,6 +1213,7 @@ static ssize_t hwsim_simulate_incumbent_signal_write(struct file *file,
 }
 
 static const struct file_operations hwsim_simulate_incumbent_signal_fops = {
+	.owner	= THIS_MODULE,
 	.open	= simple_open,
 	.write	= hwsim_simulate_incumbent_signal_write,
 };
@@ -1775,6 +1779,7 @@ struct tx_iter_data {
 	struct ieee80211_channel *channel;
 	struct ieee80211_rx_status *rx_status;
 	struct ieee80211_hw *hw;
+	struct sk_buff *skb;
 	bool receive;
 };
 
@@ -1787,6 +1792,7 @@ static void mac80211_hwsim_tx_iter(void *_data, u8 *addr,
 	if (vif->type == NL80211_IFTYPE_NAN ||
 	    vif->type == NL80211_IFTYPE_NAN_DATA) {
 		data->receive = mac80211_hwsim_nan_receive(data->hw,
+							   data->skb,
 							   data->channel,
 							   data->rx_status);
 		return;
@@ -1968,6 +1974,7 @@ static bool mac80211_hwsim_tx_frame_no_nl(struct ieee80211_hw *hw,
 			.hw = data2->hw,
 			.channel = chan,
 			.rx_status = &rx_status,
+			.skb = skb,
 		};
 
 		if (data == data2)
@@ -5650,6 +5657,14 @@ static void mac80211_hwsim_sband_capab(struct ieee80211_supported_band *sband)
 	 BIT(NL80211_IFTYPE_MESH_POINT) | \
 	 BIT(NL80211_IFTYPE_OCB))
 
+static const u8 iftypes_ext_capa[] = {
+	 [0] = WLAN_EXT_CAPA1_EXT_CHANNEL_SWITCHING,
+	 [2] = WLAN_EXT_CAPA3_MULTI_BSSID_SUPPORT,
+	 [7] = WLAN_EXT_CAPA8_OPMODE_NOTIF |
+	       WLAN_EXT_CAPA8_MAX_MSDU_IN_AMSDU_LSB,
+	 [8] = WLAN_EXT_CAPA9_MAX_MSDU_IN_AMSDU_MSB,
+};
+
 static const u8 iftypes_ext_capa_ap[] = {
 	 [0] = WLAN_EXT_CAPA1_EXT_CHANNEL_SWITCHING,
 	 [2] = WLAN_EXT_CAPA3_MULTI_BSSID_SUPPORT,
@@ -5674,6 +5689,33 @@ static const struct wiphy_iftype_ext_capab mac80211_hwsim_iftypes_ext_capa[] = {
 		.eml_capabilities = IEEE80211_EML_CAP_EMLSR_SUPP |
 				    IEEE80211_EML_CAP_EMLMR_SUPPORT,
 		.mld_capa_and_ops = MAC80211_HWSIM_MLD_CAPA_OPS,
+		/* CIP works as hwsim does not have control frames */
+		.cip_supported = true,
+		.cip_capabilities = 0,
+	},
+	{
+		.iftype = NL80211_IFTYPE_STATION,
+		.extended_capabilities = iftypes_ext_capa,
+		.extended_capabilities_mask = iftypes_ext_capa,
+		.extended_capabilities_len = sizeof(iftypes_ext_capa),
+		.cip_supported = true,
+		.cip_capabilities = 0,
+	},
+	{
+		.iftype = NL80211_IFTYPE_P2P_CLIENT,
+		.extended_capabilities = iftypes_ext_capa,
+		.extended_capabilities_mask = iftypes_ext_capa,
+		.extended_capabilities_len = sizeof(iftypes_ext_capa),
+		.cip_supported = true,
+		.cip_capabilities = 0,
+	},
+	{
+		.iftype = NL80211_IFTYPE_P2P_GO,
+		.extended_capabilities = iftypes_ext_capa,
+		.extended_capabilities_mask = iftypes_ext_capa,
+		.extended_capabilities_len = sizeof(iftypes_ext_capa),
+		.cip_supported = true,
+		.cip_capabilities = 0,
 	},
 };
 
@@ -5708,9 +5750,6 @@ static int mac80211_hwsim_new_radio(struct genl_info *info,
 		err = -ENOMEM;
 		goto failed;
 	}
-
-	/* ieee80211_alloc_hw_nm may have used a default name */
-	param->hwname = wiphy_name(hw->wiphy);
 
 	if (info)
 		net = genl_info_net(info);
@@ -5806,7 +5845,8 @@ static int mac80211_hwsim_new_radio(struct genl_info *info,
 						 BIT(NL80211_BAND_5GHZ);
 
 		hw->wiphy->nan_capa.flags = WIPHY_NAN_FLAGS_CONFIGURABLE_SYNC |
-					    WIPHY_NAN_FLAGS_USERSPACE_DE;
+					    WIPHY_NAN_FLAGS_USERSPACE_DE |
+					    WIPHY_NAN_FLAGS_INSTANT_COMM;
 		hw->wiphy->nan_capa.op_mode = NAN_OP_MODE_PHY_MODE_MASK |
 					      NAN_OP_MODE_80P80MHZ |
 					      NAN_OP_MODE_160MHZ;
@@ -5907,6 +5947,7 @@ static int mac80211_hwsim_new_radio(struct genl_info *info,
 
 	hw->queues = 5;
 	hw->offchannel_tx_hw_queue = 4;
+	hw->extra_tx_headroom = IEEE80211_CCMP_HDR_LEN;
 
 	ieee80211_hw_set(hw, SUPPORT_FAST_XMIT);
 	ieee80211_hw_set(hw, CHANCTX_STA_CSA);
@@ -5973,6 +6014,7 @@ static int mac80211_hwsim_new_radio(struct genl_info *info,
 			      NL80211_EXT_FEATURE_EXT_KEY_ID);
 	wiphy_ext_feature_set(hw->wiphy,
 			      NL80211_EXT_FEATURE_ASSOC_FRAME_ENCRYPTION);
+	wiphy_ext_feature_set(hw->wiphy, NL80211_EXT_FEATURE_UPDATE_BEACON);
 
 	hw->wiphy->interface_modes = param->iftypes;
 
@@ -6195,6 +6237,9 @@ static int mac80211_hwsim_new_radio(struct genl_info *info,
 	list_add_tail(&data->list, &hwsim_radios);
 	hwsim_radios_generation++;
 	spin_unlock_bh(&hwsim_radio_lock);
+
+	/* alloc/register can change the name, we want the right one */
+	param->hwname = wiphy_name(hw->wiphy);
 
 	hwsim_mcast_new_radio(idx, wiphy_net(data->hw->wiphy), info, param);
 
@@ -6608,6 +6653,7 @@ static int hwsim_cloned_frame_received_nl(struct sk_buff *skb_2,
 		struct tx_iter_data iter_data = {
 			.hw = data2->hw,
 			.rx_status = &rx_status,
+			.skb = skb,
 		};
 
 		/* throw away off-channel packets, but allow both the temporary
