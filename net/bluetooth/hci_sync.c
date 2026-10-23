@@ -2448,15 +2448,17 @@ static int hci_le_del_resolve_list_sync(struct hci_dev *hdev,
 					bdaddr_t *bdaddr, u8 bdaddr_type)
 {
 	struct hci_cp_le_del_from_resolv_list cp;
-	struct bdaddr_list_with_irk *entry;
+	bool exists;
 
 	if (!ll_privacy_capable(hdev))
 		return 0;
 
 	/* Check if the IRK has been programmed */
-	entry = hci_bdaddr_list_lookup_with_irk(&hdev->le_resolv_list, bdaddr,
-						bdaddr_type);
-	if (!entry)
+	hci_dev_lock(hdev);
+	exists = hci_bdaddr_list_lookup_with_irk(&hdev->le_resolv_list,
+						 bdaddr, bdaddr_type);
+	hci_dev_unlock(hdev);
+	if (!exists)
 		return 0;
 
 	cp.bdaddr_type = bdaddr_type;
@@ -2512,8 +2514,8 @@ static int hci_le_add_resolve_list_sync(struct hci_dev *hdev,
 {
 	struct hci_cp_le_add_to_resolv_list cp;
 	struct smp_irk *irk;
-	struct bdaddr_list_with_irk *entry;
 	struct hci_conn_params *p;
+	bool exists;
 
 	if (!ll_privacy_capable(hdev))
 		return 0;
@@ -2536,10 +2538,11 @@ static int hci_le_add_resolve_list_sync(struct hci_dev *hdev,
 		return 0;
 
 	/* Check if the IK has _not_ been programmed yet. */
-	entry = hci_bdaddr_list_lookup_with_irk(&hdev->le_resolv_list,
-						&params->addr,
-						params->addr_type);
-	if (entry)
+	hci_dev_lock(hdev);
+	exists = hci_bdaddr_list_lookup_with_irk(
+		&hdev->le_resolv_list, &params->addr, params->addr_type);
+	hci_dev_unlock(hdev);
+	if (exists)
 		return 0;
 
 	cp.bdaddr_type = params->addr_type;
@@ -2885,6 +2888,31 @@ static struct conn_params *conn_params_copy(struct list_head *list, size_t *n)
 	return p;
 }
 
+static struct conn_params *le_accept_list_copy(struct hci_dev *hdev,
+					       size_t *n)
+{
+	struct bdaddr_list *entry;
+	struct conn_params *params;
+	size_t i = 0;
+
+	hci_dev_lock(hdev);
+
+	*n = list_count_nodes(&hdev->le_accept_list);
+	params = kvzalloc_objs(struct conn_params, *n);
+	if (!params)
+		goto unlock;
+
+	list_for_each_entry(entry, &hdev->le_accept_list, list) {
+		bacpy(&params[i].addr, &entry->bdaddr);
+		params[i].addr_type = entry->bdaddr_type;
+		i++;
+	}
+
+unlock:
+	hci_dev_unlock(hdev);
+	return params;
+}
+
 /* Clear LE Accept List */
 static int hci_le_clear_accept_list_sync(struct hci_dev *hdev)
 {
@@ -2915,7 +2943,6 @@ static int hci_le_clear_accept_list_sync(struct hci_dev *hdev)
 static u8 hci_update_accept_list_sync(struct hci_dev *hdev)
 {
 	struct conn_params *params;
-	struct bdaddr_list *b, *t;
 	u8 num_entries = 0;
 	bool pend_conn, pend_report;
 	u8 filter_policy;
@@ -2980,20 +3007,27 @@ static u8 hci_update_accept_list_sync(struct hci_dev *hdev)
 	 * report. If not present in either list, then remove it from
 	 * the controller.
 	 */
-	list_for_each_entry_safe(b, t, &hdev->le_accept_list, list) {
+	params = le_accept_list_copy(hdev, &n);
+	if (!params) {
+		err = -ENOMEM;
+		goto done;
+	}
+
+	for (i = 0; i < n; i++) {
 		rcu_read_lock();
 
-		if (hci_conn_hash_lookup_le(hdev, &b->bdaddr, b->bdaddr_type)) {
+		if (hci_conn_hash_lookup_le(hdev, &params[i].addr,
+					    params[i].addr_type)) {
 			rcu_read_unlock();
 			continue;
 		}
 
 		pend_conn = hci_pend_le_action_lookup(&hdev->pend_le_conns,
-						      &b->bdaddr,
-						      b->bdaddr_type);
-		pend_report = hci_pend_le_action_lookup(&hdev->pend_le_reports,
-							&b->bdaddr,
-							b->bdaddr_type);
+						      &params[i].addr,
+						      params[i].addr_type);
+		pend_report = hci_pend_le_action_lookup(
+			&hdev->pend_le_reports, &params[i].addr,
+			params[i].addr_type);
 
 		rcu_read_unlock();
 
@@ -3001,13 +3035,15 @@ static u8 hci_update_accept_list_sync(struct hci_dev *hdev)
 		 * remove it from the acceptlist.
 		 */
 		if (!pend_conn && !pend_report) {
-			hci_le_del_accept_list_sync(hdev, &b->bdaddr,
-						    b->bdaddr_type);
+			hci_le_del_accept_list_sync(hdev, &params[i].addr,
+						    params[i].addr_type);
 			continue;
 		}
 
 		num_entries++;
 	}
+
+	kvfree(params);
 
 	/* Since all no longer valid accept list entries have been
 	 * removed, walk through the list of pending connections
@@ -3511,9 +3547,13 @@ int hci_write_ssp_mode_sync(struct hci_dev *hdev, u8 mode)
 	return hci_write_sc_support_sync(hdev, 0x01);
 }
 
+static int hci_le_set_host_feature_sync(struct hci_dev *hdev, u16 bit,
+					u8 value);
+
 int hci_write_le_host_supported_sync(struct hci_dev *hdev, u8 le, u8 simul)
 {
 	struct hci_cp_write_le_host_supported cp;
+	int err;
 
 	if (!hci_dev_test_flag(hdev, HCI_LE_ENABLED) ||
 	    !lmp_bredr_capable(hdev))
@@ -3531,8 +3571,16 @@ int hci_write_le_host_supported_sync(struct hci_dev *hdev, u8 le, u8 simul)
 	cp.le = le;
 	cp.simul = simul;
 
-	return __hci_cmd_sync_status(hdev, HCI_OP_WRITE_LE_HOST_SUPPORTED,
-				     sizeof(cp), &cp, HCI_CMD_TIMEOUT);
+	err = __hci_cmd_sync_status(hdev, HCI_OP_WRITE_LE_HOST_SUPPORTED,
+				    sizeof(cp), &cp, HCI_CMD_TIMEOUT);
+	if (err || !cis_capable(hdev))
+		return err;
+
+	/* The CIS host feature is set during init based on LE being enabled,
+	 * which is not repeated when LE is enabled afterwards, e.g. while the
+	 * controller is still auto powered on, so update it here.
+	 */
+	return hci_le_set_host_feature_sync(hdev, 32, iso_enabled(hdev));
 }
 
 static int hci_powered_update_adv_sync(struct hci_dev *hdev)
@@ -5667,6 +5715,11 @@ int hci_dev_close_sync(struct hci_dev *hdev)
 		return err;
 	}
 
+	/* Wait for hci_recv_frame() callers that still saw HCI_UP, so that
+	 * none of them queues rx_work while the workqueue is drained below.
+	 */
+	synchronize_rcu();
+
 	hci_leds_update_powered(hdev, false);
 
 	/* Flush RX and TX works */
@@ -5943,11 +5996,11 @@ static int hci_le_connect_cancel_sync(struct hci_dev *hdev,
 	/* Return reason if scanning since the connection shall probably be
 	 * cleanup directly.
 	 */
-	if (test_bit(HCI_CONN_SCANNING, &conn->flags))
+	if (test_bit(HCI_CONN_SCANNING, conn->flags))
 		return reason;
 
 	if (conn->role == HCI_ROLE_SLAVE ||
-	    test_and_set_bit(HCI_CONN_CANCEL, &conn->flags))
+	    test_and_set_bit(HCI_CONN_CANCEL, conn->flags))
 		return 0;
 
 	return __hci_cmd_sync_status(hdev, HCI_OP_LE_CREATE_CONN_CANCEL,
@@ -5969,7 +6022,7 @@ static int hci_connect_cancel_sync(struct hci_dev *hdev, struct hci_conn *conn,
 		 * then an HCI_LE_CIS_Established event shall also be sent for
 		 * this CIS with the Status Operation Cancelled by Host (0x44).
 		 */
-		if (test_bit(HCI_CONN_CREATE_CIS, &conn->flags))
+		if (test_bit(HCI_CONN_CREATE_CIS, conn->flags))
 			return hci_disconnect_sync(hdev, conn, reason);
 
 		/* CIS with no Create CIS sent have nothing to cancel */
@@ -6967,7 +7020,7 @@ static int hci_le_create_conn_sync(struct hci_dev *hdev, void *data)
 
 	bt_dev_dbg(hdev, "conn %p", conn);
 
-	clear_bit(HCI_CONN_SCANNING, &conn->flags);
+	clear_bit(HCI_CONN_SCANNING, conn->flags);
 	conn->state = BT_CONNECT;
 
 	/* If requested to connect as peripheral use directed advertising */
@@ -7034,7 +7087,7 @@ static int hci_le_create_conn_sync(struct hci_dev *hdev, void *data)
 	/* Mark create connection in flight so hci_cancel_connect_sync() can
 	 * cancel it while blocking on the connection complete event.
 	 */
-	set_bit(HCI_CONN_CREATE, &conn->flags);
+	set_bit(HCI_CONN_CREATE, conn->flags);
 
 	/* Send command LE Extended Create Connection if supported */
 	if (use_ext_conn(hdev)) {
@@ -7071,7 +7124,7 @@ static int hci_le_create_conn_sync(struct hci_dev *hdev, void *data)
 				       conn->conn_timeout, NULL);
 
 done:
-	clear_bit(HCI_CONN_CREATE, &conn->flags);
+	clear_bit(HCI_CONN_CREATE, conn->flags);
 
 	if (err == -ETIMEDOUT)
 		hci_le_connect_cancel_sync(hdev, conn, 0x00);
@@ -7118,7 +7171,7 @@ int hci_le_create_cis_sync(struct hci_dev *hdev)
 
 	/* Wait until previous Create CIS has completed */
 	list_for_each_entry_rcu(conn, &hdev->conn_hash.list, list) {
-		if (test_bit(HCI_CONN_CREATE_CIS, &conn->flags))
+		if (test_bit(HCI_CONN_CREATE_CIS, conn->flags))
 			goto done;
 	}
 
@@ -7154,7 +7207,7 @@ int hci_le_create_cis_sync(struct hci_dev *hdev)
 		    conn->iso_qos.ucast.cig != cig)
 			continue;
 
-		set_bit(HCI_CONN_CREATE_CIS, &conn->flags);
+		set_bit(HCI_CONN_CREATE_CIS, conn->flags);
 		cis->acl_handle = cpu_to_le16(conn->parent->handle);
 		cis->cis_handle = cpu_to_le16(conn->handle);
 		timeout = conn->conn_timeout;
@@ -7357,14 +7410,14 @@ static int hci_acl_create_conn_sync(struct hci_dev *hdev, void *data)
 	/* Mark create connection in flight so hci_cancel_connect_sync() can
 	 * cancel it while blocking on the connection complete event.
 	 */
-	set_bit(HCI_CONN_CREATE, &conn->flags);
+	set_bit(HCI_CONN_CREATE, conn->flags);
 
 	err = __hci_cmd_sync_status_sk(hdev, HCI_OP_CREATE_CONN,
 				       sizeof(cp), &cp,
 				       HCI_EV_CONN_COMPLETE,
 				       conn->conn_timeout, NULL);
 
-	clear_bit(HCI_CONN_CREATE, &conn->flags);
+	clear_bit(HCI_CONN_CREATE, conn->flags);
 
 	return err;
 }
@@ -7453,7 +7506,7 @@ static int hci_acl_cancel_create_conn_sync(struct hci_dev *hdev,
 	mutex_lock(&hdev->cmd_sync_work_lock);
 
 	/* In flight: this connection owns the pending request, cancel it. */
-	if (test_bit(HCI_CONN_CREATE, &conn->flags)) {
+	if (test_bit(HCI_CONN_CREATE, conn->flags)) {
 		hci_cmd_sync_cancel(hdev, ECANCELED);
 		goto unlock;
 	}
@@ -7484,7 +7537,7 @@ static int hci_le_cancel_create_conn_sync(struct hci_dev *hdev,
 	 */
 	mutex_lock(&hdev->cmd_sync_work_lock);
 
-	if (test_bit(HCI_CONN_CREATE, &conn->flags)) {
+	if (test_bit(HCI_CONN_CREATE, conn->flags)) {
 		hci_cmd_sync_cancel(hdev, ECANCELED);
 		goto unlock;
 	}
@@ -7511,7 +7564,7 @@ static int hci_cis_cancel_create_conn_sync(struct hci_dev *hdev,
 	 */
 	mutex_lock(&hdev->cmd_sync_work_lock);
 
-	if (test_bit(HCI_CONN_CREATE_CIS, &conn->flags))
+	if (test_bit(HCI_CONN_CREATE_CIS, conn->flags))
 		hci_cmd_sync_cancel(hdev, ECANCELED);
 
 	mutex_unlock(&hdev->cmd_sync_work_lock);
@@ -7648,7 +7701,7 @@ static void create_pa_complete(struct hci_dev *hdev, void *data, int err)
 	hci_dev_lock(hdev);
 
 	if (hci_conn_valid(hdev, conn))
-		clear_bit(HCI_CONN_CREATE_PA_SYNC, &conn->flags);
+		clear_bit(HCI_CONN_CREATE_PA_SYNC, conn->flags);
 
 	if (!err)
 		goto unlock;
@@ -7660,7 +7713,7 @@ static void create_pa_complete(struct hci_dev *hdev, void *data, int err)
 	if (IS_ERR(pa_sync))
 		goto unlock;
 
-	set_bit(HCI_CONN_PA_SYNC_FAILED, &pa_sync->flags);
+	set_bit(HCI_CONN_PA_SYNC_FAILED, pa_sync->flags);
 
 	/* Notify iso layer */
 	hci_connect_cfm(pa_sync, bt_status(err));
@@ -7733,7 +7786,7 @@ static int hci_le_pa_create_sync(struct hci_dev *hdev, void *data)
 	 * program the address in the allow list so PA advertisements can be
 	 * received.
 	 */
-	set_bit(HCI_CONN_CREATE_PA_SYNC, &conn->flags);
+	set_bit(HCI_CONN_CREATE_PA_SYNC, conn->flags);
 
 	hci_update_passive_scan_sync(hdev);
 
@@ -7836,7 +7889,7 @@ static void create_big_complete(struct hci_dev *hdev, void *data, int err)
 	if (err == -ECANCELED)
 		goto done;
 
-	clear_bit(HCI_CONN_CREATE_BIG_SYNC, &conn->flags);
+	clear_bit(HCI_CONN_CREATE_BIG_SYNC, conn->flags);
 
 done:
 	hci_conn_put(conn);
@@ -7853,7 +7906,7 @@ static int hci_le_big_create_sync(struct hci_dev *hdev, void *data)
 	if (!hci_conn_valid(hdev, conn))
 		return -ECANCELED;
 
-	set_bit(HCI_CONN_CREATE_BIG_SYNC, &conn->flags);
+	set_bit(HCI_CONN_CREATE_BIG_SYNC, conn->flags);
 
 	memset(cp, 0, sizeof(*cp));
 	cp->handle = qos->bcast.big;
