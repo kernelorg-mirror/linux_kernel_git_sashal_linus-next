@@ -581,6 +581,12 @@ static int wacom_intuos_pad(struct wacom_wac *wacom)
 	      data[0] == WACOM_REPORT_CINTIQPAD))
 		return 0;
 
+	if (!input) {
+		dev_warn_once(&container_of(wacom, struct wacom, wacom_wac)->hdev->dev,
+			      "%s: pad_input is NULL\n", __func__);
+		return 1; /* handled; the -1 in wacom_intuos_irq() suppresses sync */
+	}
+
 	if (features->type >= INTUOS4S && features->type <= INTUOS4L) {
 		buttons = (data[3] << 1) | (data[2] & 0x01);
 		ring1 = data[1];
@@ -716,7 +722,7 @@ static int wacom_intuos_pad(struct wacom_wac *wacom)
 
 	input_event(input, EV_MSC, MSC_SERIAL, 0xffffffff);
 
-	return 1;
+	return 2;
 }
 
 static int wacom_intuos_id_mangle(int tool_id)
@@ -1073,6 +1079,12 @@ static int wacom_intuos_irq(struct wacom_wac *wacom_wac)
 	struct wacom *wacom = container_of(wacom_wac, struct wacom, wacom_wac);
 	int result;
 
+	if (!input) {
+		dev_warn_once(&container_of(wacom, struct wacom, wacom_wac)->hdev->dev,
+			      "%s: pen_input is NULL\n", __func__);
+		return 0;
+	}
+
 	if (data[0] != WACOM_REPORT_PENABLED &&
 	    data[0] != WACOM_REPORT_INTUOS_ID1 &&
 	    data[0] != WACOM_REPORT_INTUOS_ID2 &&
@@ -1089,7 +1101,7 @@ static int wacom_intuos_irq(struct wacom_wac *wacom_wac)
 	/* process pad events */
 	result = wacom_intuos_pad(wacom_wac);
 	if (result)
-		return result;
+		return result - 1;
 
 	/* process in/out prox events */
 	result = wacom_intuos_inout(wacom_wac);
