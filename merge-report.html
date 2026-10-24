@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>linux-next Merge Run Report</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+       line-height: 1.6; color: #333; max-width: 1400px; margin: 0 auto; padding: 20px; }
+h1 { margin-bottom: 10px; }
+h2 { margin: 30px 0 15px; border-bottom: 2px solid #ddd; padding-bottom: 8px; }
+h3 { margin: 20px 0 10px; }
+.timestamp { color: #666; margin-bottom: 5px; }
+.time-range { color: #888; font-size: 0.9em; margin-bottom: 20px; }
+.summary { display: flex; gap: 15px; flex-wrap: wrap; margin: 20px 0; }
+.stat { background: #f5f5f5; border-radius: 8px; padding: 15px 20px; min-width: 120px; }
+.stat .number { font-size: 2em; font-weight: bold; }
+.stat .label { color: #666; font-size: 0.9em; }
+.stat.conflict .number { color: #9a6700; }
+.stat.rerere .number { color: #0969da; }
+.stat.build-fix .number { color: #cf222e; }
+table { width: 100%; border-collapse: collapse; margin: 15px 0; }
+th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #eee; }
+th { background: #f5f5f5; font-weight: 600; }
+tr:hover { background: #f9f9f9; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.85em;
+          font-weight: 500; }
+.badge.conflict { background: #fff8c5; color: #9a6700; }
+.badge.build-fix { background: #ffebe9; color: #cf222e; }
+.badge.rerere { background: #ddf4ff; color: #0969da; }
+.badge.next-differ { background: #fff8c5; color: #9a6700; }
+.stat.next-differ .number { color: #9a6700; }
+details { margin: 5px 0; }
+summary { cursor: pointer; padding: 5px; font-weight: 500; }
+summary:hover { background: #f5f5f5; }
+.diff { background: #1e1e1e; color: #d4d4d4; padding: 15px; border-radius: 6px;
+         overflow-x: auto; font-family: 'SFMono-Regular', Consolas, monospace;
+         font-size: 0.85em; white-space: pre; margin: 10px 0; max-height: 600px;
+         overflow-y: auto; }
+.diff .add { color: #3fb950; }
+.diff .del { color: #f85149; }
+.diff .hdr { color: #79c0ff; }
+.diff .ctx { color: #8b949e; }
+nav { position: sticky; top: 0; background: white; padding: 10px 0; border-bottom: 1px solid #ddd;
+       margin-bottom: 20px; z-index: 100; }
+nav a { margin-right: 20px; text-decoration: none; color: #0969da; }
+nav a:hover { text-decoration: underline; }
+.controls { display: flex; gap: 15px; align-items: center; margin: 10px 0; }
+.controls select { padding: 5px 10px; border: 1px solid #ccc; border-radius: 4px; }
+.controls button { padding: 5px 12px; border: 1px solid #ccc; border-radius: 4px;
+                    background: #f5f5f5; cursor: pointer; }
+.controls button:hover { background: #e5e5e5; }
+.empty-state { text-align: center; padding: 60px 20px; color: #666; }
+.empty-state .icon { font-size: 3em; color: #2ea043; }
+.empty-state p { font-size: 1.1em; margin-top: 10px; }
+.category-count { background: #f5f5f5; border-radius: 12px; padding: 2px 10px;
+                   font-size: 0.85em; color: #666; display: inline-block; margin-left: 8px; }
+</style>
+</head>
+<body>
+<h1>linux-next Merge Run Report</h1>
+<p class="timestamp">Generated: 2026-10-24 03:26 UTC</p>
+<p class="time-range">Run window: 2026-10-24 01:31 UTC &mdash; 2026-10-24 03:23 UTC</p>
+
+<nav>
+    <a href="#summary">Summary</a>
+    <a href="#interventions">All Interventions</a>
+    <a href="#by-category">By Category</a>
+</nav>
+
+<h2 id="summary">Summary</h2>
+<div class="summary">
+    <div class="stat"><div class="number">8</div><div class="label">Total Interventions</div></div>
+    <div class="stat conflict"><div class="number">3</div><div class="label">Conflicts</div></div>
+    <div class="stat rerere"><div class="number">5</div><div class="label">Rerere</div></div>
+    <div class="stat build-fix"><div class="number">0</div><div class="label">Build Fixes</div></div>
+    <div class="stat next-differ"><div class="number">0</div><div class="label">Differ from linux-next</div></div>
+    <div class="stat"><div class="number">8</div><div class="label">Trees Affected</div></div>
+    <div class="stat"><div class="number">7</div><div class="label">Categories</div></div>
+</div>
+
+<h2 id="interventions">All Interventions</h2>
+<div class="controls">
+    <label>Filter: <select id="type-filter" onchange="filterByType(this.value)">
+        <option value="all">All types</option>
+        <option value="conflict">Conflicts</option>
+        <option value="rerere">Rerere</option>
+        <option value="build-fix">Build Fixes</option>
+    </select></label>
+    <button onclick="toggleAll()">Expand / Collapse All</button>
+</div>
+<table id="main-table">
+<thead>
+<tr><th>Tree</th><th>Category</th><th>Type</th><th>Files</th><th>Time</th><th>Details</th></tr>
+</thead>
+<tbody>
+<tr data-type="rerere" data-category="block">
+<td><code>block</code></td>
+<td>block</td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>Documentation/admin-guide/cgroup-v2.rst, block/blk-core.c, drivers/nvme/host/tcp.c (+4 more)</code></td>
+<td>01:31 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">f54d45956fce2d8e141cd3e6ec6ff27f5551512c
+</div>
+</details></td>
+</tr>
+<tr data-type="rerere" data-category="fs">
+<td><code>f2fs</code></td>
+<td>fs</td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>MAINTAINERS, fs/f2fs/acl.c, fs/f2fs/acl.h (+8 more)</code></td>
+<td>02:04 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">7c1826ece2febd16ba4e1d1ffc1e2297f87aa8af
+<span class="hdr">diff --cc fs/f2fs/acl.c</span>
+<span class="ctx">index 22ca39e0aad64,34c9aa2790409..a7485bc382526</span>
+<span class="hdr">--- a/fs/f2fs/acl.c</span>
+<span class="hdr">+++ b/fs/f2fs/acl.c</span>
+<span class="ctx">@@@ -240,9 -240,9 +240,9 @@@ static int f2fs_acl_update_mode(const s</span>
+  	return 0;
+  }
+  
+ -static int __f2fs_set_acl(struct mnt_idmap *idmap,
+ +static int __f2fs_set_acl(const struct mnt_idmap *idmap,
+  			struct inode *inode, int type,
+<span class="del">- 			struct posix_acl *acl, struct folio *ifolio)</span>
+<span class="add">+ 			struct posix_acl *acl, struct f2fs_cached_block *ientry)</span>
+  {
+  	int name_index;
+  	void *value = NULL;
+<span class="hdr">diff --cc fs/f2fs/acl.h</span>
+<span class="ctx">index 01ec74b6daf25,0f639367a0aba..b1085efcc05e9</span>
+<span class="hdr">--- a/fs/f2fs/acl.h</span>
+<span class="hdr">+++ b/fs/f2fs/acl.h</span>
+<span class="ctx">@@@ -34,10 -34,11 +34,11 @@@ struct f2fs_acl_header </span>
+  #ifdef CONFIG_F2FS_FS_POSIX_ACL
+  
+  struct posix_acl *f2fs_get_acl(struct inode *, int, bool);
+ -int f2fs_set_acl(struct mnt_idmap *, struct dentry *,
+ +int f2fs_set_acl(const struct mnt_idmap *, struct dentry *,
+  			struct posix_acl *, int);
+<span class="del">- int f2fs_init_acl(struct inode *, struct inode *, struct folio *ifolio,</span>
+<span class="del">- 		struct folio *dfolio);</span>
+<span class="add">+ int f2fs_init_acl(struct inode *inode, struct inode *dir,</span>
+<span class="add">+ 			struct f2fs_cached_block *ientry,</span>
+<span class="add">+ 			struct f2fs_cached_block *dentry);</span>
+  #else
+  #define f2fs_get_acl	NULL
+  #define f2fs_set_acl	NULL
+<span class="hdr">diff --cc fs/f2fs/f2fs.h</span>
+<span class="ctx">index e3108c5f7c91e,aedba8b79baa9..f7423b3f6e4aa</span>
+<span class="hdr">--- a/fs/f2fs/f2fs.h</span>
+<span class="hdr">+++ b/fs/f2fs/f2fs.h</span>
+<span class="ctx">@@@ -1614,23 -1612,21 +1609,21 @@@ static inline void f2fs_clear_bit(unsig</span>
+   *
+   * Layout A: lowest bit should be 1
+   * | bit0 = 1 | bit1 | bit2 | ... | bit MAX | private data .... |
+ - * bit 0	PAGE_PRIVATE_NOT_POINTER
+ - * bit 1	PAGE_PRIVATE_ONGOING_MIGRATION
+ - * bit 2	PAGE_PRIVATE_REF_RESOURCE
+ - * bit 3	PAGE_PRIVATE_ATOMIC_WRITE
+ + * bit 0	F2FS_FOLIO_PRIVATE_NOT_POINTER
+ + * bit 1	F2FS_FOLIO_PRIVATE_ONGOING_MIGRATION
+<span class="del">-  * bit 2	F2FS_FOLIO_PRIVATE_INLINE_INODE</span>
+<span class="del">-  * bit 3	F2FS_FOLIO_PRIVATE_REF_RESOURCE</span>
+<span class="del">-  * bit 4	F2FS_FOLIO_PRIVATE_ATOMIC_WRITE</span>
+<span class="del">-  * bit 5-	f2fs private data</span>
+<span class="add">++ * bit 2	F2FS_FOLIO_PRIVATE_REF_RESOURCE</span>
+<span class="add">++ * bit 3	F2FS_FOLIO_PRIVATE_ATOMIC_WRITE</span>
+<span class="add">+  * bit 4-	f2fs private data</span>
+   *
+   * Layout B: lowest bit should be 0
+ - * page.private is a wrapped pointer.
+ + * folio-&gt;private is a wrapped pointer.
+   */
+  enum {
+ -	PAGE_PRIVATE_NOT_POINTER,		/* private contains non-pointer data */
+ -	PAGE_PRIVATE_ONGOING_MIGRATION,		/* data page which is on-going migrating */
+ -	PAGE_PRIVATE_REF_RESOURCE,		/* dirty page has referenced resources */
+ -	PAGE_PRIVATE_ATOMIC_WRITE,		/* data page from atomic write path */
+ -	PAGE_PRIVATE_MAX
+ +	F2FS_FOLIO_PRIVATE_NOT_POINTER,		/* private contains non-pointer data */
+ +	F2FS_FOLIO_PRIVATE_ONGOING_MIGRATION,		/* data page which is on-going migrating */
+<span class="del">- 	F2FS_FOLIO_PRIVATE_INLINE_INODE,		/* inode page contains inline data */</span>
+ +	F2FS_FOLIO_PRIVATE_REF_RESOURCE,		/* dirty page has referenced resources */
+ +	F2FS_FOLIO_PRIVATE_ATOMIC_WRITE,		/* data page from atomic write path */
+ +	F2FS_FOLIO_PRIVATE_MAX
+  };
+  
+  /* For compression */
+<span class="ctx">@@@ -2710,22 -2804,25 +2788,19 @@@ static inline void folio_clear_f2fs_##n</span>
+  		folio_detach_private(folio);				\
+  	else								\
+  		folio-&gt;private = (void *)v;				\
+ -}									\
+ -static inline void clear_page_private_##name(struct page *page) \
+ -{ \
+ -	clear_bit(PAGE_PRIVATE_##flagname, &amp;page_private(page)); \
+ -	if (page_private(page) == BIT(PAGE_PRIVATE_NOT_POINTER)) \
+ -		detach_page_private(page); \
+  }
+  
+ -PAGE_PRIVATE_GET_FUNC(nonpointer, NOT_POINTER);
+ -PAGE_PRIVATE_GET_FUNC(gcing, ONGOING_MIGRATION);
+ -PAGE_PRIVATE_GET_FUNC(atomic, ATOMIC_WRITE);
+ +F2FS_FOLIO_PRIVATE_GET_FUNC(nonpointer, NOT_POINTER);
+<span class="del">- F2FS_FOLIO_PRIVATE_GET_FUNC(inline, INLINE_INODE);</span>
+ +F2FS_FOLIO_PRIVATE_GET_FUNC(gcing, ONGOING_MIGRATION);
+ +F2FS_FOLIO_PRIVATE_GET_FUNC(atomic, ATOMIC_WRITE);
+  
+ -PAGE_PRIVATE_SET_FUNC(reference, REF_RESOURCE);
+ -PAGE_PRIVATE_SET_FUNC(gcing, ONGOING_MIGRATION);
+ -PAGE_PRIVATE_SET_FUNC(atomic, ATOMIC_WRITE);
+ +F2FS_FOLIO_PRIVATE_SET_FUNC(reference, REF_RESOURCE);
+<span class="del">- F2FS_FOLIO_PRIVATE_SET_FUNC(inline, INLINE_INODE);</span>
+ +F2FS_FOLIO_PRIVATE_SET_FUNC(gcing, ONGOING_MIGRATION);
+ +F2FS_FOLIO_PRIVATE_SET_FUNC(atomic, ATOMIC_WRITE);
+  
+ -PAGE_PRIVATE_CLEAR_FUNC(reference, REF_RESOURCE);
+ -PAGE_PRIVATE_CLEAR_FUNC(gcing, ONGOING_MIGRATION);
+ -PAGE_PRIVATE_CLEAR_FUNC(atomic, ATOMIC_WRITE);
+ +F2FS_FOLIO_PRIVATE_CLEAR_FUNC(reference, REF_RESOURCE);
+<span class="del">- F2FS_FOLIO_PRIVATE_CLEAR_FUNC(inline, INLINE_INODE);</span>
+ +F2FS_FOLIO_PRIVATE_CLEAR_FUNC(gcing, ONGOING_MIGRATION);
+ +F2FS_FOLIO_PRIVATE_CLEAR_FUNC(atomic, ATOMIC_WRITE);
+  
+  static inline unsigned long folio_get_f2fs_data(struct folio *folio)
+  {
+</div>
+</details></td>
+</tr>
+<tr data-type="rerere" data-category="fs">
+<td><code>vfs-brauner</code></td>
+<td>fs</td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>-</code></td>
+<td>02:05 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">a4630256b5098bf91aa2786b33f0a71878413660
+</div>
+</details></td>
+</tr>
+<tr data-type="rerere" data-category="net">
+<td><code>iwlwifi</code></td>
+<td>net</td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>drivers/net/wireless/intel/iwlwifi/iwl-nvm-parse.c, drivers/net/wireless/intel/iwlwifi/iwl-trans.c, drivers/net/wireless/intel/iwlwifi/mvm/debugfs.c (+2 more)</code></td>
+<td>02:27 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">442961cdd1feb034cde9b897880b3b50f787dd7e
+</div>
+</details></td>
+</tr>
+<tr data-type="conflict" data-category="tracing">
+<td><code>ftrace</code></td>
+<td>tracing</td>
+<td><span class="badge conflict">conflict</span></td>
+<td><code>Documentation/admin-guide/kernel-parameters.txt, kernel/trace/Makefile, kernel/trace/ring_buffer.c (+6 more)</code></td>
+<td>03:08 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">c64f7aed0a125fd04c8a5979ab83c95da8ccde56
+</div>
+</details></td>
+</tr>
+<tr data-type="conflict" data-category="bus">
+<td><code>bus-next</code></td>
+<td>bus</td>
+<td><span class="badge conflict">conflict</span></td>
+<td><code>MAINTAINERS</code></td>
+<td>03:17 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">1f7774ee6ada2930a070eb03c625de21d134830f
+</div>
+</details></td>
+</tr>
+<tr data-type="rerere" data-category="media">
+<td><code>media-next</code></td>
+<td>media</td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>Documentation/devicetree/bindings/media/mediatek-jpeg-decoder.yaml, Documentation/devicetree/bindings/media/mediatek-jpeg-encoder.yaml, Documentation/devicetree/bindings/media/qcom,x1e80100-camss.yaml (+3 more)</code></td>
+<td>03:17 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">43e92121419a910f5a33d54b1a0a3997065c702a
+</div>
+</details></td>
+</tr>
+<tr data-type="conflict" data-category="mm">
+<td><code>mm-next</code></td>
+<td>mm</td>
+<td><span class="badge conflict">conflict</span></td>
+<td><code>.mailmap, Documentation/admin-guide/kernel-parameters.txt, MAINTAINERS (+58 more)</code></td>
+<td>03:23 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">37dce0063f0a4571cae46c8072bb993f32629a17
+<span class="hdr">diff --cc MAINTAINERS</span>
+<span class="ctx">index 29560a312dce3,856b47040107b..ebed2f01ec382</span>
+<span class="hdr">--- a/MAINTAINERS</span>
+<span class="hdr">+++ b/MAINTAINERS</span>
+<span class="ctx">@@@ -9948,14 -9781,8 +9956,15 @@@ M:	Jeff Layton &lt;jlayton@kernel.org</span>
+  S:	Maintained
+  F:	include/linux/errseq.h
+  F:	lib/errseq.c
+<span class="add">+ F:	lib/tests/errseq_kunit.c</span>
+  
+ +ES9039Q2M AUDIO CODEC DRIVER
+ +M:	Karl Asseily &lt;karl@asseily.com&gt;
+ +L:	linux-sound@vger.kernel.org
+ +S:	Maintained
+ +F:	Documentation/devicetree/bindings/sound/esstech,es9039q2m.yaml
+ +F:	sound/soc/codecs/es9039q2m.c
+ +
+  ESD CAN NETWORK DRIVERS
+  M:	Stefan Mätje &lt;stefan.maetje@esd.eu&gt;
+  R:	socketcan@esd.eu
+<span class="hdr">diff --cc drivers/gpu/drm/amd/amdgpu/amdgpu_cs.c</span>
+<span class="ctx">index 1d3c3ad9813ec,23d096b85652d..3ad3ac658c3df</span>
+<span class="hdr">--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_cs.c</span>
+<span class="hdr">+++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_cs.c</span>
+<span class="ctx">@@@ -26,10 -26,8 +26,9 @@@</span>
+   */
+  
+  #include &lt;linux/file.h&gt;
+<span class="del">- #include &lt;linux/pagemap.h&gt;</span>
+  #include &lt;linux/sync_file.h&gt;
+  #include &lt;linux/dma-buf.h&gt;
+ +#include &lt;linux/pm_runtime.h&gt;
+  
+  #include &lt;drm/amdgpu_drm.h&gt;
+  #include &lt;drm/drm_syncobj.h&gt;
+<span class="hdr">diff --cc drivers/gpu/drm/amd/amdgpu/amdgpu_gem.c</span>
+<span class="ctx">index 4ed1706d8d5ff,f76e02f2ce8eb..2145211b25e7e</span>
+<span class="hdr">--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_gem.c</span>
+<span class="hdr">+++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_gem.c</span>
+<span class="ctx">@@@ -25,9 -25,9 +25,8 @@@</span>
+   *          Alex Deucher
+   *          Jerome Glisse
+   */
+ -#include &lt;linux/ktime.h&gt;
+  #include &lt;linux/module.h&gt;
+  #include &lt;linux/overflow.h&gt;
+<span class="del">- #include &lt;linux/pagemap.h&gt;</span>
+  #include &lt;linux/pci.h&gt;
+  #include &lt;linux/dma-buf.h&gt;
+  #include &lt;linux/dma-fence-unwrap.h&gt;
+<span class="hdr">diff --cc drivers/gpu/drm/amd/amdkfd/kfd_migrate.c</span>
+<span class="ctx">index 8b96e1fe741a1,0ee1a96484ced..9535ebe5837af</span>
+<span class="hdr">--- a/drivers/gpu/drm/amd/amdkfd/kfd_migrate.c</span>
+<span class="hdr">+++ b/drivers/gpu/drm/amd/amdkfd/kfd_migrate.c</span>
+<span class="ctx">@@@ -24,8 -24,7 +24,9 @@@</span>
+  #include &lt;linux/dma-direction.h&gt;
+  #include &lt;linux/dma-mapping.h&gt;
+  #include &lt;linux/migrate.h&gt;
+<span class="add">+ #include &lt;linux/pagemap.h&gt;</span>
+ +#include &quot;amdgpu.h&quot;
+ +#include &quot;amdgpu_sdma.h&quot;
+  #include &quot;amdgpu_sync.h&quot;
+  #include &quot;amdgpu_object.h&quot;
+  #include &quot;amdgpu_vm.h&quot;
+<span class="hdr">diff --cc drivers/gpu/drm/panfrost/panfrost_gem.c</span>
+<span class="ctx">index 518f24549b9de,68546925f16b0..0f99c3c3184da</span>
+<span class="hdr">--- a/drivers/gpu/drm/panfrost/panfrost_gem.c</span>
+<span class="hdr">+++ b/drivers/gpu/drm/panfrost/panfrost_gem.c</span>
+<span class="ctx">@@@ -7,11 -7,13 +7,13 @@@</span>
+  #include &lt;linux/slab.h&gt;
+  #include &lt;linux/dma-buf.h&gt;
+  #include &lt;linux/dma-mapping.h&gt;
+<span class="add">+ #include &lt;linux/highmem.h&gt;</span>
+<span class="add">+ #include &lt;linux/seq_file.h&gt;</span>
+  
+  #include &lt;drm/panfrost_drm.h&gt;
+ +#include &lt;drm/drm_debugfs.h&gt;
+  #include &lt;drm/drm_print.h&gt;
+  #include &quot;panfrost_device.h&quot;
+ -#include &quot;panfrost_drv.h&quot;
+  #include &quot;panfrost_gem.h&quot;
+  #include &quot;panfrost_mmu.h&quot;
+  
+<span class="hdr">diff --cc drivers/video/fbdev/ssd1307fb.c</span>
+<span class="ctx">index 8fd96c37ee1ab,db61d710fccb0..0254a547182d3</span>
+<span class="hdr">--- a/drivers/video/fbdev/ssd1307fb.c</span>
+<span class="hdr">+++ b/drivers/video/fbdev/ssd1307fb.c</span>
+<span class="ctx">@@@ -767,11 -767,9 +767,13 @@@ static int ssd1307fb_probe(struct i2c_c</span>
+  	info-&gt;fix.smem_start = __pa(vmem);
+  	info-&gt;fix.smem_len = vmem_size;
+  
+<span class="add">+ 	info-&gt;flags = FBINFO_VIRTFB;</span>
+<span class="add">+ </span>
+ -	fb_deferred_io_init(info);
+ +	ret = fb_deferred_io_init(info);
+ +	if (ret) {
+ +		dev_err(dev, &quot;failed to init fb deferred io: %d\n&quot;, ret);
+ +		goto fb_defio_error;
+ +	}
+  
+  	i2c_set_clientdata(client, info);
+  
+<span class="hdr">diff --cc fs/fuse/dax.c</span>
+<span class="ctx">index b79fa26ce783c,a5994f1c637d9..cae217ff89ba6</span>
+<span class="hdr">--- a/fs/fuse/dax.c</span>
+<span class="hdr">+++ b/fs/fuse/dax.c</span>
+<span class="ctx">@@@ -826,8 -826,7 +826,8 @@@ int fuse_vdax_mmap(struct file *file, s</span>
+  {
+  	file_accessed(file);
+  	vma-&gt;vm_ops = &amp;fuse_dax_vm_ops;
+<span class="del">- 	vm_flags_set(vma, VM_MIXEDMAP | VM_HUGEPAGE);</span>
+<span class="add">+ 	vma_set_flags(vma, VMA_HUGEPAGE_BIT);</span>
+ +	vma-&gt;vm_page_prot = pgprot_decrypted(vma-&gt;vm_page_prot);
+  	return 0;
+  }
+  
+</div>
+</details></td>
+</tr>
+</tbody></table>
+<h2 id="by-category">By Category</h2>
+<h3>block <span class="category-count">1</span></h3>
+<table>
+<thead>
+<tr><th>Tree</th><th>Type</th><th>Files</th><th>Time</th><th>Details</th></tr>
+</thead>
+<tbody>
+<tr>
+<td><code>block</code></td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>Documentation/admin-guide/cgroup-v2.rst, block/blk-core.c, drivers/nvme/host/tcp.c (+4 more)</code></td>
+<td>01:31 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">f54d45956fce2d8e141cd3e6ec6ff27f5551512c
+</div>
+</details></td>
+</tr>
+</tbody></table>
+<h3>bus <span class="category-count">1</span></h3>
+<table>
+<thead>
+<tr><th>Tree</th><th>Type</th><th>Files</th><th>Time</th><th>Details</th></tr>
+</thead>
+<tbody>
+<tr>
+<td><code>bus-next</code></td>
+<td><span class="badge conflict">conflict</span></td>
+<td><code>MAINTAINERS</code></td>
+<td>03:17 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">1f7774ee6ada2930a070eb03c625de21d134830f
+</div>
+</details></td>
+</tr>
+</tbody></table>
+<h3>fs <span class="category-count">2</span></h3>
+<table>
+<thead>
+<tr><th>Tree</th><th>Type</th><th>Files</th><th>Time</th><th>Details</th></tr>
+</thead>
+<tbody>
+<tr>
+<td><code>f2fs</code></td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>MAINTAINERS, fs/f2fs/acl.c, fs/f2fs/acl.h (+8 more)</code></td>
+<td>02:04 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">7c1826ece2febd16ba4e1d1ffc1e2297f87aa8af
+<span class="hdr">diff --cc fs/f2fs/acl.c</span>
+<span class="ctx">index 22ca39e0aad64,34c9aa2790409..a7485bc382526</span>
+<span class="hdr">--- a/fs/f2fs/acl.c</span>
+<span class="hdr">+++ b/fs/f2fs/acl.c</span>
+<span class="ctx">@@@ -240,9 -240,9 +240,9 @@@ static int f2fs_acl_update_mode(const s</span>
+  	return 0;
+  }
+  
+ -static int __f2fs_set_acl(struct mnt_idmap *idmap,
+ +static int __f2fs_set_acl(const struct mnt_idmap *idmap,
+  			struct inode *inode, int type,
+<span class="del">- 			struct posix_acl *acl, struct folio *ifolio)</span>
+<span class="add">+ 			struct posix_acl *acl, struct f2fs_cached_block *ientry)</span>
+  {
+  	int name_index;
+  	void *value = NULL;
+<span class="hdr">diff --cc fs/f2fs/acl.h</span>
+<span class="ctx">index 01ec74b6daf25,0f639367a0aba..b1085efcc05e9</span>
+<span class="hdr">--- a/fs/f2fs/acl.h</span>
+<span class="hdr">+++ b/fs/f2fs/acl.h</span>
+<span class="ctx">@@@ -34,10 -34,11 +34,11 @@@ struct f2fs_acl_header </span>
+  #ifdef CONFIG_F2FS_FS_POSIX_ACL
+  
+  struct posix_acl *f2fs_get_acl(struct inode *, int, bool);
+ -int f2fs_set_acl(struct mnt_idmap *, struct dentry *,
+ +int f2fs_set_acl(const struct mnt_idmap *, struct dentry *,
+  			struct posix_acl *, int);
+<span class="del">- int f2fs_init_acl(struct inode *, struct inode *, struct folio *ifolio,</span>
+<span class="del">- 		struct folio *dfolio);</span>
+<span class="add">+ int f2fs_init_acl(struct inode *inode, struct inode *dir,</span>
+<span class="add">+ 			struct f2fs_cached_block *ientry,</span>
+<span class="add">+ 			struct f2fs_cached_block *dentry);</span>
+  #else
+  #define f2fs_get_acl	NULL
+  #define f2fs_set_acl	NULL
+<span class="hdr">diff --cc fs/f2fs/f2fs.h</span>
+<span class="ctx">index e3108c5f7c91e,aedba8b79baa9..f7423b3f6e4aa</span>
+<span class="hdr">--- a/fs/f2fs/f2fs.h</span>
+<span class="hdr">+++ b/fs/f2fs/f2fs.h</span>
+<span class="ctx">@@@ -1614,23 -1612,21 +1609,21 @@@ static inline void f2fs_clear_bit(unsig</span>
+   *
+   * Layout A: lowest bit should be 1
+   * | bit0 = 1 | bit1 | bit2 | ... | bit MAX | private data .... |
+ - * bit 0	PAGE_PRIVATE_NOT_POINTER
+ - * bit 1	PAGE_PRIVATE_ONGOING_MIGRATION
+ - * bit 2	PAGE_PRIVATE_REF_RESOURCE
+ - * bit 3	PAGE_PRIVATE_ATOMIC_WRITE
+ + * bit 0	F2FS_FOLIO_PRIVATE_NOT_POINTER
+ + * bit 1	F2FS_FOLIO_PRIVATE_ONGOING_MIGRATION
+<span class="del">-  * bit 2	F2FS_FOLIO_PRIVATE_INLINE_INODE</span>
+<span class="del">-  * bit 3	F2FS_FOLIO_PRIVATE_REF_RESOURCE</span>
+<span class="del">-  * bit 4	F2FS_FOLIO_PRIVATE_ATOMIC_WRITE</span>
+<span class="del">-  * bit 5-	f2fs private data</span>
+<span class="add">++ * bit 2	F2FS_FOLIO_PRIVATE_REF_RESOURCE</span>
+<span class="add">++ * bit 3	F2FS_FOLIO_PRIVATE_ATOMIC_WRITE</span>
+<span class="add">+  * bit 4-	f2fs private data</span>
+   *
+   * Layout B: lowest bit should be 0
+ - * page.private is a wrapped pointer.
+ + * folio-&gt;private is a wrapped pointer.
+   */
+  enum {
+ -	PAGE_PRIVATE_NOT_POINTER,		/* private contains non-pointer data */
+ -	PAGE_PRIVATE_ONGOING_MIGRATION,		/* data page which is on-going migrating */
+ -	PAGE_PRIVATE_REF_RESOURCE,		/* dirty page has referenced resources */
+ -	PAGE_PRIVATE_ATOMIC_WRITE,		/* data page from atomic write path */
+ -	PAGE_PRIVATE_MAX
+ +	F2FS_FOLIO_PRIVATE_NOT_POINTER,		/* private contains non-pointer data */
+ +	F2FS_FOLIO_PRIVATE_ONGOING_MIGRATION,		/* data page which is on-going migrating */
+<span class="del">- 	F2FS_FOLIO_PRIVATE_INLINE_INODE,		/* inode page contains inline data */</span>
+ +	F2FS_FOLIO_PRIVATE_REF_RESOURCE,		/* dirty page has referenced resources */
+ +	F2FS_FOLIO_PRIVATE_ATOMIC_WRITE,		/* data page from atomic write path */
+ +	F2FS_FOLIO_PRIVATE_MAX
+  };
+  
+  /* For compression */
+<span class="ctx">@@@ -2710,22 -2804,25 +2788,19 @@@ static inline void folio_clear_f2fs_##n</span>
+  		folio_detach_private(folio);				\
+  	else								\
+  		folio-&gt;private = (void *)v;				\
+ -}									\
+ -static inline void clear_page_private_##name(struct page *page) \
+ -{ \
+ -	clear_bit(PAGE_PRIVATE_##flagname, &amp;page_private(page)); \
+ -	if (page_private(page) == BIT(PAGE_PRIVATE_NOT_POINTER)) \
+ -		detach_page_private(page); \
+  }
+  
+ -PAGE_PRIVATE_GET_FUNC(nonpointer, NOT_POINTER);
+ -PAGE_PRIVATE_GET_FUNC(gcing, ONGOING_MIGRATION);
+ -PAGE_PRIVATE_GET_FUNC(atomic, ATOMIC_WRITE);
+ +F2FS_FOLIO_PRIVATE_GET_FUNC(nonpointer, NOT_POINTER);
+<span class="del">- F2FS_FOLIO_PRIVATE_GET_FUNC(inline, INLINE_INODE);</span>
+ +F2FS_FOLIO_PRIVATE_GET_FUNC(gcing, ONGOING_MIGRATION);
+ +F2FS_FOLIO_PRIVATE_GET_FUNC(atomic, ATOMIC_WRITE);
+  
+ -PAGE_PRIVATE_SET_FUNC(reference, REF_RESOURCE);
+ -PAGE_PRIVATE_SET_FUNC(gcing, ONGOING_MIGRATION);
+ -PAGE_PRIVATE_SET_FUNC(atomic, ATOMIC_WRITE);
+ +F2FS_FOLIO_PRIVATE_SET_FUNC(reference, REF_RESOURCE);
+<span class="del">- F2FS_FOLIO_PRIVATE_SET_FUNC(inline, INLINE_INODE);</span>
+ +F2FS_FOLIO_PRIVATE_SET_FUNC(gcing, ONGOING_MIGRATION);
+ +F2FS_FOLIO_PRIVATE_SET_FUNC(atomic, ATOMIC_WRITE);
+  
+ -PAGE_PRIVATE_CLEAR_FUNC(reference, REF_RESOURCE);
+ -PAGE_PRIVATE_CLEAR_FUNC(gcing, ONGOING_MIGRATION);
+ -PAGE_PRIVATE_CLEAR_FUNC(atomic, ATOMIC_WRITE);
+ +F2FS_FOLIO_PRIVATE_CLEAR_FUNC(reference, REF_RESOURCE);
+<span class="del">- F2FS_FOLIO_PRIVATE_CLEAR_FUNC(inline, INLINE_INODE);</span>
+ +F2FS_FOLIO_PRIVATE_CLEAR_FUNC(gcing, ONGOING_MIGRATION);
+ +F2FS_FOLIO_PRIVATE_CLEAR_FUNC(atomic, ATOMIC_WRITE);
+  
+  static inline unsigned long folio_get_f2fs_data(struct folio *folio)
+  {
+</div>
+</details></td>
+</tr>
+<tr>
+<td><code>vfs-brauner</code></td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>-</code></td>
+<td>02:05 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">a4630256b5098bf91aa2786b33f0a71878413660
+</div>
+</details></td>
+</tr>
+</tbody></table>
+<h3>media <span class="category-count">1</span></h3>
+<table>
+<thead>
+<tr><th>Tree</th><th>Type</th><th>Files</th><th>Time</th><th>Details</th></tr>
+</thead>
+<tbody>
+<tr>
+<td><code>media-next</code></td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>Documentation/devicetree/bindings/media/mediatek-jpeg-decoder.yaml, Documentation/devicetree/bindings/media/mediatek-jpeg-encoder.yaml, Documentation/devicetree/bindings/media/qcom,x1e80100-camss.yaml (+3 more)</code></td>
+<td>03:17 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">43e92121419a910f5a33d54b1a0a3997065c702a
+</div>
+</details></td>
+</tr>
+</tbody></table>
+<h3>mm <span class="category-count">1</span></h3>
+<table>
+<thead>
+<tr><th>Tree</th><th>Type</th><th>Files</th><th>Time</th><th>Details</th></tr>
+</thead>
+<tbody>
+<tr>
+<td><code>mm-next</code></td>
+<td><span class="badge conflict">conflict</span></td>
+<td><code>.mailmap, Documentation/admin-guide/kernel-parameters.txt, MAINTAINERS (+58 more)</code></td>
+<td>03:23 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">37dce0063f0a4571cae46c8072bb993f32629a17
+<span class="hdr">diff --cc MAINTAINERS</span>
+<span class="ctx">index 29560a312dce3,856b47040107b..ebed2f01ec382</span>
+<span class="hdr">--- a/MAINTAINERS</span>
+<span class="hdr">+++ b/MAINTAINERS</span>
+<span class="ctx">@@@ -9948,14 -9781,8 +9956,15 @@@ M:	Jeff Layton &lt;jlayton@kernel.org</span>
+  S:	Maintained
+  F:	include/linux/errseq.h
+  F:	lib/errseq.c
+<span class="add">+ F:	lib/tests/errseq_kunit.c</span>
+  
+ +ES9039Q2M AUDIO CODEC DRIVER
+ +M:	Karl Asseily &lt;karl@asseily.com&gt;
+ +L:	linux-sound@vger.kernel.org
+ +S:	Maintained
+ +F:	Documentation/devicetree/bindings/sound/esstech,es9039q2m.yaml
+ +F:	sound/soc/codecs/es9039q2m.c
+ +
+  ESD CAN NETWORK DRIVERS
+  M:	Stefan Mätje &lt;stefan.maetje@esd.eu&gt;
+  R:	socketcan@esd.eu
+<span class="hdr">diff --cc drivers/gpu/drm/amd/amdgpu/amdgpu_cs.c</span>
+<span class="ctx">index 1d3c3ad9813ec,23d096b85652d..3ad3ac658c3df</span>
+<span class="hdr">--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_cs.c</span>
+<span class="hdr">+++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_cs.c</span>
+<span class="ctx">@@@ -26,10 -26,8 +26,9 @@@</span>
+   */
+  
+  #include &lt;linux/file.h&gt;
+<span class="del">- #include &lt;linux/pagemap.h&gt;</span>
+  #include &lt;linux/sync_file.h&gt;
+  #include &lt;linux/dma-buf.h&gt;
+ +#include &lt;linux/pm_runtime.h&gt;
+  
+  #include &lt;drm/amdgpu_drm.h&gt;
+  #include &lt;drm/drm_syncobj.h&gt;
+<span class="hdr">diff --cc drivers/gpu/drm/amd/amdgpu/amdgpu_gem.c</span>
+<span class="ctx">index 4ed1706d8d5ff,f76e02f2ce8eb..2145211b25e7e</span>
+<span class="hdr">--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_gem.c</span>
+<span class="hdr">+++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_gem.c</span>
+<span class="ctx">@@@ -25,9 -25,9 +25,8 @@@</span>
+   *          Alex Deucher
+   *          Jerome Glisse
+   */
+ -#include &lt;linux/ktime.h&gt;
+  #include &lt;linux/module.h&gt;
+  #include &lt;linux/overflow.h&gt;
+<span class="del">- #include &lt;linux/pagemap.h&gt;</span>
+  #include &lt;linux/pci.h&gt;
+  #include &lt;linux/dma-buf.h&gt;
+  #include &lt;linux/dma-fence-unwrap.h&gt;
+<span class="hdr">diff --cc drivers/gpu/drm/amd/amdkfd/kfd_migrate.c</span>
+<span class="ctx">index 8b96e1fe741a1,0ee1a96484ced..9535ebe5837af</span>
+<span class="hdr">--- a/drivers/gpu/drm/amd/amdkfd/kfd_migrate.c</span>
+<span class="hdr">+++ b/drivers/gpu/drm/amd/amdkfd/kfd_migrate.c</span>
+<span class="ctx">@@@ -24,8 -24,7 +24,9 @@@</span>
+  #include &lt;linux/dma-direction.h&gt;
+  #include &lt;linux/dma-mapping.h&gt;
+  #include &lt;linux/migrate.h&gt;
+<span class="add">+ #include &lt;linux/pagemap.h&gt;</span>
+ +#include &quot;amdgpu.h&quot;
+ +#include &quot;amdgpu_sdma.h&quot;
+  #include &quot;amdgpu_sync.h&quot;
+  #include &quot;amdgpu_object.h&quot;
+  #include &quot;amdgpu_vm.h&quot;
+<span class="hdr">diff --cc drivers/gpu/drm/panfrost/panfrost_gem.c</span>
+<span class="ctx">index 518f24549b9de,68546925f16b0..0f99c3c3184da</span>
+<span class="hdr">--- a/drivers/gpu/drm/panfrost/panfrost_gem.c</span>
+<span class="hdr">+++ b/drivers/gpu/drm/panfrost/panfrost_gem.c</span>
+<span class="ctx">@@@ -7,11 -7,13 +7,13 @@@</span>
+  #include &lt;linux/slab.h&gt;
+  #include &lt;linux/dma-buf.h&gt;
+  #include &lt;linux/dma-mapping.h&gt;
+<span class="add">+ #include &lt;linux/highmem.h&gt;</span>
+<span class="add">+ #include &lt;linux/seq_file.h&gt;</span>
+  
+  #include &lt;drm/panfrost_drm.h&gt;
+ +#include &lt;drm/drm_debugfs.h&gt;
+  #include &lt;drm/drm_print.h&gt;
+  #include &quot;panfrost_device.h&quot;
+ -#include &quot;panfrost_drv.h&quot;
+  #include &quot;panfrost_gem.h&quot;
+  #include &quot;panfrost_mmu.h&quot;
+  
+<span class="hdr">diff --cc drivers/video/fbdev/ssd1307fb.c</span>
+<span class="ctx">index 8fd96c37ee1ab,db61d710fccb0..0254a547182d3</span>
+<span class="hdr">--- a/drivers/video/fbdev/ssd1307fb.c</span>
+<span class="hdr">+++ b/drivers/video/fbdev/ssd1307fb.c</span>
+<span class="ctx">@@@ -767,11 -767,9 +767,13 @@@ static int ssd1307fb_probe(struct i2c_c</span>
+  	info-&gt;fix.smem_start = __pa(vmem);
+  	info-&gt;fix.smem_len = vmem_size;
+  
+<span class="add">+ 	info-&gt;flags = FBINFO_VIRTFB;</span>
+<span class="add">+ </span>
+ -	fb_deferred_io_init(info);
+ +	ret = fb_deferred_io_init(info);
+ +	if (ret) {
+ +		dev_err(dev, &quot;failed to init fb deferred io: %d\n&quot;, ret);
+ +		goto fb_defio_error;
+ +	}
+  
+  	i2c_set_clientdata(client, info);
+  
+<span class="hdr">diff --cc fs/fuse/dax.c</span>
+<span class="ctx">index b79fa26ce783c,a5994f1c637d9..cae217ff89ba6</span>
+<span class="hdr">--- a/fs/fuse/dax.c</span>
+<span class="hdr">+++ b/fs/fuse/dax.c</span>
+<span class="ctx">@@@ -826,8 -826,7 +826,8 @@@ int fuse_vdax_mmap(struct file *file, s</span>
+  {
+  	file_accessed(file);
+  	vma-&gt;vm_ops = &amp;fuse_dax_vm_ops;
+<span class="del">- 	vm_flags_set(vma, VM_MIXEDMAP | VM_HUGEPAGE);</span>
+<span class="add">+ 	vma_set_flags(vma, VMA_HUGEPAGE_BIT);</span>
+ +	vma-&gt;vm_page_prot = pgprot_decrypted(vma-&gt;vm_page_prot);
+  	return 0;
+  }
+  
+</div>
+</details></td>
+</tr>
+</tbody></table>
+<h3>net <span class="category-count">1</span></h3>
+<table>
+<thead>
+<tr><th>Tree</th><th>Type</th><th>Files</th><th>Time</th><th>Details</th></tr>
+</thead>
+<tbody>
+<tr>
+<td><code>iwlwifi</code></td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>drivers/net/wireless/intel/iwlwifi/iwl-nvm-parse.c, drivers/net/wireless/intel/iwlwifi/iwl-trans.c, drivers/net/wireless/intel/iwlwifi/mvm/debugfs.c (+2 more)</code></td>
+<td>02:27 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">442961cdd1feb034cde9b897880b3b50f787dd7e
+</div>
+</details></td>
+</tr>
+</tbody></table>
+<h3>tracing <span class="category-count">1</span></h3>
+<table>
+<thead>
+<tr><th>Tree</th><th>Type</th><th>Files</th><th>Time</th><th>Details</th></tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ftrace</code></td>
+<td><span class="badge conflict">conflict</span></td>
+<td><code>Documentation/admin-guide/kernel-parameters.txt, kernel/trace/Makefile, kernel/trace/ring_buffer.c (+6 more)</code></td>
+<td>03:08 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">c64f7aed0a125fd04c8a5979ab83c95da8ccde56
+</div>
+</details></td>
+</tr>
+</tbody></table>
+
+<script>
+function filterByType(type) {
+    var rows = document.querySelectorAll('#main-table tbody tr');
+    for (var i = 0; i < rows.length; i++) {
+        rows[i].style.display = (type === 'all' || rows[i].dataset.type === type) ? '' : 'none';
+    }
+}
+function toggleAll() {
+    var details = document.querySelectorAll('details');
+    var anyOpen = false;
+    for (var i = 0; i < details.length; i++) {
+        if (details[i].open) { anyOpen = true; break; }
+    }
+    for (var i = 0; i < details.length; i++) {
+        details[i].open = !anyOpen;
+    }
+}
+</script>
+</body></html>
