@@ -32,6 +32,11 @@
 #define SENTINEL_VMA_END	-1
 #define SENTINEL_VMA_GATE	-2
 
+static bool addr_is_sentinel(loff_t addr)
+{
+	return addr == SENTINEL_VMA_END || addr == SENTINEL_VMA_GATE;
+}
+
 #define SEQ_PUT_DEC(str, val) \
 		seq_put_decimal_ull_width(m, str, (val) << (PAGE_SHIFT-10), 8)
 void task_mem(struct seq_file *m, struct mm_struct *mm)
@@ -263,7 +268,7 @@ static void *m_start(struct seq_file *m, loff_t *ppos)
 	 * Reset current position if last_addr was set before
 	 * and it's not a sentinel.
 	 */
-	if (last_addr > 0)
+	if (last_addr && !addr_is_sentinel(last_addr))
 		*ppos = last_addr = priv->last_pos;
 	vma_iter_init(&priv->iter, mm, (unsigned long)last_addr);
 	hold_task_mempolicy(priv);
@@ -2986,7 +2991,7 @@ static int pagemap_scan_pte_hole(unsigned long addr, unsigned long end,
 	 * hugetlb differs, see pagemap_hugetlb_category().
 	 */
 	categories = p->cur_vma_category;
-	if (userfaultfd_wp(vma) && !is_vm_hugetlb_page(vma))
+	if (userfaultfd_wp(vma) && !vma_is_hugetlb(vma))
 		categories |= PAGE_IS_WRITTEN;
 
 	if (!pagemap_scan_is_interesting_page(categories, p))
@@ -2999,7 +3004,7 @@ static int pagemap_scan_pte_hole(unsigned long addr, unsigned long end,
 	if (~p->arg.flags & PM_SCAN_WP_MATCHING)
 		return ret;
 
-	if (is_vm_hugetlb_page(vma))
+	if (vma_is_hugetlb(vma))
 		err = pagemap_scan_hugetlb_hole_wp(vma, addr, end);
 	else
 		err = uffd_wp_range(vma, addr, end - addr, true);
@@ -3120,15 +3125,18 @@ static long do_pagemap_scan(struct mm_struct *mm, unsigned long uarg)
 	size_t n_ranges_out = 0;
 	int ret;
 
+	if (!mmget_not_zero(mm))
+		return -ESRCH;
+
 	ret = pagemap_scan_get_args(&p.arg, uarg);
 	if (ret)
-		return ret;
+		goto out_mmput;
 
 	p.masks_of_interest = p.arg.category_mask | p.arg.category_anyof_mask |
 			      p.arg.return_mask;
 	ret = pagemap_scan_init_bounce_buffer(&p);
 	if (ret)
-		return ret;
+		goto out_mmput;
 
 	for (walk_start = p.arg.start; walk_start < p.arg.end;
 			walk_start = p.arg.walk_end) {
@@ -3183,6 +3191,8 @@ static long do_pagemap_scan(struct mm_struct *mm, unsigned long uarg)
 		ret = -EFAULT;
 
 	kfree(p.vec_buf);
+out_mmput:
+	mmput(mm);
 	return ret;
 }
 
@@ -3441,7 +3451,7 @@ static int show_numa_map(struct seq_file *m, void *v)
 		seq_puts(m, " stack");
 	}
 
-	if (is_vm_hugetlb_page(vma))
+	if (vma_is_hugetlb(vma))
 		seq_puts(m, " huge");
 
 	/* Skip walking pages if gate VMA */
@@ -3470,7 +3480,7 @@ static int show_numa_map(struct seq_file *m, void *v)
 	if (md->swapcache)
 		seq_printf(m, " swapcache=%lu", md->swapcache);
 
-	if (md->active < md->pages && !is_vm_hugetlb_page(vma))
+	if (md->active < md->pages && !vma_is_hugetlb(vma))
 		seq_printf(m, " active=%lu", md->active);
 
 	if (md->writeback)
