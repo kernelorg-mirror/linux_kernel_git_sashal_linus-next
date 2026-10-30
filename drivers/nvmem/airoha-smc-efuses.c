@@ -11,7 +11,7 @@
 #include <linux/of.h>
 #include <linux/regmap.h>
 
-#define AIROHA_SMC_EFUSE_FID		0x82000001
+#define AIROHA_SMC_EFUSE_READ_WORD_FID	0x82000005
 #define AIROHA_SMC_EFUSE_SUB_ID_READ	0x44414552
 
 #define AIROHA_EFUSE_CELLS		64
@@ -35,7 +35,7 @@ static int airoha_efuse_reg_read(void *context, unsigned int offset,
 	struct airoha_efuse_bank_priv *priv = context;
 	struct arm_smccc_res res;
 
-	arm_smccc_1_1_invoke(AIROHA_SMC_EFUSE_FID,
+	arm_smccc_1_1_invoke(AIROHA_SMC_EFUSE_READ_WORD_FID,
 			     AIROHA_SMC_EFUSE_SUB_ID_READ,
 			     priv->bank_index, offset, 0, 0, 0, 0, &res);
 
