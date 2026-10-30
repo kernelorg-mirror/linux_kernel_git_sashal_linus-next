@@ -14431,6 +14431,19 @@ W:	https://linuxtv.org
 T:	git git://linuxtv.org/media.git
 F:	drivers/media/radio/radio-keene*
 
+KERNEL API SPECIFICATION FRAMEWORK (KAPI)
+M:	Sasha Levin <sashal@kernel.org>
+L:	linux-api@vger.kernel.org
+S:	Maintained
+F:	Documentation/dev-tools/kernel-api-spec.rst
+F:	include/linux/kapi_syscall.h
+F:	include/linux/kernel_api_spec.h
+F:	include/trace/events/kapi.h
+F:	kernel/api/
+F:	tools/kapi/
+F:	tools/lib/python/kdoc/kdoc_apispec.py
+F:	tools/testing/selftests/kapi/
+
 KERNEL AUTOMOUNTER
 M:	Ian Kent <raven@themaw.net>
 L:	autofs@vger.kernel.org
@@ -21542,6 +21555,21 @@ L:	linux-pci@vger.kernel.org
 S:	Supported
 F:	Documentation/PCI/pci-error-recovery.rst
 
+PCI LIVE UPDATE
+M:	David Matlack <dmatlack@google.com>
+R:	Pasha Tatashin <pasha.tatashin@soleen.com>
+R:	Mike Rapoport <rppt@kernel.org>
+R:	Pratyush Yadav <pratyush@kernel.org>
+L:	kexec@lists.infradead.org
+L:	linux-pci@vger.kernel.org
+S:	Maintained
+T:	git git://git.kernel.org/pub/scm/linux/kernel/git/liveupdate/linux.git
+F:	Documentation/PCI/liveupdate.rst
+F:	drivers/pci/liveupdate.c
+F:	drivers/pci/liveupdate.h
+F:	include/linux/kho/abi/pci.h
+F:	include/linux/pci_liveupdate.h
+
 PCI MSI DRIVER FOR ALTERA MSI IP
 L:	linux-pci@vger.kernel.org
 S:	Orphan
@@ -22343,6 +22371,7 @@ M:	Petr Mladek <pmladek@suse.com>
 M:	John Ogness <john.ogness@linutronix.de>
 R:	Steven Rostedt <rostedt@goodmis.org>
 R:	Sergey Senozhatsky <senozhatsky@chromium.org>
+L:	printk@lists.linux.dev
 S:	Maintained
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/printk/linux.git
 F:	Documentation/core-api/printk-basics.rst
@@ -22351,6 +22380,7 @@ F:	kernel/printk/
 
 PRINTK INDEXING
 R:	Chris Down <chris@chrisdown.name>
+L:	printk@lists.linux.dev
 S:	Maintained
 F:	Documentation/core-api/printk-index.rst
 F:	kernel/printk/index.c
@@ -29996,6 +30026,7 @@ M:	Steven Rostedt <rostedt@goodmis.org>
 R:	Andy Shevchenko <andriy.shevchenko@linux.intel.com>
 R:	Rasmus Villemoes <linux@rasmusvillemoes.dk>
 R:	Sergey Senozhatsky <senozhatsky@chromium.org>
+L:	printk@lists.linux.dev
 S:	Maintained
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/printk/linux.git
 F:	Documentation/core-api/printk-formats.rst
