@@ -1,0 +1,1144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>linux-next Merge Run Report</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+       line-height: 1.6; color: #333; max-width: 1400px; margin: 0 auto; padding: 20px; }
+h1 { margin-bottom: 10px; }
+h2 { margin: 30px 0 15px; border-bottom: 2px solid #ddd; padding-bottom: 8px; }
+h3 { margin: 20px 0 10px; }
+.timestamp { color: #666; margin-bottom: 5px; }
+.time-range { color: #888; font-size: 0.9em; margin-bottom: 20px; }
+.summary { display: flex; gap: 15px; flex-wrap: wrap; margin: 20px 0; }
+.stat { background: #f5f5f5; border-radius: 8px; padding: 15px 20px; min-width: 120px; }
+.stat .number { font-size: 2em; font-weight: bold; }
+.stat .label { color: #666; font-size: 0.9em; }
+.stat.conflict .number { color: #9a6700; }
+.stat.rerere .number { color: #0969da; }
+.stat.build-fix .number { color: #cf222e; }
+table { width: 100%; border-collapse: collapse; margin: 15px 0; }
+th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #eee; }
+th { background: #f5f5f5; font-weight: 600; }
+tr:hover { background: #f9f9f9; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.85em;
+          font-weight: 500; }
+.badge.conflict { background: #fff8c5; color: #9a6700; }
+.badge.build-fix { background: #ffebe9; color: #cf222e; }
+.badge.rerere { background: #ddf4ff; color: #0969da; }
+.badge.next-differ { background: #fff8c5; color: #9a6700; }
+.stat.next-differ .number { color: #9a6700; }
+details { margin: 5px 0; }
+summary { cursor: pointer; padding: 5px; font-weight: 500; }
+summary:hover { background: #f5f5f5; }
+.diff { background: #1e1e1e; color: #d4d4d4; padding: 15px; border-radius: 6px;
+         overflow-x: auto; font-family: 'SFMono-Regular', Consolas, monospace;
+         font-size: 0.85em; white-space: pre; margin: 10px 0; max-height: 600px;
+         overflow-y: auto; }
+.diff .add { color: #3fb950; }
+.diff .del { color: #f85149; }
+.diff .hdr { color: #79c0ff; }
+.diff .ctx { color: #8b949e; }
+nav { position: sticky; top: 0; background: white; padding: 10px 0; border-bottom: 1px solid #ddd;
+       margin-bottom: 20px; z-index: 100; }
+nav a { margin-right: 20px; text-decoration: none; color: #0969da; }
+nav a:hover { text-decoration: underline; }
+.controls { display: flex; gap: 15px; align-items: center; margin: 10px 0; }
+.controls select { padding: 5px 10px; border: 1px solid #ccc; border-radius: 4px; }
+.controls button { padding: 5px 12px; border: 1px solid #ccc; border-radius: 4px;
+                    background: #f5f5f5; cursor: pointer; }
+.controls button:hover { background: #e5e5e5; }
+.empty-state { text-align: center; padding: 60px 20px; color: #666; }
+.empty-state .icon { font-size: 3em; color: #2ea043; }
+.empty-state p { font-size: 1.1em; margin-top: 10px; }
+.category-count { background: #f5f5f5; border-radius: 12px; padding: 2px 10px;
+                   font-size: 0.85em; color: #666; display: inline-block; margin-left: 8px; }
+</style>
+</head>
+<body>
+<h1>linux-next Merge Run Report</h1>
+<p class="timestamp">Generated: 2026-10-30 13:10 UTC</p>
+<p class="time-range">Run window: 2026-10-30 12:46 UTC &mdash; 2026-10-30 12:56 UTC</p>
+
+<nav>
+    <a href="#summary">Summary</a>
+    <a href="#interventions">All Interventions</a>
+    <a href="#by-category">By Category</a>
+</nav>
+
+<h2 id="summary">Summary</h2>
+<div class="summary">
+    <div class="stat"><div class="number">6</div><div class="label">Total Interventions</div></div>
+    <div class="stat conflict"><div class="number">0</div><div class="label">Conflicts</div></div>
+    <div class="stat rerere"><div class="number">6</div><div class="label">Rerere</div></div>
+    <div class="stat build-fix"><div class="number">0</div><div class="label">Build Fixes</div></div>
+    <div class="stat next-differ"><div class="number">0</div><div class="label">Differ from linux-next</div></div>
+    <div class="stat"><div class="number">5</div><div class="label">Trees Affected</div></div>
+    <div class="stat"><div class="number">3</div><div class="label">Categories</div></div>
+</div>
+
+<h2 id="interventions">All Interventions</h2>
+<div class="controls">
+    <label>Filter: <select id="type-filter" onchange="filterByType(this.value)">
+        <option value="all">All types</option>
+        <option value="conflict">Conflicts</option>
+        <option value="rerere">Rerere</option>
+        <option value="build-fix">Build Fixes</option>
+    </select></label>
+    <button onclick="toggleAll()">Expand / Collapse All</button>
+</div>
+<table id="main-table">
+<thead>
+<tr><th>Tree</th><th>Category</th><th>Type</th><th>Files</th><th>Time</th><th>Details</th></tr>
+</thead>
+<tbody>
+<tr data-type="rerere" data-category="core">
+<td><code>kapi</code></td>
+<td>core</td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>.gitignore, MAINTAINERS, Makefile (+10 more)</code></td>
+<td>12:46 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">5c88c44c105061457d699c11ff51fbd740506b5f
+<span class="hdr">diff --cc Makefile</span>
+<span class="ctx">index 7e6baa461b91a,fd7917f78fa45..ed172d87efb45</span>
+<span class="hdr">--- a/Makefile</span>
+<span class="hdr">+++ b/Makefile</span>
+<span class="ctx">@@@ -2265,7 -2251,7 +2265,8 @@@ clean: $(clean-dirs</span>
+  		-o -name &#x27;*.ll&#x27; \
+  		-o -name &#x27;*.gcno&#x27; \
+  		-o -name &#x27;*.long-type-*.txt&#x27; \
+ +		-o -name &#x27;*.header-check&#x27; \
+<span class="add">+ 		-o -name &#x27;*.apispec.h&#x27; \</span>
+  		\) -type f -print \
+  		-o -name &#x27;.tmp_*&#x27; -print \
+  		| xargs rm -rf
+<span class="hdr">diff --cc fs/open.c</span>
+<span class="ctx">index e43f02ff64acb,9f08c438f162a..bf398105f03a0</span>
+<span class="hdr">--- a/fs/open.c</span>
+<span class="hdr">+++ b/fs/open.c</span>
+<span class="ctx">@@@ -1562,19 -1861,239 +1886,252 @@@ int filp_close(struct file *filp, fl_ow</span>
+  }
+  EXPORT_SYMBOL(filp_close);
+  
+ +/* Like filp_close() but the last reference is put right here. */
+ +int filp_close_sync(struct file *filp, fl_owner_t id)
+ +{
+ +	int retval;
+ +
+ +	/* Kernel threads must never put their final reference here. */
+ +	VFS_WARN_ON_ONCE(current-&gt;flags &amp; PF_KTHREAD);
+ +	retval = filp_flush(filp, id);
+ +	fput_close_sync(filp);
+ +
+ +	return retval;
+ +}
+ +
+<span class="add">+ /**</span>
+<span class="add">+  * sys_close - Close a file descriptor</span>
+<span class="add">+  * @fd: The file descriptor to close</span>
+<span class="add">+  *</span>
+<span class="add">+  * long-desc: Terminates access to an open file descriptor, releasing the file</span>
+<span class="add">+  *   descriptor for reuse by subsequent open(), dup(), or similar syscalls.</span>
+<span class="add">+  *</span>
+<span class="add">+  *   Traditional POSIX advisory record locks held by the process on the</span>
+<span class="add">+  *   associated file are released when any of its fds for that inode is</span>
+<span class="add">+  *   closed, not only the last one. OFD locks and flock locks are associated</span>
+<span class="add">+  *   with the open file description and are only released when the last</span>
+<span class="add">+  *   reference to that open file description is dropped.</span>
+<span class="add">+  *</span>
+<span class="add">+  *   Closing a file descriptor drops one reference to its open file</span>
+<span class="add">+  *   description. Other descriptors (dup(), fork(), SCM_RIGHTS messages in</span>
+<span class="add">+  *   flight) and operations still running on the file, such as a concurrent</span>
+<span class="add">+  *   read(), also hold references. Only when the last reference is dropped are</span>
+<span class="add">+  *   the associated resources freed. If the file was previously unlinked, the</span>
+<span class="add">+  *   file itself is deleted when the last reference is dropped.</span>
+<span class="add">+  *</span>
+<span class="add">+  *   Except when close() fails with EBADF, the file descriptor is released even</span>
+<span class="add">+  *   when close() returns an error, because it is released before the flush</span>
+<span class="add">+  *   that may fail. POSIX leaves the state of the descriptor unspecified after</span>
+<span class="add">+  *   EINTR. Retrying close() after an error may close an unrelated file</span>
+<span class="add">+  *   descriptor that another thread has since been given.</span>
+<span class="add">+  *</span>
+<span class="add">+  *   Errors returned from close() come only from the file&#x27;s -&gt;flush() method,</span>
+<span class="add">+  *   called by filp_flush(). Errors from -&gt;release() are not reported.</span>
+<span class="add">+  *   Filesystems without a -&gt;flush() method, such as ext4, xfs and btrfs, never</span>
+<span class="add">+  *   report write errors from close(). Network filesystems such as NFS, CIFS and</span>
+<span class="add">+  *   FUSE implement -&gt;flush() and report deferred write errors (EIO, ENOSPC,</span>
+<span class="add">+  *   EDQUOT) at close time. A successful return does not mean the data reached</span>
+<span class="add">+  *   storage; call fsync() before close() for that.</span>
+<span class="add">+  *</span>
+<span class="add">+  *   On close, the following cleanup operations are performed: the -&gt;flush()</span>
+<span class="add">+  *   method is called if the file has one, POSIX advisory locks are removed,</span>
+<span class="add">+  *   dnotify registrations are cleaned up, and the file reference is released.</span>
+<span class="add">+  *   If this was the last reference, additional cleanup includes: fsnotify close</span>
+<span class="add">+  *   notification, epoll cleanup, OFD, flock and lease removal, FASYNC cleanup,</span>
+<span class="add">+  *   the -&gt;release() method, and the file structure deallocation.</span>
+<span class="add">+  *</span>
+<span class="add">+  * contexts: process, sleepable</span>
+<span class="add">+  *</span>
+<span class="add">+  * param: fd</span>
+<span class="add">+  *   type: fd, input</span>
+<span class="add">+  *   constraint-type: range(0, INT_MAX)</span>
+<span class="add">+  *   cdesc: Must be a valid, open file descriptor for the current process.</span>
+<span class="add">+  *     The value 0, 1, or 2 (stdin, stdout, stderr) may be closed like any other</span>
+<span class="add">+  *     fd, though this is unusual and may cause issues with libraries that assume</span>
+<span class="add">+  *     these descriptors are valid. The parameter is unsigned int to match kernel</span>
+<span class="add">+  *     file descriptor table indexing. A value that is not open, including any</span>
+<span class="add">+  *     value at or above the current table size, fails with EBADF.</span>
+<span class="add">+  *</span>
+<span class="add">+  * return:</span>
+<span class="add">+  *   type: int</span>
+<span class="add">+  *   check-type: exact</span>
+<span class="add">+  *   success: 0</span>
+<span class="add">+  *   desc: Returns 0 on success. On error, returns a negative error code. Except</span>
+<span class="add">+  *     for EBADF, the file descriptor is still closed when an error is returned</span>
+<span class="add">+  *     and must not be used again. The error comes from the file&#x27;s -&gt;flush()</span>
+<span class="add">+  *     method, not from the fd remaining open. With EBADF, nothing was released.</span>
+<span class="add">+  *</span>
+<span class="add">+  * error: EBADF, Bad file descriptor</span>
+<span class="add">+  *   desc: fd is at or above the file descriptor table size, has no file</span>
+<span class="add">+  *     assigned (including a slot reserved by a concurrent open() that has not</span>
+<span class="add">+  *     installed its file yet), or was already closed. This is the only error</span>
+<span class="add">+  *     for which no file descriptor was released.</span>
+<span class="add">+  *</span>
+<span class="add">+  * error: EINTR, Interrupted system call</span>
+<span class="add">+  *   desc: The flush operation was interrupted by a signal before completion.</span>
+<span class="add">+  *     This occurs when a driver&#x27;s -&gt;flush() method (for example wdm_flush() in</span>
+<span class="add">+  *     drivers/usb/class/cdc-wdm.c) performs an interruptible wait that receives</span>
+<span class="add">+  *     a signal. The file descriptor is still released and must not be used</span>
+<span class="add">+  *     again. Kernel-internal restart codes (ERESTARTSYS,</span>
+<span class="add">+  *     ERESTARTNOINTR, ERESTARTNOHAND, ERESTART_RESTARTBLOCK) are converted to</span>
+<span class="add">+  *     EINTR because restarting the syscall would be incorrect once the fd is</span>
+<span class="add">+  *     freed.</span>
+<span class="add">+  *</span>
+<span class="add">+  * error: EIO, I/O error</span>
+<span class="add">+  *   desc: The file&#x27;s -&gt;flush() method reported an I/O error, typically a</span>
+<span class="add">+  *     deferred write error on a network filesystem such as NFS, CIFS or FUSE,</span>
+<span class="add">+  *     or an error from a driver&#x27;s -&gt;flush(). Previously buffered write data</span>
+<span class="add">+  *     may have been lost.</span>
+<span class="add">+  *</span>
+<span class="add">+  * error: ENOSPC, No space left on device</span>
+<span class="add">+  *   desc: The file&#x27;s -&gt;flush() method reported that there was insufficient</span>
+<span class="add">+  *     space to flush buffered writes, for example on NFS when the server runs</span>
+<span class="add">+  *     out of space between write() and close().</span>
+<span class="add">+  *</span>
+<span class="add">+  * error: EDQUOT, Disk quota exceeded</span>
+<span class="add">+  *   desc: The file&#x27;s -&gt;flush() method reported that the user&#x27;s disk quota was</span>
+<span class="add">+  *     exceeded while flushing buffered writes, for example on NFS when the</span>
+<span class="add">+  *     quota is exceeded between write() and close().</span>
+<span class="add">+  *</span>
+<span class="add">+  * lock: files-&gt;file_lock</span>
+<span class="add">+  *   type: spinlock</span>
+<span class="add">+  *   acquired: true</span>
+<span class="add">+  *   released: true</span>
+<span class="add">+  *   desc: Taken by file_close_fd() to look up and clear the fd slot atomically,</span>
+<span class="add">+  *     so two concurrent close() calls on one fd cannot both obtain the struct</span>
+<span class="add">+  *     file. Dropped before -&gt;flush() and the final fput. From then on the fd</span>
+<span class="add">+  *     number may be handed out again. An fd reserved by a concurrent open() but</span>
+<span class="add">+  *     not yet installed has a NULL slot, so close() returns EBADF.</span>
+<span class="add">+  *</span>
+<span class="add">+  * lock: file-&gt;f_lock</span>
+<span class="add">+  *   type: spinlock</span>
+<span class="add">+  *   acquired: true</span>
+<span class="add">+  *   released: true</span>
+<span class="add">+  *   desc: Taken from __fput() on the last reference, by eventpoll_release_file()</span>
+<span class="add">+  *     when the file is registered with epoll, and by fasync_remove_entry()</span>
+<span class="add">+  *     (through the -&gt;fasync() method) when FASYNC is set. Protects the epoll</span>
+<span class="add">+  *     and fasync links of the file.</span>
+<span class="add">+  *</span>
+<span class="add">+  * lock: ep-&gt;mtx</span>
+<span class="add">+  *   type: mutex</span>
+<span class="add">+  *   acquired: true</span>
+<span class="add">+  *   released: true</span>
+<span class="add">+  *   desc: Acquired during epoll cleanup if the file was monitored by epoll.</span>
+<span class="add">+  *     Used to safely remove the file from epoll interest lists.</span>
+<span class="add">+  *</span>
+<span class="add">+  * lock: flc_lock</span>
+<span class="add">+  *   type: spinlock</span>
+<span class="add">+  *   acquired: true</span>
+<span class="add">+  *   released: true</span>
+<span class="add">+  *   desc: File lock context spinlock. Taken by locks_remove_posix() from</span>
+<span class="add">+  *     filp_flush() on every close when the file has POSIX locks, and by</span>
+<span class="add">+  *     locks_remove_file() from __fput() on the last reference to remove OFD,</span>
+<span class="add">+  *     flock, and lease locks.</span>
+<span class="add">+  *</span>
+<span class="add">+  * signal: pending_signals</span>
+<span class="add">+  *   direction: receive</span>
+<span class="add">+  *   action: return</span>
+<span class="add">+  *   condition: When close-time flush performs interruptible wait</span>
+<span class="add">+  *   desc: If the close-time -&gt;flush() method (for example wdm_flush() in</span>
+<span class="add">+  *     cdc-wdm) performs an interruptible wait and a signal is pending, the wait</span>
+<span class="add">+  *     is interrupted. Any kernel restart codes are converted to EINTR since</span>
+<span class="add">+  *     close cannot be restarted after the fd is freed.</span>
+<span class="add">+  *   errno: -EINTR</span>
+<span class="add">+  *   timing: during</span>
+<span class="add">+  *   restartable: no</span>
+<span class="add">+  *</span>
+<span class="add">+  * side-effect: resource_destroy | irreversible</span>
+<span class="add">+  *   target: File descriptor table entry</span>
+<span class="add">+  *   desc: The file descriptor is removed from the process&#x27;s file descriptor</span>
+<span class="add">+  *     table, making the fd number available for reuse by subsequent open(),</span>
+<span class="add">+  *     dup(), or similar calls. This happens before the flush that may fail, so</span>
+<span class="add">+  *     an error return does not undo it.</span>
+<span class="add">+  *   condition: Always (when fd is valid)</span>
+<span class="add">+  *   reversible: no</span>
+<span class="add">+  *</span>
+<span class="add">+  * side-effect: lock_release</span>
+<span class="add">+  *   target: POSIX advisory locks, OFD locks, flock locks</span>
+<span class="add">+  *   desc: POSIX locks held by this process on the inode are removed on every</span>
+<span class="add">+  *     close via locks_remove_posix() in filp_flush(), except for O_PATH files.</span>
+<span class="add">+  *     OFD and flock locks are removed via locks_remove_file() in __fput() only</span>
+<span class="add">+  *     when this is the last reference to the open file description.</span>
+<span class="add">+  *   condition: Any close of a non-O_PATH file for POSIX locks, last reference</span>
+<span class="add">+  *     for OFD and flock locks</span>
+<span class="add">+  *   reversible: no</span>
+<span class="add">+  *</span>
+<span class="add">+  * side-effect: resource_destroy</span>
+<span class="add">+  *   target: File leases</span>
+<span class="add">+  *   desc: Any file leases held on the file are removed during locks_remove_file()</span>
+<span class="add">+  *     when this is the last reference to the open file description.</span>
+<span class="add">+  *   condition: File had leases and this is the last reference</span>
+<span class="add">+  *   reversible: no</span>
+<span class="add">+  *</span>
+<span class="add">+  * side-effect: modify_state</span>
+<span class="add">+  *   target: dnotify registrations</span>
+<span class="add">+  *   desc: Directory notification (dnotify) registrations associated with this</span>
+<span class="add">+  *     file are cleaned up via dnotify_flush(). This only applies to directories.</span>
+<span class="add">+  *   condition: File is a directory with dnotify registrations</span>
+<span class="add">+  *   reversible: no</span>
+<span class="add">+  *</span>
+<span class="add">+  * side-effect: modify_state</span>
+<span class="add">+  *   target: epoll interest lists</span>
+<span class="add">+  *   desc: If the file was being monitored by epoll instances, it is removed</span>
+<span class="add">+  *     from those interest lists via eventpoll_release(), which runs from</span>
+<span class="add">+  *     __fput() only on the last reference. While other references remain, the</span>
+<span class="add">+  *     epoll registrations stay active.</span>
+<span class="add">+  *   condition: File was added to epoll instances and this is the last reference</span>
+<span class="add">+  *   reversible: no</span>
+<span class="add">+  *</span>
+<span class="add">+  * side-effect: filesystem</span>
+<span class="add">+  *   target: Buffered data</span>
+<span class="add">+  *   desc: The file&#x27;s -&gt;flush() method runs before the file reference is</span>
+<span class="add">+  *     dropped (for example on NFS, CIFS and FUSE) and may return errors such as</span>
+<span class="add">+  *     EIO, ENOSPC or EDQUOT.</span>
+<span class="add">+  *   condition: The filesystem or driver provides a -&gt;flush() method</span>
+<span class="add">+  *   reversible: no</span>
+<span class="add">+  *</span>
+<span class="add">+  * side-effect: free_memory</span>
+<span class="add">+  *   target: struct file and related structures</span>
+<span class="add">+  *   desc: When this is the last reference to the file, the file structure is</span>
+<span class="add">+  *     freed and the dentry and mount references are released.</span>
+<span class="add">+  *   condition: This is the last reference to the file</span>
+<span class="add">+  *   reversible: no</span>
+<span class="add">+  *</span>
+<span class="add">+  * side-effect: filesystem</span>
+<span class="add">+  *   target: Unlinked file deletion</span>
+<span class="add">+  *   desc: If the file was previously unlinked (deleted) but kept open, closing</span>
+<span class="add">+  *     the last reference causes the actual file data to be removed from the</span>
+<span class="add">+  *     filesystem and the inode to be freed.</span>
+<span class="add">+  *   condition: File was unlinked and this is the last reference</span>
+<span class="add">+  *   reversible: no</span>
+<span class="add">+  *</span>
+<span class="add">+  * state-trans: file_descriptor</span>
+<span class="add">+  *   from: open</span>
+<span class="add">+  *   to: closed/free</span>
+<span class="add">+  *   condition: Valid fd passed to close</span>
+<span class="add">+  *   desc: The file descriptor transitions from open (usable) to closed (invalid).</span>
+<span class="add">+  *     The fd number becomes available for reuse.</span>
+<span class="add">+  *</span>
+<span class="add">+  * state-trans: file_reference_count</span>
+<span class="add">+  *   from: n</span>
+<span class="add">+  *   to: n-1 (or freed if n was 1)</span>
+<span class="add">+  *   condition: Always on successful fd lookup</span>
+<span class="add">+  *   desc: The file&#x27;s reference count is decremented. If this was the last</span>
+<span class="add">+  *     reference, the file is fully cleaned up and freed.</span>
+<span class="add">+  *</span>
+<span class="add">+  * examples: close(fd);  // Ignoring the result loses -&gt;flush() errors</span>
+<span class="add">+  *   if (close(fd) == -1) perror(&quot;close&quot;);  // Log errors for debugging</span>
+<span class="add">+  *   fsync(fd); close(fd);  // Ensure data persistence before closing</span>
+<span class="add">+  *</span>
+<span class="add">+  * notes: close() drops its reference with fput_close_sync(), so when it is the last</span>
+<span class="add">+  *   reference __fput() runs synchronously in the calling task before close()</span>
+<span class="add">+  *   returns, instead of being deferred to task work.</span>
+<span class="add">+  *</span>
+<span class="add">+  *   Calling close() on a file descriptor while another thread is using it</span>
+<span class="add">+  *   (e.g., in a blocking read() or write()) does not interrupt the blocked</span>
+<span class="add">+  *   operation. The blocked operation continues on the underlying file and</span>
+<span class="add">+  *   may complete even after close() returns.</span>
+<span class="add">+  */</span>
+  /*
+   * Careful here! We test whether the file pointer is NULL before
+   * releasing the fd. This ensures that one clone task can&#x27;t release
+<span class="hdr">diff --cc include/linux/syscalls.h</span>
+<span class="ctx">index 552d9710a0d57,b062bac9ea1ed..ce707e3e05cd0</span>
+<span class="hdr">--- a/include/linux/syscalls.h</span>
+<span class="hdr">+++ b/include/linux/syscalls.h</span>
+<span class="ctx">@@@ -92,9 -92,12 +92,13 @@@ struct file_attr</span>
+  #include &lt;linux/quota.h&gt;
+  #include &lt;linux/key.h&gt;
+  #include &lt;linux/personality.h&gt;
+ +#include &lt;linux/error-injection.h&gt;
+  #include &lt;trace/syscall.h&gt;
+  
+<span class="add">+ #ifdef CONFIG_KAPI_RUNTIME_CHECKS</span>
+<span class="add">+ #include &lt;linux/kapi_syscall.h&gt;</span>
+<span class="add">+ #endif</span>
+<span class="add">+ </span>
+  #ifdef CONFIG_ARCH_HAS_SYSCALL_WRAPPER
+  /*
+   * It may be useful for an architecture to override the definitions of the
+</div>
+</details></td>
+</tr>
+<tr data-type="rerere" data-category="fixes">
+<td><code>mm-fixes</code></td>
+<td>fixes</td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>arch/riscv/mm/init.c</code></td>
+<td>12:52 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">847d3bf6a14aedc5d99bcb6df726c520cdea7841
+<span class="hdr">diff --cc arch/riscv/mm/init.c</span>
+<span class="ctx">index 070ee69eabb38,6f6b04795bb23..e822fce0af4b0</span>
+<span class="hdr">--- a/arch/riscv/mm/init.c</span>
+<span class="hdr">+++ b/arch/riscv/mm/init.c</span>
+<span class="ctx">@@@ -1659,8 -1638,8 +1653,8 @@@ static void __meminit remove_pud_mappin</span>
+  		pmd_base = pmd_offset(pudp, 0);
+  		remove_pmd_mapping(pmd_base, addr, next, is_vmemmap, altmap);
+  
+ -		if (pgtable_l4_enabled)
+ +		if (pgtable_l4_enabled())
+<span class="del">- 			free_pmd_table(pmd_base, pudp, is_vmemmap);</span>
+<span class="add">+ 			free_pmd_table(pmd_base, pudp);</span>
+  	}
+  }
+  
+</div>
+</details></td>
+</tr>
+<tr data-type="rerere" data-category="fixes">
+<td><code>iwlwifi</code></td>
+<td>fixes</td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>drivers/net/wireless/intel/iwlwifi/iwl-nvm-parse.c, drivers/net/wireless/intel/iwlwifi/iwl-trans.c, drivers/net/wireless/intel/iwlwifi/mvm/debugfs.c (+2 more)</code></td>
+<td>12:53 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">ddaf9bdcdff330b29a9b591be49975bcae7f0160
+</div>
+</details></td>
+</tr>
+<tr data-type="rerere" data-category="mm">
+<td><code>mm-fixes</code></td>
+<td>mm</td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>arch/riscv/mm/init.c</code></td>
+<td>12:54 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">b2916697197bd4acdcf23a855526018b0e55011c
+<span class="hdr">diff --cc arch/riscv/mm/init.c</span>
+<span class="ctx">index 070ee69eabb38,6f6b04795bb23..e822fce0af4b0</span>
+<span class="hdr">--- a/arch/riscv/mm/init.c</span>
+<span class="hdr">+++ b/arch/riscv/mm/init.c</span>
+<span class="ctx">@@@ -1659,8 -1638,8 +1653,8 @@@ static void __meminit remove_pud_mappin</span>
+  		pmd_base = pmd_offset(pudp, 0);
+  		remove_pmd_mapping(pmd_base, addr, next, is_vmemmap, altmap);
+  
+ -		if (pgtable_l4_enabled)
+ +		if (pgtable_l4_enabled())
+<span class="del">- 			free_pmd_table(pmd_base, pudp, is_vmemmap);</span>
+<span class="add">+ 			free_pmd_table(pmd_base, pudp);</span>
+  	}
+  }
+  
+</div>
+</details></td>
+</tr>
+<tr data-type="rerere" data-category="mm">
+<td><code>pagemap-headers</code></td>
+<td>mm</td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>arch/alpha/include/asm/pgtable.h, arch/arc/include/asm/pgtable-levels.h, arch/microblaze/include/asm/pgtable.h (+78 more)</code></td>
+<td>12:54 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">704b072211a1ea1c95eb9a1a03db8a0187c280ff
+<span class="hdr">diff --cc arch/x86/virt/vmx/tdx/tdx.c</span>
+<span class="ctx">index 96ced0494b687,3636a4d6ab8b9..680e5178a86f2</span>
+<span class="hdr">--- a/arch/x86/virt/vmx/tdx/tdx.c</span>
+<span class="hdr">+++ b/arch/x86/virt/vmx/tdx/tdx.c</span>
+<span class="ctx">@@@ -30,8 -30,8 +30,9 @@@</span>
+  #include &lt;linux/suspend.h&gt;
+  #include &lt;linux/syscore_ops.h&gt;
+  #include &lt;linux/idr.h&gt;
+ +#include &lt;linux/vmalloc.h&gt;
+  #include &lt;asm/page.h&gt;
+<span class="add">+ #include &lt;asm/cacheflush.h&gt;</span>
+  #include &lt;asm/special_insns.h&gt;
+  #include &lt;asm/msr-index.h&gt;
+  #include &lt;asm/msr.h&gt;
+<span class="hdr">diff --cc drivers/gpu/drm/amd/amdgpu/amdgpu_cs.c</span>
+<span class="ctx">index 5558e7330cf46,b68a017afd530..3e3f1e1432358</span>
+<span class="hdr">--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_cs.c</span>
+<span class="hdr">+++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_cs.c</span>
+<span class="ctx">@@@ -26,10 -26,8 +26,9 @@@</span>
+   */
+  
+  #include &lt;linux/file.h&gt;
+<span class="del">- #include &lt;linux/pagemap.h&gt;</span>
+  #include &lt;linux/sync_file.h&gt;
+  #include &lt;linux/dma-buf.h&gt;
+ +#include &lt;linux/pm_runtime.h&gt;
+  
+  #include &lt;drm/amdgpu_drm.h&gt;
+  #include &lt;drm/drm_syncobj.h&gt;
+<span class="hdr">diff --cc drivers/gpu/drm/amd/amdgpu/amdgpu_gem.c</span>
+<span class="ctx">index 3962b9f08dd67,e9017ff2cca73..cbd6599fe1230</span>
+<span class="hdr">--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_gem.c</span>
+<span class="hdr">+++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_gem.c</span>
+<span class="ctx">@@@ -25,9 -25,9 +25,8 @@@</span>
+   *          Alex Deucher
+   *          Jerome Glisse
+   */
+ -#include &lt;linux/ktime.h&gt;
+  #include &lt;linux/module.h&gt;
+  #include &lt;linux/overflow.h&gt;
+<span class="del">- #include &lt;linux/pagemap.h&gt;</span>
+  #include &lt;linux/pci.h&gt;
+  #include &lt;linux/dma-buf.h&gt;
+  #include &lt;linux/dma-fence-unwrap.h&gt;
+<span class="hdr">diff --cc drivers/gpu/drm/amd/amdkfd/kfd_migrate.c</span>
+<span class="ctx">index 8b96e1fe741a1,460b289ddd4ef..9535ebe5837af</span>
+<span class="hdr">--- a/drivers/gpu/drm/amd/amdkfd/kfd_migrate.c</span>
+<span class="hdr">+++ b/drivers/gpu/drm/amd/amdkfd/kfd_migrate.c</span>
+<span class="ctx">@@@ -24,8 -24,7 +24,9 @@@</span>
+  #include &lt;linux/dma-direction.h&gt;
+  #include &lt;linux/dma-mapping.h&gt;
+  #include &lt;linux/migrate.h&gt;
+<span class="add">+ #include &lt;linux/pagemap.h&gt;</span>
+ +#include &quot;amdgpu.h&quot;
+ +#include &quot;amdgpu_sdma.h&quot;
+  #include &quot;amdgpu_sync.h&quot;
+  #include &quot;amdgpu_object.h&quot;
+  #include &quot;amdgpu_vm.h&quot;
+<span class="hdr">diff --cc drivers/gpu/drm/msm/msm_fb.c</span>
+<span class="ctx">index 60c108d35d2a1,e8954e6a5f439..1e236416e15f0</span>
+<span class="hdr">--- a/drivers/gpu/drm/msm/msm_fb.c</span>
+<span class="hdr">+++ b/drivers/gpu/drm/msm/msm_fb.c</span>
+<span class="ctx">@@@ -4,8 -4,11 +4,10 @@@</span>
+   * Author: Rob Clark &lt;robdclark@gmail.com&gt;
+   */
+  
+<span class="add">+ #include &lt;linux/seq_file.h&gt;</span>
+<span class="add">+ </span>
+  #include &lt;drm/drm_crtc.h&gt;
+  #include &lt;drm/drm_damage_helper.h&gt;
+ -#include &lt;drm/drm_file.h&gt;
+  #include &lt;drm/drm_fourcc.h&gt;
+  #include &lt;drm/drm_framebuffer.h&gt;
+  #include &lt;drm/drm_gem_framebuffer_helper.h&gt;
+<span class="hdr">diff --cc drivers/gpu/drm/panfrost/panfrost_gem.c</span>
+<span class="ctx">index 518f24549b9de,68546925f16b0..0f99c3c3184da</span>
+<span class="hdr">--- a/drivers/gpu/drm/panfrost/panfrost_gem.c</span>
+<span class="hdr">+++ b/drivers/gpu/drm/panfrost/panfrost_gem.c</span>
+<span class="ctx">@@@ -7,11 -7,13 +7,13 @@@</span>
+  #include &lt;linux/slab.h&gt;
+  #include &lt;linux/dma-buf.h&gt;
+  #include &lt;linux/dma-mapping.h&gt;
+<span class="add">+ #include &lt;linux/highmem.h&gt;</span>
+<span class="add">+ #include &lt;linux/seq_file.h&gt;</span>
+  
+  #include &lt;drm/panfrost_drm.h&gt;
+ +#include &lt;drm/drm_debugfs.h&gt;
+  #include &lt;drm/drm_print.h&gt;
+  #include &quot;panfrost_device.h&quot;
+ -#include &quot;panfrost_drv.h&quot;
+  #include &quot;panfrost_gem.h&quot;
+  #include &quot;panfrost_mmu.h&quot;
+  
+<span class="hdr">diff --cc drivers/regulator/tps65185.c</span>
+<span class="ctx">index 4865227e444a6,14d04c1a55f25..8780b73c7aa87</span>
+<span class="hdr">--- a/drivers/regulator/tps65185.c</span>
+<span class="hdr">+++ b/drivers/regulator/tps65185.c</span>
+<span class="ctx">@@@ -5,9 -5,9 +5,10 @@@</span>
+  
+  #include &lt;linux/cleanup.h&gt;
+  #include &lt;linux/completion.h&gt;
+ +#include &lt;linux/delay.h&gt;
+  #include &lt;linux/gpio/consumer.h&gt;
+  #include &lt;linux/i2c.h&gt;
+<span class="add">+ #include &lt;linux/interrupt.h&gt;</span>
+  #include &lt;linux/module.h&gt;
+  #include &lt;linux/mutex.h&gt;
+  #include &lt;linux/hwmon.h&gt;
+<span class="hdr">diff --cc net/ceph/osd_client.c</span>
+<span class="ctx">index f36ce5ae75680,86b681a56e206..621c5de2cfc66</span>
+<span class="hdr">--- a/net/ceph/osd_client.c</span>
+<span class="hdr">+++ b/net/ceph/osd_client.c</span>
+<span class="ctx">@@@ -6,8 -6,6 +6,7 @@@</span>
+  #include &lt;linux/err.h&gt;
+  #include &lt;linux/highmem.h&gt;
+  #include &lt;linux/mm.h&gt;
+ +#include &lt;linux/overflow.h&gt;
+<span class="del">- #include &lt;linux/pagemap.h&gt;</span>
+  #include &lt;linux/slab.h&gt;
+  #include &lt;linux/uaccess.h&gt;
+  #ifdef CONFIG_BLOCK
+</div>
+</details></td>
+</tr>
+<tr data-type="rerere" data-category="fixes">
+<td><code>drm-misc-fixes</code></td>
+<td>fixes</td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>.mailmap, MAINTAINERS, drivers/dma-buf/dma-buf.c (+2 more)</code></td>
+<td>12:56 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">8aec2f71e7c3967b020f49f8dbaf19cab2168efa
+</div>
+</details></td>
+</tr>
+</tbody></table>
+<h2 id="by-category">By Category</h2>
+<h3>core <span class="category-count">1</span></h3>
+<table>
+<thead>
+<tr><th>Tree</th><th>Type</th><th>Files</th><th>Time</th><th>Details</th></tr>
+</thead>
+<tbody>
+<tr>
+<td><code>kapi</code></td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>.gitignore, MAINTAINERS, Makefile (+10 more)</code></td>
+<td>12:46 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">5c88c44c105061457d699c11ff51fbd740506b5f
+<span class="hdr">diff --cc Makefile</span>
+<span class="ctx">index 7e6baa461b91a,fd7917f78fa45..ed172d87efb45</span>
+<span class="hdr">--- a/Makefile</span>
+<span class="hdr">+++ b/Makefile</span>
+<span class="ctx">@@@ -2265,7 -2251,7 +2265,8 @@@ clean: $(clean-dirs</span>
+  		-o -name &#x27;*.ll&#x27; \
+  		-o -name &#x27;*.gcno&#x27; \
+  		-o -name &#x27;*.long-type-*.txt&#x27; \
+ +		-o -name &#x27;*.header-check&#x27; \
+<span class="add">+ 		-o -name &#x27;*.apispec.h&#x27; \</span>
+  		\) -type f -print \
+  		-o -name &#x27;.tmp_*&#x27; -print \
+  		| xargs rm -rf
+<span class="hdr">diff --cc fs/open.c</span>
+<span class="ctx">index e43f02ff64acb,9f08c438f162a..bf398105f03a0</span>
+<span class="hdr">--- a/fs/open.c</span>
+<span class="hdr">+++ b/fs/open.c</span>
+<span class="ctx">@@@ -1562,19 -1861,239 +1886,252 @@@ int filp_close(struct file *filp, fl_ow</span>
+  }
+  EXPORT_SYMBOL(filp_close);
+  
+ +/* Like filp_close() but the last reference is put right here. */
+ +int filp_close_sync(struct file *filp, fl_owner_t id)
+ +{
+ +	int retval;
+ +
+ +	/* Kernel threads must never put their final reference here. */
+ +	VFS_WARN_ON_ONCE(current-&gt;flags &amp; PF_KTHREAD);
+ +	retval = filp_flush(filp, id);
+ +	fput_close_sync(filp);
+ +
+ +	return retval;
+ +}
+ +
+<span class="add">+ /**</span>
+<span class="add">+  * sys_close - Close a file descriptor</span>
+<span class="add">+  * @fd: The file descriptor to close</span>
+<span class="add">+  *</span>
+<span class="add">+  * long-desc: Terminates access to an open file descriptor, releasing the file</span>
+<span class="add">+  *   descriptor for reuse by subsequent open(), dup(), or similar syscalls.</span>
+<span class="add">+  *</span>
+<span class="add">+  *   Traditional POSIX advisory record locks held by the process on the</span>
+<span class="add">+  *   associated file are released when any of its fds for that inode is</span>
+<span class="add">+  *   closed, not only the last one. OFD locks and flock locks are associated</span>
+<span class="add">+  *   with the open file description and are only released when the last</span>
+<span class="add">+  *   reference to that open file description is dropped.</span>
+<span class="add">+  *</span>
+<span class="add">+  *   Closing a file descriptor drops one reference to its open file</span>
+<span class="add">+  *   description. Other descriptors (dup(), fork(), SCM_RIGHTS messages in</span>
+<span class="add">+  *   flight) and operations still running on the file, such as a concurrent</span>
+<span class="add">+  *   read(), also hold references. Only when the last reference is dropped are</span>
+<span class="add">+  *   the associated resources freed. If the file was previously unlinked, the</span>
+<span class="add">+  *   file itself is deleted when the last reference is dropped.</span>
+<span class="add">+  *</span>
+<span class="add">+  *   Except when close() fails with EBADF, the file descriptor is released even</span>
+<span class="add">+  *   when close() returns an error, because it is released before the flush</span>
+<span class="add">+  *   that may fail. POSIX leaves the state of the descriptor unspecified after</span>
+<span class="add">+  *   EINTR. Retrying close() after an error may close an unrelated file</span>
+<span class="add">+  *   descriptor that another thread has since been given.</span>
+<span class="add">+  *</span>
+<span class="add">+  *   Errors returned from close() come only from the file&#x27;s -&gt;flush() method,</span>
+<span class="add">+  *   called by filp_flush(). Errors from -&gt;release() are not reported.</span>
+<span class="add">+  *   Filesystems without a -&gt;flush() method, such as ext4, xfs and btrfs, never</span>
+<span class="add">+  *   report write errors from close(). Network filesystems such as NFS, CIFS and</span>
+<span class="add">+  *   FUSE implement -&gt;flush() and report deferred write errors (EIO, ENOSPC,</span>
+<span class="add">+  *   EDQUOT) at close time. A successful return does not mean the data reached</span>
+<span class="add">+  *   storage; call fsync() before close() for that.</span>
+<span class="add">+  *</span>
+<span class="add">+  *   On close, the following cleanup operations are performed: the -&gt;flush()</span>
+<span class="add">+  *   method is called if the file has one, POSIX advisory locks are removed,</span>
+<span class="add">+  *   dnotify registrations are cleaned up, and the file reference is released.</span>
+<span class="add">+  *   If this was the last reference, additional cleanup includes: fsnotify close</span>
+<span class="add">+  *   notification, epoll cleanup, OFD, flock and lease removal, FASYNC cleanup,</span>
+<span class="add">+  *   the -&gt;release() method, and the file structure deallocation.</span>
+<span class="add">+  *</span>
+<span class="add">+  * contexts: process, sleepable</span>
+<span class="add">+  *</span>
+<span class="add">+  * param: fd</span>
+<span class="add">+  *   type: fd, input</span>
+<span class="add">+  *   constraint-type: range(0, INT_MAX)</span>
+<span class="add">+  *   cdesc: Must be a valid, open file descriptor for the current process.</span>
+<span class="add">+  *     The value 0, 1, or 2 (stdin, stdout, stderr) may be closed like any other</span>
+<span class="add">+  *     fd, though this is unusual and may cause issues with libraries that assume</span>
+<span class="add">+  *     these descriptors are valid. The parameter is unsigned int to match kernel</span>
+<span class="add">+  *     file descriptor table indexing. A value that is not open, including any</span>
+<span class="add">+  *     value at or above the current table size, fails with EBADF.</span>
+<span class="add">+  *</span>
+<span class="add">+  * return:</span>
+<span class="add">+  *   type: int</span>
+<span class="add">+  *   check-type: exact</span>
+<span class="add">+  *   success: 0</span>
+<span class="add">+  *   desc: Returns 0 on success. On error, returns a negative error code. Except</span>
+<span class="add">+  *     for EBADF, the file descriptor is still closed when an error is returned</span>
+<span class="add">+  *     and must not be used again. The error comes from the file&#x27;s -&gt;flush()</span>
+<span class="add">+  *     method, not from the fd remaining open. With EBADF, nothing was released.</span>
+<span class="add">+  *</span>
+<span class="add">+  * error: EBADF, Bad file descriptor</span>
+<span class="add">+  *   desc: fd is at or above the file descriptor table size, has no file</span>
+<span class="add">+  *     assigned (including a slot reserved by a concurrent open() that has not</span>
+<span class="add">+  *     installed its file yet), or was already closed. This is the only error</span>
+<span class="add">+  *     for which no file descriptor was released.</span>
+<span class="add">+  *</span>
+<span class="add">+  * error: EINTR, Interrupted system call</span>
+<span class="add">+  *   desc: The flush operation was interrupted by a signal before completion.</span>
+<span class="add">+  *     This occurs when a driver&#x27;s -&gt;flush() method (for example wdm_flush() in</span>
+<span class="add">+  *     drivers/usb/class/cdc-wdm.c) performs an interruptible wait that receives</span>
+<span class="add">+  *     a signal. The file descriptor is still released and must not be used</span>
+<span class="add">+  *     again. Kernel-internal restart codes (ERESTARTSYS,</span>
+<span class="add">+  *     ERESTARTNOINTR, ERESTARTNOHAND, ERESTART_RESTARTBLOCK) are converted to</span>
+<span class="add">+  *     EINTR because restarting the syscall would be incorrect once the fd is</span>
+<span class="add">+  *     freed.</span>
+<span class="add">+  *</span>
+<span class="add">+  * error: EIO, I/O error</span>
+<span class="add">+  *   desc: The file&#x27;s -&gt;flush() method reported an I/O error, typically a</span>
+<span class="add">+  *     deferred write error on a network filesystem such as NFS, CIFS or FUSE,</span>
+<span class="add">+  *     or an error from a driver&#x27;s -&gt;flush(). Previously buffered write data</span>
+<span class="add">+  *     may have been lost.</span>
+<span class="add">+  *</span>
+<span class="add">+  * error: ENOSPC, No space left on device</span>
+<span class="add">+  *   desc: The file&#x27;s -&gt;flush() method reported that there was insufficient</span>
+<span class="add">+  *     space to flush buffered writes, for example on NFS when the server runs</span>
+<span class="add">+  *     out of space between write() and close().</span>
+<span class="add">+  *</span>
+<span class="add">+  * error: EDQUOT, Disk quota exceeded</span>
+<span class="add">+  *   desc: The file&#x27;s -&gt;flush() method reported that the user&#x27;s disk quota was</span>
+<span class="add">+  *     exceeded while flushing buffered writes, for example on NFS when the</span>
+<span class="add">+  *     quota is exceeded between write() and close().</span>
+<span class="add">+  *</span>
+<span class="add">+  * lock: files-&gt;file_lock</span>
+<span class="add">+  *   type: spinlock</span>
+<span class="add">+  *   acquired: true</span>
+<span class="add">+  *   released: true</span>
+<span class="add">+  *   desc: Taken by file_close_fd() to look up and clear the fd slot atomically,</span>
+<span class="add">+  *     so two concurrent close() calls on one fd cannot both obtain the struct</span>
+<span class="add">+  *     file. Dropped before -&gt;flush() and the final fput. From then on the fd</span>
+<span class="add">+  *     number may be handed out again. An fd reserved by a concurrent open() but</span>
+<span class="add">+  *     not yet installed has a NULL slot, so close() returns EBADF.</span>
+<span class="add">+  *</span>
+<span class="add">+  * lock: file-&gt;f_lock</span>
+<span class="add">+  *   type: spinlock</span>
+<span class="add">+  *   acquired: true</span>
+<span class="add">+  *   released: true</span>
+<span class="add">+  *   desc: Taken from __fput() on the last reference, by eventpoll_release_file()</span>
+<span class="add">+  *     when the file is registered with epoll, and by fasync_remove_entry()</span>
+<span class="add">+  *     (through the -&gt;fasync() method) when FASYNC is set. Protects the epoll</span>
+<span class="add">+  *     and fasync links of the file.</span>
+<span class="add">+  *</span>
+<span class="add">+  * lock: ep-&gt;mtx</span>
+<span class="add">+  *   type: mutex</span>
+<span class="add">+  *   acquired: true</span>
+<span class="add">+  *   released: true</span>
+<span class="add">+  *   desc: Acquired during epoll cleanup if the file was monitored by epoll.</span>
+<span class="add">+  *     Used to safely remove the file from epoll interest lists.</span>
+<span class="add">+  *</span>
+<span class="add">+  * lock: flc_lock</span>
+<span class="add">+  *   type: spinlock</span>
+<span class="add">+  *   acquired: true</span>
+<span class="add">+  *   released: true</span>
+<span class="add">+  *   desc: File lock context spinlock. Taken by locks_remove_posix() from</span>
+<span class="add">+  *     filp_flush() on every close when the file has POSIX locks, and by</span>
+<span class="add">+  *     locks_remove_file() from __fput() on the last reference to remove OFD,</span>
+<span class="add">+  *     flock, and lease locks.</span>
+<span class="add">+  *</span>
+<span class="add">+  * signal: pending_signals</span>
+<span class="add">+  *   direction: receive</span>
+<span class="add">+  *   action: return</span>
+<span class="add">+  *   condition: When close-time flush performs interruptible wait</span>
+<span class="add">+  *   desc: If the close-time -&gt;flush() method (for example wdm_flush() in</span>
+<span class="add">+  *     cdc-wdm) performs an interruptible wait and a signal is pending, the wait</span>
+<span class="add">+  *     is interrupted. Any kernel restart codes are converted to EINTR since</span>
+<span class="add">+  *     close cannot be restarted after the fd is freed.</span>
+<span class="add">+  *   errno: -EINTR</span>
+<span class="add">+  *   timing: during</span>
+<span class="add">+  *   restartable: no</span>
+<span class="add">+  *</span>
+<span class="add">+  * side-effect: resource_destroy | irreversible</span>
+<span class="add">+  *   target: File descriptor table entry</span>
+<span class="add">+  *   desc: The file descriptor is removed from the process&#x27;s file descriptor</span>
+<span class="add">+  *     table, making the fd number available for reuse by subsequent open(),</span>
+<span class="add">+  *     dup(), or similar calls. This happens before the flush that may fail, so</span>
+<span class="add">+  *     an error return does not undo it.</span>
+<span class="add">+  *   condition: Always (when fd is valid)</span>
+<span class="add">+  *   reversible: no</span>
+<span class="add">+  *</span>
+<span class="add">+  * side-effect: lock_release</span>
+<span class="add">+  *   target: POSIX advisory locks, OFD locks, flock locks</span>
+<span class="add">+  *   desc: POSIX locks held by this process on the inode are removed on every</span>
+<span class="add">+  *     close via locks_remove_posix() in filp_flush(), except for O_PATH files.</span>
+<span class="add">+  *     OFD and flock locks are removed via locks_remove_file() in __fput() only</span>
+<span class="add">+  *     when this is the last reference to the open file description.</span>
+<span class="add">+  *   condition: Any close of a non-O_PATH file for POSIX locks, last reference</span>
+<span class="add">+  *     for OFD and flock locks</span>
+<span class="add">+  *   reversible: no</span>
+<span class="add">+  *</span>
+<span class="add">+  * side-effect: resource_destroy</span>
+<span class="add">+  *   target: File leases</span>
+<span class="add">+  *   desc: Any file leases held on the file are removed during locks_remove_file()</span>
+<span class="add">+  *     when this is the last reference to the open file description.</span>
+<span class="add">+  *   condition: File had leases and this is the last reference</span>
+<span class="add">+  *   reversible: no</span>
+<span class="add">+  *</span>
+<span class="add">+  * side-effect: modify_state</span>
+<span class="add">+  *   target: dnotify registrations</span>
+<span class="add">+  *   desc: Directory notification (dnotify) registrations associated with this</span>
+<span class="add">+  *     file are cleaned up via dnotify_flush(). This only applies to directories.</span>
+<span class="add">+  *   condition: File is a directory with dnotify registrations</span>
+<span class="add">+  *   reversible: no</span>
+<span class="add">+  *</span>
+<span class="add">+  * side-effect: modify_state</span>
+<span class="add">+  *   target: epoll interest lists</span>
+<span class="add">+  *   desc: If the file was being monitored by epoll instances, it is removed</span>
+<span class="add">+  *     from those interest lists via eventpoll_release(), which runs from</span>
+<span class="add">+  *     __fput() only on the last reference. While other references remain, the</span>
+<span class="add">+  *     epoll registrations stay active.</span>
+<span class="add">+  *   condition: File was added to epoll instances and this is the last reference</span>
+<span class="add">+  *   reversible: no</span>
+<span class="add">+  *</span>
+<span class="add">+  * side-effect: filesystem</span>
+<span class="add">+  *   target: Buffered data</span>
+<span class="add">+  *   desc: The file&#x27;s -&gt;flush() method runs before the file reference is</span>
+<span class="add">+  *     dropped (for example on NFS, CIFS and FUSE) and may return errors such as</span>
+<span class="add">+  *     EIO, ENOSPC or EDQUOT.</span>
+<span class="add">+  *   condition: The filesystem or driver provides a -&gt;flush() method</span>
+<span class="add">+  *   reversible: no</span>
+<span class="add">+  *</span>
+<span class="add">+  * side-effect: free_memory</span>
+<span class="add">+  *   target: struct file and related structures</span>
+<span class="add">+  *   desc: When this is the last reference to the file, the file structure is</span>
+<span class="add">+  *     freed and the dentry and mount references are released.</span>
+<span class="add">+  *   condition: This is the last reference to the file</span>
+<span class="add">+  *   reversible: no</span>
+<span class="add">+  *</span>
+<span class="add">+  * side-effect: filesystem</span>
+<span class="add">+  *   target: Unlinked file deletion</span>
+<span class="add">+  *   desc: If the file was previously unlinked (deleted) but kept open, closing</span>
+<span class="add">+  *     the last reference causes the actual file data to be removed from the</span>
+<span class="add">+  *     filesystem and the inode to be freed.</span>
+<span class="add">+  *   condition: File was unlinked and this is the last reference</span>
+<span class="add">+  *   reversible: no</span>
+<span class="add">+  *</span>
+<span class="add">+  * state-trans: file_descriptor</span>
+<span class="add">+  *   from: open</span>
+<span class="add">+  *   to: closed/free</span>
+<span class="add">+  *   condition: Valid fd passed to close</span>
+<span class="add">+  *   desc: The file descriptor transitions from open (usable) to closed (invalid).</span>
+<span class="add">+  *     The fd number becomes available for reuse.</span>
+<span class="add">+  *</span>
+<span class="add">+  * state-trans: file_reference_count</span>
+<span class="add">+  *   from: n</span>
+<span class="add">+  *   to: n-1 (or freed if n was 1)</span>
+<span class="add">+  *   condition: Always on successful fd lookup</span>
+<span class="add">+  *   desc: The file&#x27;s reference count is decremented. If this was the last</span>
+<span class="add">+  *     reference, the file is fully cleaned up and freed.</span>
+<span class="add">+  *</span>
+<span class="add">+  * examples: close(fd);  // Ignoring the result loses -&gt;flush() errors</span>
+<span class="add">+  *   if (close(fd) == -1) perror(&quot;close&quot;);  // Log errors for debugging</span>
+<span class="add">+  *   fsync(fd); close(fd);  // Ensure data persistence before closing</span>
+<span class="add">+  *</span>
+<span class="add">+  * notes: close() drops its reference with fput_close_sync(), so when it is the last</span>
+<span class="add">+  *   reference __fput() runs synchronously in the calling task before close()</span>
+<span class="add">+  *   returns, instead of being deferred to task work.</span>
+<span class="add">+  *</span>
+<span class="add">+  *   Calling close() on a file descriptor while another thread is using it</span>
+<span class="add">+  *   (e.g., in a blocking read() or write()) does not interrupt the blocked</span>
+<span class="add">+  *   operation. The blocked operation continues on the underlying file and</span>
+<span class="add">+  *   may complete even after close() returns.</span>
+<span class="add">+  */</span>
+  /*
+   * Careful here! We test whether the file pointer is NULL before
+   * releasing the fd. This ensures that one clone task can&#x27;t release
+<span class="hdr">diff --cc include/linux/syscalls.h</span>
+<span class="ctx">index 552d9710a0d57,b062bac9ea1ed..ce707e3e05cd0</span>
+<span class="hdr">--- a/include/linux/syscalls.h</span>
+<span class="hdr">+++ b/include/linux/syscalls.h</span>
+<span class="ctx">@@@ -92,9 -92,12 +92,13 @@@ struct file_attr</span>
+  #include &lt;linux/quota.h&gt;
+  #include &lt;linux/key.h&gt;
+  #include &lt;linux/personality.h&gt;
+ +#include &lt;linux/error-injection.h&gt;
+  #include &lt;trace/syscall.h&gt;
+  
+<span class="add">+ #ifdef CONFIG_KAPI_RUNTIME_CHECKS</span>
+<span class="add">+ #include &lt;linux/kapi_syscall.h&gt;</span>
+<span class="add">+ #endif</span>
+<span class="add">+ </span>
+  #ifdef CONFIG_ARCH_HAS_SYSCALL_WRAPPER
+  /*
+   * It may be useful for an architecture to override the definitions of the
+</div>
+</details></td>
+</tr>
+</tbody></table>
+<h3>fixes <span class="category-count">3</span></h3>
+<table>
+<thead>
+<tr><th>Tree</th><th>Type</th><th>Files</th><th>Time</th><th>Details</th></tr>
+</thead>
+<tbody>
+<tr>
+<td><code>mm-fixes</code></td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>arch/riscv/mm/init.c</code></td>
+<td>12:52 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">847d3bf6a14aedc5d99bcb6df726c520cdea7841
+<span class="hdr">diff --cc arch/riscv/mm/init.c</span>
+<span class="ctx">index 070ee69eabb38,6f6b04795bb23..e822fce0af4b0</span>
+<span class="hdr">--- a/arch/riscv/mm/init.c</span>
+<span class="hdr">+++ b/arch/riscv/mm/init.c</span>
+<span class="ctx">@@@ -1659,8 -1638,8 +1653,8 @@@ static void __meminit remove_pud_mappin</span>
+  		pmd_base = pmd_offset(pudp, 0);
+  		remove_pmd_mapping(pmd_base, addr, next, is_vmemmap, altmap);
+  
+ -		if (pgtable_l4_enabled)
+ +		if (pgtable_l4_enabled())
+<span class="del">- 			free_pmd_table(pmd_base, pudp, is_vmemmap);</span>
+<span class="add">+ 			free_pmd_table(pmd_base, pudp);</span>
+  	}
+  }
+  
+</div>
+</details></td>
+</tr>
+<tr>
+<td><code>iwlwifi</code></td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>drivers/net/wireless/intel/iwlwifi/iwl-nvm-parse.c, drivers/net/wireless/intel/iwlwifi/iwl-trans.c, drivers/net/wireless/intel/iwlwifi/mvm/debugfs.c (+2 more)</code></td>
+<td>12:53 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">ddaf9bdcdff330b29a9b591be49975bcae7f0160
+</div>
+</details></td>
+</tr>
+<tr>
+<td><code>drm-misc-fixes</code></td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>.mailmap, MAINTAINERS, drivers/dma-buf/dma-buf.c (+2 more)</code></td>
+<td>12:56 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">8aec2f71e7c3967b020f49f8dbaf19cab2168efa
+</div>
+</details></td>
+</tr>
+</tbody></table>
+<h3>mm <span class="category-count">2</span></h3>
+<table>
+<thead>
+<tr><th>Tree</th><th>Type</th><th>Files</th><th>Time</th><th>Details</th></tr>
+</thead>
+<tbody>
+<tr>
+<td><code>mm-fixes</code></td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>arch/riscv/mm/init.c</code></td>
+<td>12:54 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">b2916697197bd4acdcf23a855526018b0e55011c
+<span class="hdr">diff --cc arch/riscv/mm/init.c</span>
+<span class="ctx">index 070ee69eabb38,6f6b04795bb23..e822fce0af4b0</span>
+<span class="hdr">--- a/arch/riscv/mm/init.c</span>
+<span class="hdr">+++ b/arch/riscv/mm/init.c</span>
+<span class="ctx">@@@ -1659,8 -1638,8 +1653,8 @@@ static void __meminit remove_pud_mappin</span>
+  		pmd_base = pmd_offset(pudp, 0);
+  		remove_pmd_mapping(pmd_base, addr, next, is_vmemmap, altmap);
+  
+ -		if (pgtable_l4_enabled)
+ +		if (pgtable_l4_enabled())
+<span class="del">- 			free_pmd_table(pmd_base, pudp, is_vmemmap);</span>
+<span class="add">+ 			free_pmd_table(pmd_base, pudp);</span>
+  	}
+  }
+  
+</div>
+</details></td>
+</tr>
+<tr>
+<td><code>pagemap-headers</code></td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>arch/alpha/include/asm/pgtable.h, arch/arc/include/asm/pgtable-levels.h, arch/microblaze/include/asm/pgtable.h (+78 more)</code></td>
+<td>12:54 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">704b072211a1ea1c95eb9a1a03db8a0187c280ff
+<span class="hdr">diff --cc arch/x86/virt/vmx/tdx/tdx.c</span>
+<span class="ctx">index 96ced0494b687,3636a4d6ab8b9..680e5178a86f2</span>
+<span class="hdr">--- a/arch/x86/virt/vmx/tdx/tdx.c</span>
+<span class="hdr">+++ b/arch/x86/virt/vmx/tdx/tdx.c</span>
+<span class="ctx">@@@ -30,8 -30,8 +30,9 @@@</span>
+  #include &lt;linux/suspend.h&gt;
+  #include &lt;linux/syscore_ops.h&gt;
+  #include &lt;linux/idr.h&gt;
+ +#include &lt;linux/vmalloc.h&gt;
+  #include &lt;asm/page.h&gt;
+<span class="add">+ #include &lt;asm/cacheflush.h&gt;</span>
+  #include &lt;asm/special_insns.h&gt;
+  #include &lt;asm/msr-index.h&gt;
+  #include &lt;asm/msr.h&gt;
+<span class="hdr">diff --cc drivers/gpu/drm/amd/amdgpu/amdgpu_cs.c</span>
+<span class="ctx">index 5558e7330cf46,b68a017afd530..3e3f1e1432358</span>
+<span class="hdr">--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_cs.c</span>
+<span class="hdr">+++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_cs.c</span>
+<span class="ctx">@@@ -26,10 -26,8 +26,9 @@@</span>
+   */
+  
+  #include &lt;linux/file.h&gt;
+<span class="del">- #include &lt;linux/pagemap.h&gt;</span>
+  #include &lt;linux/sync_file.h&gt;
+  #include &lt;linux/dma-buf.h&gt;
+ +#include &lt;linux/pm_runtime.h&gt;
+  
+  #include &lt;drm/amdgpu_drm.h&gt;
+  #include &lt;drm/drm_syncobj.h&gt;
+<span class="hdr">diff --cc drivers/gpu/drm/amd/amdgpu/amdgpu_gem.c</span>
+<span class="ctx">index 3962b9f08dd67,e9017ff2cca73..cbd6599fe1230</span>
+<span class="hdr">--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_gem.c</span>
+<span class="hdr">+++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_gem.c</span>
+<span class="ctx">@@@ -25,9 -25,9 +25,8 @@@</span>
+   *          Alex Deucher
+   *          Jerome Glisse
+   */
+ -#include &lt;linux/ktime.h&gt;
+  #include &lt;linux/module.h&gt;
+  #include &lt;linux/overflow.h&gt;
+<span class="del">- #include &lt;linux/pagemap.h&gt;</span>
+  #include &lt;linux/pci.h&gt;
+  #include &lt;linux/dma-buf.h&gt;
+  #include &lt;linux/dma-fence-unwrap.h&gt;
+<span class="hdr">diff --cc drivers/gpu/drm/amd/amdkfd/kfd_migrate.c</span>
+<span class="ctx">index 8b96e1fe741a1,460b289ddd4ef..9535ebe5837af</span>
+<span class="hdr">--- a/drivers/gpu/drm/amd/amdkfd/kfd_migrate.c</span>
+<span class="hdr">+++ b/drivers/gpu/drm/amd/amdkfd/kfd_migrate.c</span>
+<span class="ctx">@@@ -24,8 -24,7 +24,9 @@@</span>
+  #include &lt;linux/dma-direction.h&gt;
+  #include &lt;linux/dma-mapping.h&gt;
+  #include &lt;linux/migrate.h&gt;
+<span class="add">+ #include &lt;linux/pagemap.h&gt;</span>
+ +#include &quot;amdgpu.h&quot;
+ +#include &quot;amdgpu_sdma.h&quot;
+  #include &quot;amdgpu_sync.h&quot;
+  #include &quot;amdgpu_object.h&quot;
+  #include &quot;amdgpu_vm.h&quot;
+<span class="hdr">diff --cc drivers/gpu/drm/msm/msm_fb.c</span>
+<span class="ctx">index 60c108d35d2a1,e8954e6a5f439..1e236416e15f0</span>
+<span class="hdr">--- a/drivers/gpu/drm/msm/msm_fb.c</span>
+<span class="hdr">+++ b/drivers/gpu/drm/msm/msm_fb.c</span>
+<span class="ctx">@@@ -4,8 -4,11 +4,10 @@@</span>
+   * Author: Rob Clark &lt;robdclark@gmail.com&gt;
+   */
+  
+<span class="add">+ #include &lt;linux/seq_file.h&gt;</span>
+<span class="add">+ </span>
+  #include &lt;drm/drm_crtc.h&gt;
+  #include &lt;drm/drm_damage_helper.h&gt;
+ -#include &lt;drm/drm_file.h&gt;
+  #include &lt;drm/drm_fourcc.h&gt;
+  #include &lt;drm/drm_framebuffer.h&gt;
+  #include &lt;drm/drm_gem_framebuffer_helper.h&gt;
+<span class="hdr">diff --cc drivers/gpu/drm/panfrost/panfrost_gem.c</span>
+<span class="ctx">index 518f24549b9de,68546925f16b0..0f99c3c3184da</span>
+<span class="hdr">--- a/drivers/gpu/drm/panfrost/panfrost_gem.c</span>
+<span class="hdr">+++ b/drivers/gpu/drm/panfrost/panfrost_gem.c</span>
+<span class="ctx">@@@ -7,11 -7,13 +7,13 @@@</span>
+  #include &lt;linux/slab.h&gt;
+  #include &lt;linux/dma-buf.h&gt;
+  #include &lt;linux/dma-mapping.h&gt;
+<span class="add">+ #include &lt;linux/highmem.h&gt;</span>
+<span class="add">+ #include &lt;linux/seq_file.h&gt;</span>
+  
+  #include &lt;drm/panfrost_drm.h&gt;
+ +#include &lt;drm/drm_debugfs.h&gt;
+  #include &lt;drm/drm_print.h&gt;
+  #include &quot;panfrost_device.h&quot;
+ -#include &quot;panfrost_drv.h&quot;
+  #include &quot;panfrost_gem.h&quot;
+  #include &quot;panfrost_mmu.h&quot;
+  
+<span class="hdr">diff --cc drivers/regulator/tps65185.c</span>
+<span class="ctx">index 4865227e444a6,14d04c1a55f25..8780b73c7aa87</span>
+<span class="hdr">--- a/drivers/regulator/tps65185.c</span>
+<span class="hdr">+++ b/drivers/regulator/tps65185.c</span>
+<span class="ctx">@@@ -5,9 -5,9 +5,10 @@@</span>
+  
+  #include &lt;linux/cleanup.h&gt;
+  #include &lt;linux/completion.h&gt;
+ +#include &lt;linux/delay.h&gt;
+  #include &lt;linux/gpio/consumer.h&gt;
+  #include &lt;linux/i2c.h&gt;
+<span class="add">+ #include &lt;linux/interrupt.h&gt;</span>
+  #include &lt;linux/module.h&gt;
+  #include &lt;linux/mutex.h&gt;
+  #include &lt;linux/hwmon.h&gt;
+<span class="hdr">diff --cc net/ceph/osd_client.c</span>
+<span class="ctx">index f36ce5ae75680,86b681a56e206..621c5de2cfc66</span>
+<span class="hdr">--- a/net/ceph/osd_client.c</span>
+<span class="hdr">+++ b/net/ceph/osd_client.c</span>
+<span class="ctx">@@@ -6,8 -6,6 +6,7 @@@</span>
+  #include &lt;linux/err.h&gt;
+  #include &lt;linux/highmem.h&gt;
+  #include &lt;linux/mm.h&gt;
+ +#include &lt;linux/overflow.h&gt;
+<span class="del">- #include &lt;linux/pagemap.h&gt;</span>
+  #include &lt;linux/slab.h&gt;
+  #include &lt;linux/uaccess.h&gt;
+  #ifdef CONFIG_BLOCK
+</div>
+</details></td>
+</tr>
+</tbody></table>
+
+<script>
+function filterByType(type) {
+    var rows = document.querySelectorAll('#main-table tbody tr');
+    for (var i = 0; i < rows.length; i++) {
+        rows[i].style.display = (type === 'all' || rows[i].dataset.type === type) ? '' : 'none';
+    }
+}
+function toggleAll() {
+    var details = document.querySelectorAll('details');
+    var anyOpen = false;
+    for (var i = 0; i < details.length; i++) {
+        if (details[i].open) { anyOpen = true; break; }
+    }
+    for (var i = 0; i < details.length; i++) {
+        details[i].open = !anyOpen;
+    }
+}
+</script>
+</body></html>
