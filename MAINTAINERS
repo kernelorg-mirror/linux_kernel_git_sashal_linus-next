@@ -11690,10 +11690,10 @@ S:	Maintained
 F:	block/partitions/efi.*
 
 HABANALABS PCI DRIVER
-M:	Koby Elbaz <koby.elbaz@intel.com>
-M:	Konstantin Sinyuk <konstantin.sinyuk@intel.com>
+M:	Konstantin Sinyuk <ksinyuk@kernel.org>
+M:	Koby Elbaz <elbaz.koby@gmail.com>
 L:	dri-devel@lists.freedesktop.org
-S:	Supported
+S:	Maintained
 C:	irc://irc.oftc.net/dri-devel
 T:	git https://github.com/HabanaAI/drivers.accel.habanalabs.kernel.git
 F:	Documentation/ABI/testing/debugfs-driver-habanalabs
@@ -14066,6 +14066,16 @@ T:	git git://git.kernel.org/pub/scm/linux/kernel/git/axboe/linux.git
 S:	Maintained
 F:	io_uring/bpf-ops.*
 F:	io_uring/loop.*
+
+IPC
+M:	Andrew Morton <akpm@linux-foundation.org>
+R:	Manfred Spraul <manfred@colorfullife.com>
+R:	Davidlohr Bueso <dave@stgolabs.net>
+L:	linux-kernel@vger.kernel.org
+S:	Maintained
+F:	ipc/
+F:	tools/testing/selftests/ipc/
+F:	tools/testing/selftests/mqueue/
 
 IPMI SUBSYSTEM
 M:	Corey Minyard <corey@minyard.net>
@@ -20934,7 +20944,7 @@ S:	Maintained
 F:	drivers/char/hw_random/optee-rng.c
 
 OP-TEE RTC DRIVER
-M:	Clément Léger <clement.leger@bootlin.com>
+M:	Clément Léger <clement.leger@linux.dev>
 L:	linux-rtc@vger.kernel.org
 S:	Maintained
 F:	drivers/rtc/rtc-optee.c
@@ -23850,7 +23860,7 @@ F:	Documentation/devicetree/bindings/rtc/renesas,rz-rtca3.yaml
 F:	drivers/rtc/rtc-renesas-rtca3.c
 
 RENESAS RZ/N1 A5PSW SWITCH DRIVER
-M:	Clément Léger <clement.leger@bootlin.com>
+M:	Clément Léger <clement.leger@linux.dev>
 L:	linux-renesas-soc@vger.kernel.org
 L:	netdev@vger.kernel.org
 S:	Maintained
@@ -29904,13 +29914,6 @@ F:	include/linux/vmalloc.h
 F:	mm/vmalloc.c
 F:	mm/vmalloc.h
 F:	lib/test_vmalloc.c
-
-VME SUBSYSTEM
-L:	linux-kernel@vger.kernel.org
-S:	Orphan
-T:	git git://git.kernel.org/pub/scm/linux/kernel/git/gregkh/char-misc.git
-F:	Documentation/driver-api/vme.rst
-F:	drivers/staging/vme_user/
 
 VMWARE BALLOON DRIVER
 M:	Jerrin Shaji George <jerrin.shaji-george@broadcom.com>
