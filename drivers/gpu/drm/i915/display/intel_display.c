@@ -1130,7 +1130,7 @@ static void intel_post_plane_update(struct intel_atomic_state *state,
 		intel_encoders_audio_enable(state, crtc);
 
 	if (intel_display_wa(display, INTEL_DISPLAY_WA_14011503117)) {
-		if (old_crtc_state->pch_pfit.enabled != new_crtc_state->pch_pfit.enabled)
+		if (old_crtc_state->pfit.enabled != new_crtc_state->pfit.enabled)
 			adl_scaler_ecc_unmask(new_crtc_state);
 	}
 
@@ -1652,7 +1652,7 @@ static bool glk_need_scaler_clock_gating_wa(const struct intel_crtc_state *crtc_
 {
 	struct intel_display *display = to_intel_display(crtc_state);
 
-	return DISPLAY_VER(display) == 10 && crtc_state->pch_pfit.enabled;
+	return DISPLAY_VER(display) == 10 && crtc_state->pfit.enabled;
 }
 
 static void glk_pipe_scaler_clock_gating_wa(struct intel_crtc *crtc, bool enable)
@@ -2059,8 +2059,8 @@ static void get_crtc_power_domains(struct intel_crtc_state *crtc_state,
 
 	set_bit(POWER_DOMAIN_PIPE(pipe), mask->bits);
 	set_bit(POWER_DOMAIN_TRANSCODER(cpu_transcoder), mask->bits);
-	if (crtc_state->pch_pfit.enabled ||
-	    crtc_state->pch_pfit.force_thru)
+	if (crtc_state->pfit.enabled ||
+	    crtc_state->pfit.force_thru)
 		set_bit(POWER_DOMAIN_PIPE_PANEL_FITTER(pipe), mask->bits);
 
 	drm_for_each_encoder_mask(encoder, display->drm,
@@ -2295,14 +2295,14 @@ static u32 ilk_pipe_pixel_rate(const struct intel_crtc_state *crtc_state)
 	 * PF-ID we'll need to adjust the pixel_rate here.
 	 */
 
-	if (!crtc_state->pch_pfit.enabled)
+	if (!crtc_state->pfit.enabled)
 		return pixel_rate;
 
 	drm_rect_init(&src, 0, 0,
 		      drm_rect_width(&crtc_state->pipe_src) << 16,
 		      drm_rect_height(&crtc_state->pipe_src) << 16);
 
-	return intel_adjusted_rate(&src, &crtc_state->pch_pfit.dst,
+	return intel_adjusted_rate(&src, &crtc_state->pfit.dst,
 				   pixel_rate);
 }
 
@@ -2318,14 +2318,14 @@ static u32 ilk_pipe_pixel_rate_cdclk(const struct intel_crtc_state *crtc_state)
 	 * PF-ID we'll need to adjust the pixel_rate here.
 	 */
 
-	if (!crtc_state->pch_pfit.enabled)
+	if (!crtc_state->pfit.enabled)
 		return pixel_rate;
 
 	drm_rect_init(&src, 0, 0,
 		      drm_rect_width(&crtc_state->pipe_src) << 16,
 		      drm_rect_height(&crtc_state->pipe_src) << 16);
 
-	return intel_adjusted_rate_cdclk(&src, &crtc_state->pch_pfit.dst,
+	return intel_adjusted_rate_cdclk(&src, &crtc_state->pfit.dst,
 					 pixel_rate, ppc);
 }
 
@@ -3291,7 +3291,7 @@ static bool i9xx_get_pipe_config(struct intel_crtc *crtc,
 	intel_get_transcoder_timings(crtc, pipe_config);
 	intel_get_pipe_src_size(crtc, pipe_config);
 
-	i9xx_pfit_get_config(pipe_config);
+	intel_pfit_get_config(pipe_config);
 
 	i9xx_dpll_get_hw_state(crtc, &pipe_config->dpll_hw_state);
 
@@ -3692,7 +3692,7 @@ static bool ilk_get_pipe_config(struct intel_crtc *crtc,
 	intel_get_transcoder_timings(crtc, pipe_config);
 	intel_get_pipe_src_size(crtc, pipe_config);
 
-	ilk_pfit_get_config(pipe_config);
+	intel_pfit_get_config(pipe_config);
 
 	ret = true;
 
@@ -4118,7 +4118,7 @@ static bool hsw_get_transcoder_state(struct intel_crtc *crtc,
 				    TRANS_DDI_FUNC_CTL(display, pipe_config->cpu_transcoder));
 
 		if ((tmp & TRANS_DDI_EDP_INPUT_MASK) == TRANS_DDI_EDP_INPUT_A_ONOFF)
-			pipe_config->pch_pfit.force_thru = true;
+			pipe_config->pfit.force_thru = true;
 	}
 
 	tmp = intel_de_read(display,
@@ -4259,12 +4259,8 @@ static bool hsw_get_pipe_config(struct intel_crtc *crtc,
 			REG_FIELD_GET(HSW_IPS_LINETIME_MASK, tmp);
 
 	if (intel_display_power_get_in_set_if_enabled(display, &crtc->hw_readout_power_domains,
-						      POWER_DOMAIN_PIPE_PANEL_FITTER(crtc->pipe))) {
-		if (DISPLAY_VER(display) >= 9)
-			skl_scaler_get_config(pipe_config);
-		else
-			ilk_pfit_get_config(pipe_config);
-	}
+						      POWER_DOMAIN_PIPE_PANEL_FITTER(crtc->pipe)))
+		intel_pfit_get_config(pipe_config);
 
 	hsw_ips_get_config(pipe_config);
 
@@ -5583,16 +5579,16 @@ intel_pipe_config_compare(const struct intel_crtc_state *current_config,
 	 * Changing the EDP transcoder input mux
 	 * (A_ONOFF vs. A_ON) requires a full modeset.
 	 */
-	PIPE_CONF_CHECK_BOOL(pch_pfit.force_thru);
+	PIPE_CONF_CHECK_BOOL(pfit.force_thru);
 
 	if (!fastset) {
 		PIPE_CONF_CHECK_RECT(pipe_src);
 
-		PIPE_CONF_CHECK_BOOL(pch_pfit.enabled);
-		PIPE_CONF_CHECK_RECT(pch_pfit.dst);
-		PIPE_CONF_CHECK_BOOL(pch_pfit.casf.enable);
-		PIPE_CONF_CHECK_I(pch_pfit.casf.win_size);
-		PIPE_CONF_CHECK_I(pch_pfit.casf.strength);
+		PIPE_CONF_CHECK_BOOL(pfit.enabled);
+		PIPE_CONF_CHECK_RECT(pfit.dst);
+		PIPE_CONF_CHECK_BOOL(pfit.casf.enable);
+		PIPE_CONF_CHECK_I(pfit.casf.win_size);
+		PIPE_CONF_CHECK_I(pfit.casf.strength);
 
 		PIPE_CONF_CHECK_I(scaler_state.scaler_id);
 		PIPE_CONF_CHECK_I(pixel_rate_cdclk);
@@ -6883,12 +6879,12 @@ static void intel_pipe_fastset(const struct intel_crtc_state *old_crtc_state,
 
 	/* on skylake this is done by detaching scalers */
 	if (DISPLAY_VER(display) >= 9) {
-		if (new_crtc_state->pch_pfit.enabled)
+		if (new_crtc_state->pfit.enabled)
 			skl_pfit_enable(new_crtc_state);
-	} else if (HAS_PCH_SPLIT(display)) {
-		if (new_crtc_state->pch_pfit.enabled)
+	} else if (!HAS_GMCH(display)) {
+		if (new_crtc_state->pfit.enabled)
 			ilk_pfit_enable(new_crtc_state);
-		else if (old_crtc_state->pch_pfit.enabled)
+		else if (old_crtc_state->pfit.enabled)
 			ilk_pfit_disable(old_crtc_state);
 	}
 
