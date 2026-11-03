@@ -1776,31 +1776,10 @@ static int may_goto_expand(struct bpf_insn *insn_buf, int off, int reach,
 }
 
 /*
- * The offset of may_goto at 'idx' once the patches queued in front are applied.
- * The patches that a forward may_goto jumps over aren't queued yet, so its
- * offset stays as it is.
- */
-static int may_goto_off(struct bpf_verifier_env *env, const struct bpf_insn *insn,
-			u32 idx)
-{
-	struct bpf_patch_list *pl = &env->patch_list;
-	u32 tgt = idx + insn->off + 1;
-	int off = insn->off;
-	u32 k = pl->cnt;
-
-	if (off >= 0)
-		return off;
-	/* all queued patches are in front of idx */
-	while (k > 0 && pl->patches[k - 1].off >= tgt)
-		off -= pl->patches[--k].len - 1;
-	return off;
-}
-
-/*
  * Timed may_goto. All may_goto of a prog use one count and one timestamp: per-cpu memory of the
  * prog, set in the first insns of the main prog, and by the callers of async callbacks.
  * @reg holds the address. It is a register that is dead at the may_goto, or R0 that is saved at
- * @save_off in the stack.
+ * @save_off in the stack. See may_goto_expand() for @off and @reach.
  */
 static int may_goto_expand_timed(struct bpf_insn *insn_buf, int off, int reach,
 				 struct bpf_timed_may_goto __percpu *tmg, int reg, int save_off)
@@ -1839,6 +1818,27 @@ static int may_goto_expand_timed(struct bpf_insn *insn_buf, int off, int reach,
 	if (save_off)
 		insn_buf[cnt++] = BPF_LDX_MEM(BPF_DW, reg, BPF_REG_10, save_off);
 	return cnt;
+}
+
+/*
+ * The offset of may_goto at 'idx' once the patches queued in front are applied.
+ * The patches that a forward may_goto jumps over aren't queued yet, so its
+ * offset stays as it is.
+ */
+static int may_goto_off(struct bpf_verifier_env *env, const struct bpf_insn *insn,
+			u32 idx)
+{
+	struct bpf_patch_list *pl = &env->patch_list;
+	u32 tgt = idx + insn->off + 1;
+	int off = insn->off;
+	u32 k = pl->cnt;
+
+	if (off >= 0)
+		return off;
+	/* all queued patches are in front of idx */
+	while (k > 0 && pl->patches[k - 1].off >= tgt)
+		off -= pl->patches[--k].len - 1;
+	return off;
 }
 
 /* Do various post-verification rewrites in a single program pass.
@@ -2119,8 +2119,7 @@ int bpf_do_misc_fixups(struct bpf_verifier_env *env)
 				prog->aux->timed_may_goto = tmg;
 			}
 			prog->jit_required = 1;
-			cnt = may_goto_expand_timed(insn_buf, insn->off,
-						    may_goto_off(env, insn, i),
+			cnt = may_goto_expand_timed(insn_buf, insn->off, may_goto_off(env, insn, i),
 						    tmg, reg, save_off);
 
 			insn = bpf_patch_list_add(env, i, insn_buf, cnt);
