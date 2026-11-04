@@ -70,10 +70,14 @@ struct live_stack_query {
 	u32 insn_idx;
 };
 
+struct arg_track;
+
 struct bpf_liveness {
 	DECLARE_HASHTABLE(func_instances, 8);		/* maps (depth, callsite) to func_instance */
 	struct live_stack_query live_stack_query;	/* cache to avoid repetitive ht lookups */
 	u32 subprog_calls;				/* analyze_subprog() invocations */
+	/* MAX_AT_TRACK_REGS for every depth: analyze_subprog() calls itself, keep its frame small */
+	struct arg_track *callee_args;
 };
 
 /*
@@ -838,7 +842,7 @@ struct spill_snapshot {
 
 /*
  * Combined register + stack arg tracking: R0-R10 at indices 0-10,
- * outgoing stack arg slots at indices MAX_BPF_REG..MAX_BPF_REG+6.
+ * outgoing stack arg slots at indices MAX_BPF_REG..MAX_AT_TRACK_REGS-1.
  */
 #define MAX_AT_TRACK_REGS (MAX_BPF_REG + MAX_STACK_ARG_SLOTS)
 
@@ -1440,6 +1444,11 @@ static void arg_track_xfer(struct bpf_verifier_env *env, struct bpf_insn *insn,
 	} else if (is_stack_arg_ldx(insn)) {
 		slot = stack_arg_off_to_slot(insn->off);
 		at_out[insn->dst_reg] = (slot >= 0) ? at_stack_arg_entry[slot] : none;
+	} else if (is_arena_sp_adj(insn) || is_arena_sp_st(insn)) {
+		/* at_out[12] is a stack arg slot, not r12 */
+	} else if (is_arena_sp_mov(insn) || is_arena_sp_ldx(insn)) {
+		/* an address in arena, or what is loaded from arena */
+		*dst = none;
 	} else if (class == BPF_ALU64 && BPF_SRC(insn->code) == BPF_K) {
 		if (code == BPF_MOV) {
 			*dst = none;
@@ -1456,8 +1465,16 @@ static void arg_track_xfer(struct bpf_verifier_env *env, struct bpf_insn *insn,
 		if (code == BPF_MOV) {
 			if (insn->off == 0) {
 				*dst = *src;
+			} else if (insn->off == BPF_ADDR_SPACE_CAST && insn->imm == 1) {
+				/*
+				 * The cast of a pointer to stack to as(0) is a move. But src
+				 * can be a stale spill, see below. Then it's a number for the
+				 * verifier, and dst points to arena. A store through dst must
+				 * not count as a certain store to a slot of the stack.
+				 */
+				*dst = __arg_track_join(*src, none);
 			} else {
-				/* addr_space_cast destroys a pointer */
+				/* the cast to as(1) and sign extension destroy a pointer */
 				*dst = none;
 			}
 		} else {
@@ -1474,8 +1491,9 @@ static void arg_track_xfer(struct bpf_verifier_env *env, struct bpf_insn *insn,
 		 * Helpers, kfuncs and global subprogs can scratch stack slots. The verifier reads
 		 * a scalar from a scratched slot, but at_stack_out[slot] is not cleared, and
 		 * fill_from_stack() returns the stale spill: an FP-derived arg_track for a scalar.
-		 * A scalar can't be dereferenced, so the stale value can only set liveness bits
-		 * for stack accesses that don't happen. That is conservative.
+		 * A scalar can't be dereferenced before addr_space_cast, see above. So the stale
+		 * value can only set liveness bits for stack accesses that don't happen. That is
+		 * conservative.
 		 *
 		 * Static subprogs and callbacks can't store an FP-derived pointer into the frame of
 		 * the caller, but they can store any other pointer there. The caller can fill it
@@ -1663,6 +1681,9 @@ static int record_load_store_access(struct bpf_verifier_env *env,
 	 * base register that record_stack_access() expects.
 	 */
 	if (is_stack_arg_stx(insn) || is_stack_arg_st(insn) || is_stack_arg_ldx(insn))
+		return 0;
+	/* Likewise at[12] is not r12, and the access is to arena. */
+	if (is_arena_sp_st(insn) || is_arena_sp_ldx(insn))
 		return 0;
 
 	switch (class) {
@@ -1970,12 +1991,14 @@ static void record_stack_ptrs(struct bpf_verifier_env *env, int idx, struct arg_
  * @callee_entry: pre-populated entry state for R1-R5 and stack args
  *                NULL for main (subprog 0).
  * @info:         stores at_in, len for debug printing.
+ *
+ * Not inlined: at_out[] and at_stack_arg_entry[] would be in each frame of analyze_subprog().
  */
-static int compute_subprog_args(struct bpf_verifier_env *env,
-				struct subprog_at_info *info,
-				struct arg_track *callee_entry,
-				struct func_instance *instance,
-				u32 *callsites)
+static noinline_for_stack int compute_subprog_args(struct bpf_verifier_env *env,
+						   struct subprog_at_info *info,
+						   struct arg_track *callee_entry,
+						   struct func_instance *instance,
+						   u32 *callsites)
 {
 	int subprog = instance->subprog;
 	struct bpf_insn *insns = env->prog->insnsi;
@@ -2308,7 +2331,8 @@ static int analyze_subprog(struct bpf_verifier_env *env,
 	/* For each reachable call site in the subprog, recurse into callees */
 	for (int p = po_start; p < po_end; p++) {
 		int idx = env->cfg.insn_postorder[p];
-		struct arg_track callee_args[MAX_AT_TRACK_REGS] = {};
+		struct arg_track *callee_args = env->liveness->callee_args +
+						depth * MAX_AT_TRACK_REGS;
 		struct arg_track none = { .frame = ARG_NONE };
 		struct bpf_insn *insn = &insns[idx];
 		struct func_instance *callee_instance;
@@ -2316,6 +2340,7 @@ static int analyze_subprog(struct bpf_verifier_env *env,
 		int caller_reg, cb_callee_reg;
 
 		j = idx - start; /* relative index within this subprog */
+		memset(callee_args, 0, MAX_AT_TRACK_REGS * sizeof(*callee_args));
 
 		if (bpf_pseudo_call(insn)) {
 			target = idx + insn->imm + 1;
@@ -2438,9 +2463,13 @@ int bpf_compute_subprog_arg_access(struct bpf_verifier_env *env)
 
 	env->callsite_at_stack = kvzalloc_objs(*env->callsite_at_stack, insn_cnt,
 					       GFP_KERNEL_ACCOUNT);
-	if (!env->callsite_at_stack) {
-		kvfree(info);
-		return -ENOMEM;
+	env->liveness->callee_args = kvcalloc(MAX_CALL_FRAMES * MAX_AT_TRACK_REGS,
+					      sizeof(*env->liveness->callee_args),
+					      GFP_KERNEL_ACCOUNT);
+	if (!env->callsite_at_stack || !env->liveness->callee_args) {
+		err = -ENOMEM;
+		insn_cnt = env->callsite_at_stack ? insn_cnt : 0;
+		goto out;
 	}
 
 	/*
@@ -2478,6 +2507,8 @@ out:
 		kvfree(env->callsite_at_stack[k]);
 	kvfree(env->callsite_at_stack);
 	env->callsite_at_stack = NULL;
+	kvfree(env->liveness->callee_args);
+	env->liveness->callee_args = NULL;
 	for (k = 0; k < env->subprog_cnt; k++)
 		kvfree(info[k].at_in);
 	kvfree(info);
