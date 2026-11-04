@@ -15,11 +15,12 @@ use kernel::{
     io::{
         io_project,
         poll::read_poll_timeout,
+        register::Array,
         Io, //
     },
     new_mutex,
+    num::casts::FromSafeCast,
     prelude::*,
-    ptr,
     sync::{
         barrier::{
             dma_mb,
@@ -156,11 +157,16 @@ unsafe impl FromBytes for GspMem {}
 ///   pointer and the GSP read pointer. This region is returned by [`Self::driver_write_area`].
 /// * The driver owns (i.e. can read from) the part of the GSP message queue between the CPU read
 ///   pointer and the GSP write pointer. This region is returned by [`Self::driver_read_area`].
-struct DmaGspMem<'a>(Coherent<'a, GspMem>);
+struct DmaGspMem<'a> {
+    /// The queues, mapped for the GSP.
+    mem: Coherent<'a, GspMem>,
+    /// MMIO mapping of PCI BAR0, for the doorbell register.
+    bar: Bar0<'a>,
+}
 
 impl<'a> DmaGspMem<'a> {
     /// Allocate a new instance and map it for `dev`.
-    fn new(dev: &'a device::Device<device::Bound>) -> Result<Self> {
+    fn new(dev: &'a device::Device<device::Bound>, bar: Bar0<'a>) -> Result<Self> {
         const MSGQ_SIZE: u32 = cv!(size_of::<Msgq>());
         const RX_HDR_OFF: u32 = cv!(mem::offset_of!(Msgq, rx));
 
@@ -171,7 +177,7 @@ impl<'a> DmaGspMem<'a> {
         let gsp_mem: Coherent<'_, _> = gsp_mem.into();
         PteArray::init(io_project!(gsp_mem, .ptes), gsp_mem.dma_address())?;
 
-        Ok(Self(gsp_mem))
+        Ok(Self { mem: gsp_mem, bar })
     }
 
     /// Returns the region of the CPU message queue that the driver is currently allowed to write
@@ -180,60 +186,62 @@ impl<'a> DmaGspMem<'a> {
     /// As the message queue is a circular buffer, the region may be discontiguous in memory. In
     /// that case the second slice will have a non-zero length.
     fn driver_write_area(&mut self) -> (&mut [[u8; GSP_PAGE_SIZE]], &mut [[u8; GSP_PAGE_SIZE]]) {
-        let tx = self.cpu_write_ptr();
-        let rx = self.gsp_read_ptr();
+        let avail = usize::from_safe_cast(self.cpuq_free_slots());
+        let w_slot = usize::from_safe_cast(self.cpu_write_ptr());
 
-        // Pointer to the first entry of the CPU message queue.
-        let data = ptr::project!(mut self.0.as_mut_ptr(), .cpuq.msgq.data[build: 0]);
+        // Number of slots from `w_slot` to the end of the ring, capped by `avail`.
+        //
+        // `w_slot` is below `MSGQ_NUM_PAGES` per the invariant of `cpu_write_ptr`, so the
+        // subtraction cannot underflow.
+        let after_len = avail.min(cv!(MSGQ_NUM_PAGES => usize) - w_slot);
+        // Remaining slots from the beginning of the ring (0 unless we wrap).
+        //
+        // Per the line above, `after_len` is less or equal to `avail` so the subtraction cannot
+        // underflow.
+        let before_len = avail - after_len;
 
-        let (tail_end, wrap_end) = if rx == 0 {
-            // The write area is non-wrapping, and stops at the second-to-last entry of the command
-            // queue (to leave the last one empty).
-            (MSGQ_NUM_PAGES - 1, 0)
-        } else if rx <= tx {
-            // The write area wraps and continues until `rx - 1`.
-            (MSGQ_NUM_PAGES, rx - 1)
-        } else {
-            // The write area doesn't wrap and stops at `rx - 1`.
-            (rx - 1, 0)
-        };
+        // PANIC: `w_slot + after_len` is at most `MSGQ_NUM_PAGES` by construction of
+        // `after_len`.
+        let after = io_project!(self.mem, .cpuq.msgq.data[panic: w_slot..w_slot + after_len]);
+        // PANIC: `before_len` is at most `avail`, which is below `MSGQ_NUM_PAGES`.
+        let before = io_project!(self.mem, .cpuq.msgq.data[panic: ..before_len]);
 
         // SAFETY:
-        // - `data` was created from a valid pointer, and `rx` and `tx` are in the
-        //   `0..MSGQ_NUM_PAGES` range per the invariants of `cpu_write_ptr` and `gsp_read_ptr`,
-        //   thus the created slices are valid.
-        // - The area starting at `tx` and ending at `rx - 2` modulo `MSGQ_NUM_PAGES`,
-        //   inclusive, belongs to the driver for writing and is not accessed concurrently by
-        //   the GSP.
-        // - The caller holds a reference to `self` for as long as the returned slices are live,
-        //   meaning the CPU write pointer cannot be advanced and thus that the returned area
-        //   remains exclusive to the CPU for the duration of the slices.
-        // - The created slices point to non-overlapping sub-ranges of `data` in all
-        //   branches (in the `rx <= tx` case, the second slice ends at `rx - 1` which is strictly
-        //   less than `tx` where the first slice starts; in the other cases the second slice is
-        //   empty), so creating two `&mut` references from them does not violate aliasing rules.
-        unsafe {
-            (
-                core::slice::from_raw_parts_mut(
-                    data.add(num::u32_as_usize(tx)),
-                    num::u32_as_usize(tail_end - tx),
-                ),
-                core::slice::from_raw_parts_mut(data, num::u32_as_usize(wrap_end)),
-            )
-        }
+        // - Both regions are within the `avail` entries starting at `w_slot` that the driver owns,
+        //   meaning the GSP won't touch them until the write pointer is advanced.
+        // - There are no other references possible as `self` is mutably borrowed.
+        // - The regions do not overlap: `avail` is at most `MSGQ_NUM_PAGES - 1`, so `before_len` is
+        //   strictly less than `w_slot` whenever it is non-zero.
+        unsafe { (after.as_mut(), before.as_mut()) }
     }
 
-    /// Returns the size of the region of the CPU message queue that the driver is currently allowed
-    /// to write to, in bytes.
-    fn driver_write_area_size(&self) -> usize {
+    /// Returns the number of slots of the CPU message queue that the driver is currently allowed
+    /// to write to.
+    fn cpuq_free_slots(&self) -> u32 {
         let tx = self.cpu_write_ptr();
         let rx = self.gsp_read_ptr();
 
         // `rx` and `tx` are both in `0..MSGQ_NUM_PAGES` per the invariants of `gsp_read_ptr` and
         // `cpu_write_ptr`. The minimum value case is where `rx == 0` and `tx == MSGQ_NUM_PAGES -
         // 1`, which gives `0 + MSGQ_NUM_PAGES - (MSGQ_NUM_PAGES - 1) - 1 == 0`.
-        let slots = (rx + MSGQ_NUM_PAGES - tx - 1) % MSGQ_NUM_PAGES;
-        num::u32_as_usize(slots) * GSP_PAGE_SIZE
+        (rx + MSGQ_NUM_PAGES - tx - 1) % MSGQ_NUM_PAGES
+    }
+
+    /// Returns the size of the region of the CPU message queue that the driver is currently allowed
+    /// to write to, in bytes.
+    fn driver_write_area_size(&self) -> usize {
+        num::u32_as_usize(self.cpuq_free_slots()) * GSP_PAGE_SIZE
+    }
+
+    /// Returns the number of slots of the GSP message queue that the driver is currently allowed
+    /// to read from.
+    fn gspq_readable_slots(&self) -> u32 {
+        let tx = self.gsp_write_ptr();
+        let rx = self.cpu_read_ptr();
+
+        // `rx` and `tx` are both in `0..MSGQ_NUM_PAGES` per the invariants of `gsp_write_ptr` and
+        // `cpu_read_ptr`, so the subtraction cannot underflow.
+        (tx + MSGQ_NUM_PAGES - rx) % MSGQ_NUM_PAGES
     }
 
     /// Returns the region of the GSP message queue that the driver is currently allowed to read
@@ -242,39 +250,31 @@ impl<'a> DmaGspMem<'a> {
     /// As the message queue is a circular buffer, the region may be discontiguous in memory. In
     /// that case the second slice will have a non-zero length.
     fn driver_read_area(&self) -> (&[[u8; GSP_PAGE_SIZE]], &[[u8; GSP_PAGE_SIZE]]) {
-        let tx = self.gsp_write_ptr();
-        let rx = self.cpu_read_ptr();
+        let avail = usize::from_safe_cast(self.gspq_readable_slots());
+        let r_slot = usize::from_safe_cast(self.cpu_read_ptr());
 
-        // Pointer to the first entry of the GSP message queue.
-        let data = ptr::project!(self.0.as_ptr(), .gspq.msgq.data[build: 0]);
+        // Number of slots from `r_slot` to the end of the ring, capped by `avail`.
+        //
+        // `r_slot` is below `MSGQ_NUM_PAGES` per the invariant of `cpu_read_ptr`, so the
+        // subtraction cannot underflow.
+        let after_len = avail.min(cv!(MSGQ_NUM_PAGES => usize) - r_slot);
+        // Remaining slots from the beginning of the ring (0 unless we wrap).
+        //
+        // Per the line above, `after_len` is less or equal to `avail` so the subtraction cannot
+        // underflow.
+        let before_len = avail - after_len;
 
-        let (tail_end, wrap_end) = if rx <= tx {
-            // Read area is non-wrapping and stops right before `tx`.
-            (tx, 0)
-        } else {
-            // Read area is wrapping and stops right before `tx`.
-            (MSGQ_NUM_PAGES, tx)
-        };
+        // PANIC: `r_slot + after_len` is at most `MSGQ_NUM_PAGES` by construction of
+        // `after_len`.
+        let after = io_project!(self.mem, .gspq.msgq.data[panic: r_slot..r_slot + after_len]);
+        // PANIC: `before_len` is at most `avail`, which is below `MSGQ_NUM_PAGES`.
+        let before = io_project!(self.mem, .gspq.msgq.data[panic: ..before_len]);
 
         // SAFETY:
-        // - `data` was created from a valid pointer, and `rx` and `tx` are in the
-        //   `0..MSGQ_NUM_PAGES` range per the invariants of `gsp_write_ptr` and `cpu_read_ptr`,
-        //   thus the created slices are valid.
-        // - The area starting at `rx` and ending at `tx - 1` modulo `MSGQ_NUM_PAGES`,
-        //   inclusive, belongs to the driver for reading and is not accessed concurrently by
-        //   the GSP.
-        // - The caller holds a reference to `self` for as long as the returned slices are live,
-        //   meaning the CPU read pointer cannot be advanced and thus that the returned area
-        //   remains exclusive to the CPU for the duration of the slices.
-        unsafe {
-            (
-                core::slice::from_raw_parts(
-                    data.add(num::u32_as_usize(rx)),
-                    num::u32_as_usize(tail_end - rx),
-                ),
-                core::slice::from_raw_parts(data, num::u32_as_usize(wrap_end)),
-            )
-        }
+        // - Both regions are within the `avail` entries starting at `r_slot` that the driver owns,
+        //   meaning the GSP won't touch them until the read pointer is advanced.
+        // - There are no mutable references possible as `self` is borrowed.
+        unsafe { (after.as_ref(), before.as_ref()) }
     }
 
     /// Allocates a region on the command queue that is large enough to send a command of `size`
@@ -330,7 +330,7 @@ impl<'a> DmaGspMem<'a> {
     //
     // - The returned value is within `0..MSGQ_NUM_PAGES`.
     fn gsp_write_ptr(&self) -> u32 {
-        let ptr = MsgqTxHeader::write_ptr(io_project!(self.0, .gspq.tx)) % MSGQ_NUM_PAGES;
+        let ptr = MsgqTxHeader::write_ptr(io_project!(self.mem, .gspq.tx)) % MSGQ_NUM_PAGES;
 
         // ORDERING: LOAD->LOAD ordering needed to order `gsp_write_ptr` read before data read.
         dma_mb(Read);
@@ -344,7 +344,7 @@ impl<'a> DmaGspMem<'a> {
     //
     // - The returned value is within `0..MSGQ_NUM_PAGES`.
     fn gsp_read_ptr(&self) -> u32 {
-        let ptr = MsgqRxHeader::read_ptr(io_project!(self.0, .gspq.rx)) % MSGQ_NUM_PAGES;
+        let ptr = MsgqRxHeader::read_ptr(io_project!(self.mem, .gspq.rx)) % MSGQ_NUM_PAGES;
 
         // ORDERING: LOAD->STORE ordering needed to order `gsp_read_ptr` read before data write.
         dma_mb(Full);
@@ -358,7 +358,7 @@ impl<'a> DmaGspMem<'a> {
     //
     // - The returned value is within `0..MSGQ_NUM_PAGES`.
     fn cpu_read_ptr(&self) -> u32 {
-        MsgqRxHeader::read_ptr(io_project!(self.0, .cpuq.rx)) % MSGQ_NUM_PAGES
+        MsgqRxHeader::read_ptr(io_project!(self.mem, .cpuq.rx)) % MSGQ_NUM_PAGES
     }
 
     // Informs the GSP that it can send `elem_count` new pages into the message queue.
@@ -366,7 +366,7 @@ impl<'a> DmaGspMem<'a> {
         // ORDERING: LOAD->STORE ordering needed to order `cpu_read_ptr` write after data read.
         dma_mb(Full);
 
-        let rx = io_project!(self.0, .cpuq.rx);
+        let rx = io_project!(self.mem, .cpuq.rx);
         let rptr = MsgqRxHeader::read_ptr(rx).wrapping_add(elem_count) % MSGQ_NUM_PAGES;
         MsgqRxHeader::set_read_ptr(rx, rptr)
     }
@@ -377,17 +377,24 @@ impl<'a> DmaGspMem<'a> {
     //
     // - The returned value is within `0..MSGQ_NUM_PAGES`.
     fn cpu_write_ptr(&self) -> u32 {
-        MsgqTxHeader::write_ptr(io_project!(self.0, .cpuq.tx)) % MSGQ_NUM_PAGES
+        MsgqTxHeader::write_ptr(io_project!(self.mem, .cpuq.tx)) % MSGQ_NUM_PAGES
     }
 
-    // Informs the GSP that it can process `elem_count` new pages from the command queue.
+    // Publishes `elem_count` more pages of the command queue to the GSP and rings the doorbell.
     fn advance_cpu_write_ptr(&mut self, elem_count: u32) {
         // ORDERING: STORE->STORE ordering needed to order `cpu_write_ptr` write after data write.
         dma_mb(Write);
 
-        let tx = io_project!(self.0, .cpuq.tx);
+        let tx = io_project!(self.mem, .cpuq.tx);
         let wptr = MsgqTxHeader::write_ptr(tx).wrapping_add(elem_count) % MSGQ_NUM_PAGES;
         MsgqTxHeader::set_write_ptr(tx, wptr);
+
+        // A write to the head register interrupts the GSP. The pointer itself is in the
+        // shared-memory header, so the value written does not matter.
+        self.bar.write(
+            Array::at(0),
+            regs::NV_PGSP_QUEUE_HEAD::zeroed().with_address(0u32),
+        );
     }
 }
 
@@ -467,13 +474,12 @@ impl<'cmdq> Cmdq<'cmdq> {
         bar: Bar0<'cmdq>,
     ) -> impl PinInit<Self, Error> + 'cmdq {
         pin_init_scope(move || {
-            let gsp_mem = DmaGspMem::new(dev)?;
+            let gsp_mem = DmaGspMem::new(dev, bar)?;
 
             Ok(try_pin_init!(Self {
-                dma_addr: gsp_mem.0.dma_address(),
+                dma_addr: gsp_mem.mem.dma_address(),
                 inner <- new_mutex!(CmdqInner {
                     dev,
-                    bar,
                     gsp_mem,
                     seq: 0,
                 }),
@@ -492,11 +498,6 @@ impl<'cmdq> Cmdq<'cmdq> {
             .fold(0, |acc, (rol, byte)| acc ^ u64::from(byte).rotate_left(rol));
 
         ((sum64 >> 32) as u32) ^ (sum64 as u32)
-    }
-
-    /// Notifies the GSP that we have updated the command queue pointers.
-    fn notify_gsp(bar: Bar0<'_>) {
-        bar.write_reg(regs::NV_PGSP_QUEUE_HEAD::zeroed().with_address(0u32));
     }
 
     /// Logs and consumes every message the GSP has already posted, and returns without waiting for
@@ -518,8 +519,6 @@ impl<'cmdq> Cmdq<'cmdq> {
 struct CmdqInner<'a> {
     /// Device this command queue belongs to.
     dev: &'a device::Device,
-    /// MMIO mapping of PCI BAR0, for writing the GSP doorbell.
-    bar: Bar0<'a>,
     /// Current command sequence number.
     seq: u32,
     /// Memory area shared with the GSP for communicating commands and messages.
@@ -533,27 +532,30 @@ impl CmdqInner<'_> {
     /// Allocate enough space on the command queue to store `command`, initialize it with
     /// [`CommandElement::write`], and send the command to the GSP.
     ///
+    /// Returns the sequence number of the sent element.
+    ///
     /// # Errors
     ///
     /// - `EMSGSIZE` if the command exceeds the maximum queue element size.
     /// - `ETIMEDOUT` if space does not become available within the timeout.
     ///
     /// Error codes returned by [`CommandElement::write`] are returned as-is.
-    fn send_command_element<E: CommandElement>(&mut self, command: E) -> Result {
+    fn send_command_element<E: CommandElement>(&mut self, command: E) -> Result<u32> {
         let size_in_bytes = command.size();
+        let seq = self.seq;
         let mut dst = self
             .gsp_mem
             .allocate_command(size_in_bytes, Self::ALLOCATE_TIMEOUT)?;
 
         // Fill the header.
-        let msg_element_init = GspMsgElement::init(self.seq, size_in_bytes);
+        let msg_element_init = GspMsgElement::init(seq, size_in_bytes);
         // SAFETY: `dst.header` is a valid reference, and is not touched if the initializer fails.
         unsafe {
             pin_init::raw_try_init(core::ptr::from_mut(dst.header), msg_element_init)?;
         }
 
         // Write the message payload.
-        command.write(self.dev, self.seq, &mut dst)?;
+        command.write(self.dev, seq, &mut dst)?;
 
         // Compute checksum now that the whole message is ready.
         dst.header
@@ -567,9 +569,8 @@ impl CmdqInner<'_> {
         let elem_count = dst.header.element_count();
         self.seq += 1;
         self.gsp_mem.advance_cpu_write_ptr(elem_count);
-        Cmdq::notify_gsp(self.bar);
 
-        Ok(())
+        Ok(seq)
     }
 
     /// Wait for a message to become available on the message queue.
