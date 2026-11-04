@@ -44,6 +44,7 @@
 #define BTINTEL_PCIE_CSR_FUNC_CTRL_SW_RESET		(BIT(31))
 
 /* BTINTEL PCIE CSR IPC Control Register */
+#define BTINTEL_PCIE_CSR_IPC_CONTROL_COLLECT_DUMP_REQ	(BIT(6))
 #define BTINTEL_PCIE_CSR_IPC_CONTROL_HW_RFKILL		(BIT(7))
 
 /* BTINTEL PCIE CSR IPC Status Register */
@@ -166,13 +167,15 @@ enum {
 	BTINTEL_PCIE_CORE_HALTED,
 	BTINTEL_PCIE_COREDUMP_INPROGRESS,
 	BTINTEL_PCIE_FWTRIGGER_DUMP_INPROGRESS,
+	BTINTEL_PCIE_USER_TRIGGERED_DUMP,
 	BTINTEL_PCIE_RECOVERY_IN_PROGRESS,
 	BTINTEL_PCIE_HWRFKILL_ON,
 	BTINTEL_PCIE_HW_RFKILL_STATE_CHECK,
 	BTINTEL_PCIE_SETUP_DONE,
 	BTINTEL_PCIE_MAIL_BOX_INTR,
 	BTINTEL_PCIE_MBOX_PARSE_PENDING,
-	BTINTEL_PCIE_MBOX_PARSE_READY
+	BTINTEL_PCIE_MBOX_PARSE_READY,
+	BTINTEL_PCIE_FATAL_ERR_POST_SETUP_PENDING,
 };
 
 enum btintel_pcie_tlv_type {
@@ -222,6 +225,14 @@ enum btintel_pcie_mbox_msg {
 
 /* Default poll time for MAC access during init */
 #define BTINTEL_DEFAULT_MAC_ACCESS_TIMEOUT_US	200000
+
+/* Minimum interval (in seconds) between user and firmware triggered dumps */
+#define BTINTEL_PCIE_DBG_DUMP_COLLECT_MIN_INTERVAL_SEC	1
+
+/* Time (in seconds) to wait for FW to answer a DBGC flush doorbell; an
+ * unanswered doorbell is treated as missed and the dump is collected directly.
+ */
+#define BTINTEL_PCIE_USER_DUMP_TIMEOUT_SEC		1
 
 /* Default interrupt timeout in msec */
 #define BTINTEL_DEFAULT_INTR_TIMEOUT_MS	3000
@@ -719,6 +730,7 @@ struct btintel_pcie_ini_dump_info {
  * @dbg_path_cache: cached debug output routing mode (BT DRAM or WiFi DBGC)
  * @log_mask: runtime diagnostic logging mask loaded from LOG_MASK in the
  *	debug INI file (alive interrupt and Sx logging are enabled by default)
+ * @fatal_err: fatal-error injection testmode state
  * @cnvi: CNVi register value
  * @cnvr: CNVr register value
  * @gp0_received: condition for gp0 interrupt
@@ -775,6 +787,7 @@ struct btintel_pcie_data {
 	u32	dbg_path_cache;
 	u32	log_mask;
 	bool	enable_ini;
+	struct btintel_pcie_fatal_err_cfg fatal_err;
 	struct btintel_pcie_yoyo_ctx yoyo;
 
 	u32	cnvi;
@@ -803,6 +816,7 @@ struct btintel_pcie_data {
 	struct work_struct	hwexp_work;
 	struct work_struct	fwtrigger_work;
 	struct work_struct	mbox_work;
+	struct delayed_work	user_dump_work;
 
 	struct dma_pool	*dma_pool;
 	dma_addr_t	dma_p_addr;
@@ -824,6 +838,7 @@ struct btintel_pcie_data {
 	u32	debug_table_size;
 	struct btintel_pcie_dump_mem_info	dump_info;
 	struct btintel_pcie_mbox	mbox;
+	atomic64_t	last_dump_jiffies64;
 
 	/* Wait queue for mbox_worker to wait for GP0 alive interrupt */
 	wait_queue_head_t	mbox_parse_wait_q;

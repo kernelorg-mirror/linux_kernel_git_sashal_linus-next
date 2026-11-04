@@ -274,128 +274,6 @@ static inline bool btintel_pcie_dbg_to_wifi(struct btintel_pcie_data *data)
 	return data->dbg_path_cache != BTINTEL_PCIE_DRAM;
 }
 
-/* Name of the optional INI file used to override the default dbg_path
- * (data->dbg_path_cache), yoyo ini settings and runtime log_mask.
- */
-#define BTINTEL_PCIE_DBG_INI_FILE "ibt_bt_dbg_cfg.ini"
-
-/* Loads optional "DBG_PATH=<value>", "ENABLE_INI=<value>" and "LOG_MASK=<value>"
- * overrides from BTINTEL_PCIE_DBG_INI_FILE
- * and applies them to data->dbg_path_cache, data->enable_ini and data->log_mask.
- *
- * DBG_PATH accepts BTINTEL_PCIE_WIFI_DBGC (0x06, default) and
- * BTINTEL_PCIE_DRAM (0x01, legacy); an invalid or missing entry leaves
- * the cached value set by the caller unchanged.
- *
- * ENABLE_INI accepts 1 (enabled) or 0 (disabled); an invalid or missing
- * entry leaves data->enable_ini unchanged.
- *
- * LOG_MASK accepts any u32 bitmask (see BTINTEL_PCIE_DUMP_TX and friends).
- * The default enables alive interrupt and Sx logging; an invalid or missing
- * entry leaves data->log_mask unchanged.
- */
-static void btintel_pcie_load_dbg_path_from_ini(struct btintel_pcie_data *data)
-{
-	const struct firmware *fw;
-	const char *ini_file = BTINTEL_PCIE_DBG_INI_FILE;
-	char *buf, *cursor, *line;
-	bool dbg_path_applied = false;
-	bool log_mask_applied = false;
-	int err;
-
-	err = request_firmware_direct(&fw, ini_file, &data->pdev->dev);
-	if (err < 0) {
-		BT_DBG("%s not found (%d), using dbg_path=0x%02x log_mask=0x%08x",
-		       ini_file, err, data->dbg_path_cache, data->log_mask);
-		if (data->dbg_path_cache != BTINTEL_PCIE_DRAM)
-			data->enable_ini = false;
-		return;
-	}
-
-	buf = kmemdup_nul(fw->data, fw->size, GFP_KERNEL);
-	release_firmware(fw);
-	if (!buf)
-		return;
-
-	cursor = buf;
-	while ((line = strsep(&cursor, "\n"))) {
-		char *eq;
-		char *val;
-		uint parsed;
-
-		line = strim(line);
-		if (!line[0] || line[0] == '#' || line[0] == ';')
-			continue;
-
-		eq = strchr(line, '=');
-		if (!eq)
-			continue;
-
-		*eq = '\0';
-		line = strim(line);
-		val = strim(eq + 1);
-
-		/* Keys are case-insensitive. */
-		if (!strcasecmp(line, "DBG_PATH")) {
-			BT_INFO("Read DBG_PATH from %s: '%s'", ini_file, val);
-
-			/* base 0 lets kstrtouint accept "0x06", "6", etc. */
-			if (kstrtouint(val, 0, &parsed) == 0 &&
-			    (parsed == BTINTEL_PCIE_DRAM ||
-			     parsed == BTINTEL_PCIE_WIFI_DBGC)) {
-				data->dbg_path_cache = parsed;
-				dbg_path_applied = true;
-				BT_INFO("WRT dbg_path accepted: 0x%02x",
-					data->dbg_path_cache);
-			} else {
-				BT_WARN("Invalid DBG_PATH='%s' in %s, using dbg_path=0x%02x",
-					val, ini_file, data->dbg_path_cache);
-			}
-		} else if (!strcasecmp(line, "LOG_MASK")) {
-			BT_INFO("Read LOG_MASK from %s: '%s'", ini_file, val);
-
-			if (kstrtouint(val, 0, &parsed) == 0) {
-				data->log_mask = parsed;
-				log_mask_applied = true;
-				BT_INFO("WRT log_mask accepted: 0x%08x",
-					data->log_mask);
-			} else {
-				BT_WARN("Invalid LOG_MASK='%s' in %s, using log_mask=0x%08x",
-					val, ini_file, data->log_mask);
-			}
-		} else if (!strcasecmp(line, "ENABLE_INI")) {
-			BT_INFO("Read ENABLE_INI from %s: '%s'", ini_file, val);
-
-			if (kstrtouint(val, 0, &parsed) == 0 &&
-			    (parsed == 0 || parsed == 1)) {
-				data->enable_ini = !!parsed;
-				BT_INFO("WRT enable_ini accepted: %u",
-					data->enable_ini);
-			} else {
-				BT_WARN("Invalid ENABLE_INI='%s' in %s, using enable_ini=%u",
-					val, ini_file, data->enable_ini);
-			}
-		}
-	}
-
-	if (data->dbg_path_cache != BTINTEL_PCIE_DRAM)
-		data->enable_ini = false;
-
-	if (dbg_path_applied)
-		BT_DBG("Loaded dbg_path=0x%02x from %s", data->dbg_path_cache, ini_file);
-	else
-		BT_WARN("No valid DBG_PATH in %s, dbg_path=0x%02x", ini_file, data->dbg_path_cache);
-
-	BT_DBG("ENABLE_INI effective state: %u", data->enable_ini);
-
-	if (log_mask_applied)
-		BT_DBG("Loaded log_mask=0x%08x from %s", data->log_mask, ini_file);
-	else
-		BT_DBG("No valid LOG_MASK in %s, log_mask=0x%08x", ini_file, data->log_mask);
-
-	kfree(buf);
-}
-
 /* Helper function to allocate and setup a debug buffer group
  * @data: driver data structure
  * @buf: pointer to data_buf array pointer
@@ -2788,31 +2666,96 @@ static bool btintel_pcie_queue_coredump(struct btintel_pcie_data *data,
 	return false;
 }
 
+static bool btintel_pcie_dump_rate_limited(struct btintel_pcie_data *data)
+{
+	u64 last = atomic64_read(&data->last_dump_jiffies64);
+
+	return last && time_before64(get_jiffies_64(), last +
+			secs_to_jiffies(BTINTEL_PCIE_DBG_DUMP_COLLECT_MIN_INTERVAL_SEC));
+}
+
+/* Consume the user-trigger flag and disarm the doorbell timeout. Returns
+ * true when the interrupt answers a pending user-triggered doorbell.
+ */
+static bool btintel_pcie_consume_user_dump(struct btintel_pcie_data *data)
+{
+	if (!test_and_clear_bit(BTINTEL_PCIE_USER_TRIGGERED_DUMP, &data->flags))
+		return false;
+
+	cancel_delayed_work(&data->user_dump_work);
+	return true;
+}
+
 static void btintel_pcie_msix_fw_trigger_handler(struct btintel_pcie_data *data)
 {
 	bt_dev_dbg(data->hdev, "Received firmware smart trigger cause");
 
+	/* While a doorbell reply is pending, a real firmware trigger cannot be
+	 * told apart and is taken as the reply.
+	 */
+	if (test_bit(BTINTEL_PCIE_COREDUMP_INPROGRESS, &data->flags) &&
+	    btintel_pcie_consume_user_dump(data)) {
+		bt_dev_warn(data->hdev,
+			    "user-triggered dump dropped: dump already in progress");
+		return;
+	}
+
 	/* Per-work guard: deduplicate concurrent FW-trigger interrupts.
-	 * Cleared at the tail of btintel_pcie_fwtrigger_worker().
+	 * Cleared at the tail of btintel_pcie_fwtrigger_worker() on the
+	 * FW-initiated path, or inline on the user-triggered path.
 	 */
 	if (test_and_set_bit(BTINTEL_PCIE_FWTRIGGER_DUMP_INPROGRESS,
-			     &data->flags))
+			     &data->flags)) {
+		if (btintel_pcie_consume_user_dump(data))
+			bt_dev_warn(data->hdev,
+				    "user-triggered dump dropped: dump already in progress");
 		return;
+	}
+
+	if (btintel_pcie_dump_rate_limited(data)) {
+		if (btintel_pcie_consume_user_dump(data)) {
+			bt_dev_warn(data->hdev,
+				    "user-triggered dump rate-limited (< 1 sec since last dump)");
+			clear_bit(BTINTEL_PCIE_FWTRIGGER_DUMP_INPROGRESS,
+				  &data->flags);
+			return;
+		}
+
+		/* Only the dump is limited; still report the FW event */
+		bt_dev_warn(data->hdev,
+			    "fwTriggerDump dump skipped: rate-limited (< 1 sec since last dump)");
+		if (!queue_work(data->dump_workqueue, &data->fwtrigger_work))
+			clear_bit(BTINTEL_PCIE_FWTRIGGER_DUMP_INPROGRESS,
+				  &data->flags);
+		return;
+	}
+
+	/* A doorbell-initiated flush has no firmware event to read, so skip
+	 * fwtrigger_work and release the guard here.
+	 */
+	if (btintel_pcie_consume_user_dump(data)) {
+		if (!btintel_pcie_queue_coredump(data,
+						 BTINTEL_PCIE_TRIGGER_REASON_USER_TRIGGER))
+			bt_dev_warn(data->hdev,
+				    "user-triggered dump dropped: coredump not queued");
+		clear_bit(BTINTEL_PCIE_FWTRIGGER_DUMP_INPROGRESS, &data->flags);
+		return;
+	}
 
 	if (!queue_work(data->dump_workqueue, &data->fwtrigger_work)) {
 		clear_bit(BTINTEL_PCIE_FWTRIGGER_DUMP_INPROGRESS, &data->flags);
 		return;
 	}
 
-	/* Queue coredump after the fwtrigger event reader so dmp_hdr.event_*
-	 * is populated before dump_traces consumes it.
-	 */
 	btintel_pcie_queue_coredump(data, BTINTEL_PCIE_TRIGGER_REASON_FW_ASSERT);
 }
 
 static void btintel_pcie_msix_hw_exp_handler(struct btintel_pcie_data *data)
 {
 	bt_dev_err(data->hdev, "Received hw exception interrupt");
+
+	/* A halted core cannot answer a pending doorbell */
+	btintel_pcie_consume_user_dump(data);
 
 	/* CORE_HALTED is the single-writer guard for this handler. It is
 	 * set once on first HW exception and cleared only by re-probe
@@ -2852,6 +2795,8 @@ static void btintel_pcie_coredump_worker(struct work_struct *work)
 	}
 
 	btintel_pcie_dump_traces(data->hdev);
+	/* 0 means no dump yet, so never store it */
+	atomic64_set(&data->last_dump_jiffies64, get_jiffies_64() ?: 1);
 out:
 	/* Release guard last so a new trigger can run only after this
 	 * pass has fully completed (including dev_coredumpv()).
@@ -2895,6 +2840,36 @@ static void btintel_pcie_fwtrigger_worker(struct work_struct *work)
 out:
 	/* Release guard last; matches set in fw_trigger handler. */
 	clear_bit(BTINTEL_PCIE_FWTRIGGER_DUMP_INPROGRESS, &data->flags);
+}
+
+/* FW did not answer the DBGC flush doorbell in time; collect directly.
+ *
+ * A doorbell reply and a firmware trigger raise the same interrupt, so only
+ * USER_TRIGGERED_DUMP tells them apart. The worker claims the flag
+ * atomically, so it and the interrupt handler never both own one request. A
+ * late reply that arrives after the claim is handled as a firmware trigger;
+ * the COREDUMP_INPROGRESS guard still ensures a single dump, and the worst
+ * case is an extra diagnostic frame or a misleading warning.
+ */
+static void btintel_pcie_user_dump_worker(struct work_struct *work)
+{
+	struct btintel_pcie_data *data = container_of(to_delayed_work(work),
+					struct btintel_pcie_data, user_dump_work);
+
+	if (!data->hdev ||
+	    !test_and_clear_bit(BTINTEL_PCIE_USER_TRIGGERED_DUMP, &data->flags))
+		return;
+
+	if (btintel_pcie_dump_rate_limited(data) ||
+	    !btintel_pcie_queue_coredump(data,
+					 BTINTEL_PCIE_TRIGGER_REASON_USER_TRIGGER)) {
+		bt_dev_warn(data->hdev,
+			    "DBGC flush doorbell timed out, dump dropped: busy or rate-limited");
+		return;
+	}
+
+	bt_dev_warn(data->hdev,
+		    "DBGC flush doorbell timed out, collecting dump directly");
 }
 
 static void btintel_pcie_mbox_worker(struct work_struct *work)
@@ -3076,6 +3051,14 @@ static void btintel_pcie_hw_rfkill_delay_work(struct work_struct *wk)
 	if (!test_bit(BTINTEL_PCIE_SETUP_DONE, &data->flags))
 		return;
 
+	/* Intentional: with the fatal error test mode enabled, the post-setup
+	 * injection consumes this rfkill pass, so the initial rfkill check is
+	 * deferred to the next pass. This avoids a second, back-to-back
+	 * injection while the recovery caused by the first one is running.
+	 */
+	if (btintel_pcie_fatal_err_post_setup_pending(data))
+		return;
+
 	/* Do not report an initial clear when rfkill was never asserted.
 	 * After resume, however, a previously asserted rfkill must be
 	 * cleared and reported to the HCI stack.
@@ -3090,10 +3073,18 @@ static void btintel_pcie_hw_rfkill_delay_work(struct work_struct *wk)
 		     !(ipc_ctrl & BTINTEL_PCIE_CSR_IPC_CONTROL_HW_RFKILL);
 	if (set_rfkill) {
 		bt_dev_dbg(data->hdev, "hw rfkill on");
+		/* Fatal error test mode: inject on every rfkill assertion seen
+		 * here, not only on a transition. A work run queued behind the
+		 * post-setup injection may inject once more.
+		 */
+		if (btintel_pcie_fatal_err_handle_rfkill(data, true))
+			return;
 		set_bit(BTINTEL_PCIE_HWRFKILL_ON, &data->flags);
 		hci_rfkill_set_hw_state(data->hdev, true);
 	} else {
 		bt_dev_dbg(data->hdev, "hw rfkill off");
+		if (btintel_pcie_fatal_err_handle_rfkill(data, false))
+			return;
 		/* Nothing changed at the initial post-setup check, so there
 		 * is no transition to report.
 		 */
@@ -3208,7 +3199,9 @@ static irqreturn_t btintel_pcie_irq_msix_handler(int irq, void *dev_id)
 			btintel_pcie_msix_tx_handle(data);
 	}
 
-	if (intr_hw & BTINTEL_PCIE_MSIX_HW_INT_CAUSES_FWTRIG)
+	/* A masked cause still latches; ignore it once masked (suspend). */
+	if ((intr_hw & BTINTEL_PCIE_MSIX_HW_INT_CAUSES_FWTRIG) &&
+	    !(hw_mask & BTINTEL_PCIE_MSIX_HW_INT_CAUSES_FWTRIG))
 		btintel_pcie_msix_fw_trigger_handler(data);
 
 	/* A masked cause still latches; ignore it once masked. */
@@ -3672,7 +3665,15 @@ exit_error:
 
 static int btintel_pcie_open(struct hci_dev *hdev)
 {
+	struct btintel_pcie_data *data = hci_get_drvdata(hdev);
+
 	bt_dev_dbg(hdev, "");
+
+	/* Fatal error test mode: send the post-setup injection that was
+	 * deferred because HCI was down.
+	 */
+	if (test_bit(BTINTEL_PCIE_FATAL_ERR_POST_SETUP_PENDING, &data->flags))
+		btintel_delayed_hw_rfkill(data, true);
 
 	return 0;
 }
@@ -3855,6 +3856,27 @@ static void btintel_pcie_unmask_hw_rfkill(struct btintel_pcie_data *data)
 	spin_unlock(&data->irq_lock);
 }
 
+static void btintel_pcie_mask_fwtrig(struct btintel_pcie_data *data)
+{
+	spin_lock(&data->irq_lock);
+	btintel_pcie_set_reg_bits(data, BTINTEL_PCIE_CSR_MSIX_HW_INT_MASK,
+				  BTINTEL_PCIE_MSIX_HW_INT_CAUSES_FWTRIG);
+	spin_unlock(&data->irq_lock);
+}
+
+static void btintel_pcie_unmask_fwtrig(struct btintel_pcie_data *data)
+{
+	spin_lock(&data->irq_lock);
+	/* Drop a reply latched while masked so it is not taken as a
+	 * firmware trigger.
+	 */
+	btintel_pcie_wr_reg32(data, BTINTEL_PCIE_CSR_MSIX_HW_INT_CAUSES,
+			      BTINTEL_PCIE_MSIX_HW_INT_CAUSES_FWTRIG);
+	btintel_pcie_clr_reg_bits(data, BTINTEL_PCIE_CSR_MSIX_HW_INT_MASK,
+				  BTINTEL_PCIE_MSIX_HW_INT_CAUSES_FWTRIG);
+	spin_unlock(&data->irq_lock);
+}
+
 static void btintel_pcie_enable_interrupts(struct btintel_pcie_data *data)
 {
 	spin_lock(&data->irq_lock);
@@ -3880,6 +3902,7 @@ static void btintel_pcie_probe_cleanup(struct btintel_pcie_data *data)
 	disable_work_sync(&data->hwexp_work);
 	disable_work_sync(&data->fwtrigger_work);
 	disable_work_sync(&data->mbox_work);
+	disable_delayed_work_sync(&data->user_dump_work);
 	disable_delayed_work_sync(&data->hw_rfkill_work);
 
 	flush_work(&data->rx_work);
@@ -4043,6 +4066,12 @@ static int btintel_pcie_setup_internal(struct hci_dev *hdev,
 		goto exit_error;
 	}
 
+	/* ver_tlv holds the operational firmware version after setup. A
+	 * locked platform with the unlocker loaded can run the test mode.
+	 */
+	btintel_pcie_fatal_err_check_api_lock(data, ver_tlv.api_lock &&
+					      !btintel_test_flag(hdev, INTEL_UNLOCKER_LOADED));
+
 	data->dmp_hdr.cnvi_top = ver_tlv.cnvi_top;
 	data->dmp_hdr.cnvr_top = ver_tlv.cnvr_top;
 	data->dmp_hdr.fw_timestamp = ver_tlv.timestamp;
@@ -4068,6 +4097,8 @@ static int btintel_pcie_setup(struct hci_dev *hdev)
 	int err, fw_dl_retry = 0;
 	struct btintel_pcie_data *data = hci_get_drvdata(hdev);
 	bool fips_crc_failed;
+
+	btintel_pcie_fatal_err_load(data);
 
 	while ((err = btintel_pcie_setup_internal(hdev, &fips_crc_failed)) &&
 	       fw_dl_retry++ < 1) {
@@ -4097,6 +4128,12 @@ static int btintel_pcie_setup(struct hci_dev *hdev)
 	}
 
 	if (!err) {
+		/* Fatal error test mode: arm the post-setup injection before
+		 * SETUP_DONE so the rfkill work cannot inject a fault ahead of
+		 * it.
+		 */
+		if (btintel_pcie_fatal_err_testmode_active(data))
+			set_bit(BTINTEL_PCIE_FATAL_ERR_POST_SETUP_PENDING, &data->flags);
 		set_bit(BTINTEL_PCIE_SETUP_DONE, &data->flags);
 		set_bit(BTINTEL_PCIE_HW_RFKILL_STATE_CHECK, &data->flags);
 		btintel_pcie_unmask_hw_rfkill(data);
@@ -4351,6 +4388,8 @@ static void btintel_pcie_reset_work(struct work_struct *wk)
 	disable_work_sync(&data->hwexp_work);
 	disable_work_sync(&data->fwtrigger_work);
 	disable_work_sync(&data->mbox_work);
+	disable_delayed_work_sync(&data->user_dump_work);
+	clear_bit(BTINTEL_PCIE_USER_TRIGGERED_DUMP, &data->flags);
 	bt_dev_dbg(data->hdev, "Release bluetooth interface");
 
 	/* Both reset paths follow the same contract: on success they
@@ -4375,6 +4414,7 @@ static void btintel_pcie_reset_work(struct work_struct *wk)
 		enable_work(&data->hwexp_work);
 		enable_work(&data->fwtrigger_work);
 		enable_work(&data->mbox_work);
+		enable_delayed_work(&data->user_dump_work);
 		enable_delayed_work(&data->hw_rfkill_work);
 	}
 
@@ -4684,11 +4724,13 @@ static int btintel_pcie_probe(struct pci_dev *pdev,
 	INIT_WORK(&data->hwexp_work, btintel_pcie_hwexp_worker);
 	INIT_WORK(&data->fwtrigger_work, btintel_pcie_fwtrigger_worker);
 	INIT_WORK(&data->mbox_work, btintel_pcie_mbox_worker);
+	INIT_DELAYED_WORK(&data->user_dump_work, btintel_pcie_user_dump_worker);
 
 	data->boot_stage_cache = 0x00;
 	data->img_resp_cache = 0x00;
 	data->dbg_path_cache = BTINTEL_PCIE_WIFI_DBGC;
 	data->log_mask = BTINTEL_PCIE_LOG_ALIVE_INTR | BTINTEL_PCIE_LOG_SX;
+	btintel_pcie_fatal_err_init(data);
 	data->pcie_alloc_init = false;
 	data->enable_ini = false;
 	btintel_pcie_yoyo_init(&data->yoyo);
@@ -4778,6 +4820,7 @@ static void btintel_pcie_remove(struct pci_dev *pdev)
 	disable_work_sync(&data->hwexp_work);
 	disable_work_sync(&data->fwtrigger_work);
 	disable_work_sync(&data->mbox_work);
+	disable_delayed_work_sync(&data->user_dump_work);
 
 	/* Cancel pending reset work. Skip only when remove() is called from
 	 * within the reset work itself (PLDR device_reprobe path) to avoid
@@ -4822,6 +4865,32 @@ static void btintel_pcie_remove(struct pci_dev *pdev)
 }
 
 #ifdef CONFIG_DEV_COREDUMP
+static u32 btintel_pcie_ipc_ctrl_toggle(struct btintel_pcie_data *data, u32 bits)
+{
+	unsigned long flags;
+	u32 reg;
+
+	spin_lock_irqsave(&data->ipc_lock, flags);
+	reg = btintel_pcie_rd_reg32(data, BTINTEL_PCIE_CSR_IPC_CONTROL_REG);
+	reg ^= bits;
+	btintel_pcie_wr_reg32(data, BTINTEL_PCIE_CSR_IPC_CONTROL_REG, reg);
+	spin_unlock_irqrestore(&data->ipc_lock, flags);
+	return reg;
+}
+
+/* FW treats any transition of COLLECT_DUMP_REQ as a request, so the bit is
+ * toggled rather than set and never needs to be cleared by the host.
+ */
+static void btintel_pcie_trigger_fw_dump_collect(struct btintel_pcie_data *data)
+{
+	u32 reg;
+
+	reg = btintel_pcie_ipc_ctrl_toggle(data,
+					   BTINTEL_PCIE_CSR_IPC_CONTROL_COLLECT_DUMP_REQ);
+	bt_dev_info(data->hdev,
+		    "IPC doorbell sent to FW for DBGC flush (IPC_CTRL=0x%08x)", reg);
+}
+
 static void btintel_pcie_coredump(struct device *dev)
 {
 	struct  pci_dev *pdev = to_pci_dev(dev);
@@ -4830,8 +4899,61 @@ static void btintel_pcie_coredump(struct device *dev)
 	if (!data)
 		return;
 
-	btintel_pcie_queue_coredump(data,
-				    BTINTEL_PCIE_TRIGGER_REASON_USER_TRIGGER);
+	if (test_bit(BTINTEL_PCIE_COREDUMP_INPROGRESS, &data->flags) ||
+	    test_bit(BTINTEL_PCIE_FWTRIGGER_DUMP_INPROGRESS, &data->flags)) {
+		bt_dev_warn(data->hdev,
+			    "coredump rejected: collection already in progress");
+		return;
+	}
+
+	if (btintel_pcie_dump_rate_limited(data)) {
+		bt_dev_warn(data->hdev,
+			    "coredump rejected: rate-limited (< 1 sec since last dump)");
+		return;
+	}
+
+	/* No host DBGC buffer exists to flush into when traces go to WiFi */
+	if (btintel_pcie_dbg_to_wifi(data)) {
+		bt_dev_info(data->hdev,
+			    "coredump skipped: debug traces routed to WiFi DBGC");
+		return;
+	}
+
+	/* Only a halted core cannot answer the doorbell. FW services it
+	 * regardless of host setup or recovery state, so no other state
+	 * needs to be excluded; collect directly here.
+	 */
+	if (test_bit(BTINTEL_PCIE_CORE_HALTED, &data->flags)) {
+		btintel_pcie_queue_coredump(data,
+					    BTINTEL_PCIE_TRIGGER_REASON_USER_TRIGGER);
+		return;
+	}
+
+	if (test_bit(BTINTEL_PCIE_USER_TRIGGERED_DUMP, &data->flags)) {
+		bt_dev_warn(data->hdev,
+			    "coredump rejected: user-triggered dump already pending");
+		return;
+	}
+
+	/* Set the flag before arming the timeout so the timeout worker never
+	 * runs with the flag clear and leaves it set without a timer.
+	 *
+	 * The flag/arm/doorbell sequence is not atomic against the interrupt
+	 * handler or reset. A firmware trigger while the request is pending
+	 * may take the user-dump reason, and a reset in it may leave the flag
+	 * set until the next reset. Both are rare and do not affect the dump
+	 * contents.
+	 */
+	set_bit(BTINTEL_PCIE_USER_TRIGGERED_DUMP, &data->flags);
+	if (!queue_delayed_work(data->dump_workqueue, &data->user_dump_work,
+				secs_to_jiffies(BTINTEL_PCIE_USER_DUMP_TIMEOUT_SEC))) {
+		clear_bit(BTINTEL_PCIE_USER_TRIGGERED_DUMP, &data->flags);
+		bt_dev_warn(data->hdev,
+			    "coredump rejected: dump workqueue is disabled");
+		return;
+	}
+
+	btintel_pcie_trigger_fw_dump_collect(data);
 }
 #endif
 
@@ -4936,8 +5058,18 @@ static int btintel_pcie_suspend_late(struct device *dev, pm_message_t mesg)
 	data = pci_get_drvdata(pdev);
 
 	btintel_pcie_mask_hw_rfkill(data);
+	btintel_pcie_mask_fwtrig(data);
 	btintel_pcie_synchronize_irqs(data);
 	cancel_delayed_work_sync(&data->hw_rfkill_work);
+
+	/* No new firmware trigger can arrive now. Drop a pending doorbell
+	 * request, then let an in-flight timeout worker and any queued dump
+	 * finish before the device enters D3.
+	 */
+	clear_bit(BTINTEL_PCIE_USER_TRIGGERED_DUMP, &data->flags);
+	cancel_delayed_work_sync(&data->user_dump_work);
+	flush_work(&data->fwtrigger_work);
+	flush_work(&data->coredump_work);
 
 	/* S0ix (s2idle) uses D3_HOT; S3, freeze and hibernate use D3_COLD. */
 	if (mesg.event == PM_EVENT_SUSPEND &&
@@ -4958,6 +5090,7 @@ static int btintel_pcie_suspend_late(struct device *dev, pm_message_t mesg)
 	err = btintel_pcie_set_dxstate(data, dxstate);
 
 	if (err) {
+		btintel_pcie_unmask_fwtrig(data);
 		btintel_pcie_unmask_hw_rfkill(data);
 		set_bit(BTINTEL_PCIE_HW_RFKILL_STATE_CHECK, &data->flags);
 		btintel_delayed_hw_rfkill(data, true);
@@ -5022,6 +5155,11 @@ static int btintel_pcie_resume_event(struct device *dev, pm_message_t mesg)
 
 	/* Refer: 6.4.11.7 -> Platform power management */
 	err = btintel_pcie_set_dxstate(data, BTINTEL_PCIE_STATE_D0);
+
+	/* Restore the firmware trigger interrupt even if D0 entry failed, so
+	 * a later recovery does not leave it masked.
+	 */
+	btintel_pcie_unmask_fwtrig(data);
 
 	if (err) {
 		bt_dev_err(data->hdev, "Failed to set D0 state (%d)", err);
