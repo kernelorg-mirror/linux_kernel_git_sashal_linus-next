@@ -1351,12 +1351,8 @@ static int msb_ftl_initialize(struct msb_data *msb)
 			      GFP_KERNEL);
 
 	if (!msb->used_blocks_bitmap || !msb->lba_to_pba_table ||
-						!msb->erased_blocks_bitmap) {
-		bitmap_free(msb->used_blocks_bitmap);
-		bitmap_free(msb->erased_blocks_bitmap);
-		kfree(msb->lba_to_pba_table);
+						!msb->erased_blocks_bitmap)
 		return -ENOMEM;
-	}
 
 	for (i = 0; i < msb->zone_count; i++)
 		msb->free_block_count[i] = MS_BLOCKS_IN_ZONE;
