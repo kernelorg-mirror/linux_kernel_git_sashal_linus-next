@@ -465,6 +465,7 @@ static int bpf_compute_subprog_ret_regs(struct bpf_verifier_env *env)
 			return -EFAULT;
 		if (ret_regs_cnt(size) > 1) {
 			subprog_info(env, subprog)->ret_reg_pair = true;
+			subprog_aux(env, subprog)->ret_reg_pair = true;
 			env->prog->jit_required = 1;
 		}
 	}
@@ -4632,11 +4633,17 @@ static int check_stack_write(struct bpf_verifier_env *env,
 static int check_stack_arg_write(struct bpf_verifier_env *env, struct bpf_func_state *state,
 				 int off, struct bpf_reg_state *value_reg)
 {
-	int max_stack_arg_regs = MAX_BPF_FUNC_ARGS - MAX_BPF_FUNC_REG_ARGS;
+	int max_stack_arg_regs = MAX_STACK_ARG_SLOTS;
 	struct bpf_subprog_info *subprog = &env->subprog_info[state->subprogno];
 	int spi = -off / BPF_REG_SIZE - 1;
 	struct bpf_reg_state *arg;
 	int err;
+
+	/* BTF is not needed for stack arguments, so ask here. There is no load without a store. */
+	if (!bpf_jit_supports_stack_args()) {
+		verbose(env, "JIT does not support stack arguments\n");
+		return -EOPNOTSUPP;
+	}
 
 	if (spi >= max_stack_arg_regs) {
 		verbose(env, "stack arg write offset %d exceeds max %d stack args\n",
@@ -5792,6 +5799,7 @@ static int check_max_stack_depth_subprog(struct bpf_verifier_env *env, int idx,
 	struct bpf_insn *insn = env->prog->insnsi;
 	int depth = 0, frame = 0, i, subprog_end, subprog_depth;
 	bool tail_call_reachable = false;
+	int arena_depth = 0;
 	int total;
 	int tmp;
 
@@ -5832,6 +5840,24 @@ process_func:
 	 * tailcall will unwind the current stack frame but it will not get rid
 	 * of caller's stack as shown on the example above.
 	 */
+	/* The kernel calls a callback. It knows nothing about r12. */
+	if (subprog[idx].uses_arena_sp) {
+		for (tmp = idx; tmp >= 0; tmp = dinfo[tmp].caller) {
+			if (!subprog[tmp].is_cb)
+				continue;
+			subprog[tmp].arena_stack_entry = true;
+			break;
+		}
+	}
+	arena_depth += subprog[idx].arena_stack_depth;
+	if (arena_depth > env->max_arena_stack_depth)
+		env->max_arena_stack_depth = arena_depth;
+	if (arena_depth > BPF_ARENA_STACK_MAX) {
+		verbose(env, "combined size of the frames in the stack in arena is %d. Too large\n",
+			arena_depth);
+		return -EACCES;
+	}
+
 	if (idx && subprog[idx].has_tail_call && depth >= 256) {
 		verbose(env,
 			"tail_calls are not allowed when call stack of previous frames is %d bytes. Too large\n",
@@ -6020,6 +6046,7 @@ continue_func:
 		return 0;
 	if (subprog[idx].priv_stack_mode != PRIV_STACK_ADAPTIVE)
 		depth -= round_up_stack_depth(env, subprog[idx].stack_depth);
+	arena_depth -= subprog[idx].arena_stack_depth;
 
 	/* pop caller idx from callee */
 	idx = dinfo[idx].caller;
@@ -6048,10 +6075,20 @@ static int check_max_stack_depth(struct bpf_verifier_env *env)
 
 	for (int i = 0; i < env->subprog_cnt; i++) {
 		if (si[i].has_tail_call) {
+			/* the stack in arena wouldn't be returned */
+			if (env->uses_arena_sp) {
+				verbose(env, "tail_calls are not allowed in programs that use R%d\n",
+					BPF_REG_ARENA_SP);
+				kvfree(dinfo);
+				return -EINVAL;
+			}
 			priv_stack_mode = NO_PRIV_STACK;
 			break;
 		}
 	}
+	/* x86 JIT has one register for both */
+	if (env->uses_arena_sp)
+		priv_stack_mode = NO_PRIV_STACK;
 
 	if (priv_stack_mode == PRIV_STACK_UNKNOWN)
 		priv_stack_mode = bpf_enable_priv_stack(env->prog);
@@ -7061,7 +7098,7 @@ static void mark_reg_func_ptr(struct bpf_verifier_env *env, struct bpf_reg_state
 }
 
 /* a read from a table of functions branches into that many states at most */
-#define BPF_MAX_FUNC_PTR_TARGETS 64
+#define BPF_MAX_FUNC_PTR_TARGETS BPF_MAX_SUBPROGS
 /* and that many pointers at most are next to what is read at variable offset */
 #define BPF_MAX_FUNC_PTR_RANGE 4096
 
@@ -7107,17 +7144,20 @@ static int check_func_ptr_read(struct bpf_verifier_env *env, struct bpf_reg_stat
 	struct bpf_reg_state *regs = cur_regs(env);
 	struct bpf_map *map = reg->map_ptr;
 	struct bpf_verifier_state *branch;
-	int subprog, targets[BPF_MAX_FUNC_PTR_TARGETS];
+	u16 *targets __free(kfree) = NULL;
 	struct bpf_func_ptr *ptrs;
 	u32 i, cnt, n = 0;
 	u64 o, lo, hi;
-	int err;
+	int err, subprog;
 
 	ptrs = bpf_map_range_func_ptrs(env, map, min_off, max_off - min_off + size, &cnt);
 	if (!ptrs)
 		return -ENOENT;
 	if (cnt > BPF_MAX_FUNC_PTR_RANGE)
 		goto overlap;
+	targets = kmalloc_array(BPF_MAX_FUNC_PTR_TARGETS, sizeof(*targets), GFP_KERNEL_ACCOUNT);
+	if (!targets)
+		return -ENOMEM;
 
 	for (i = 0; i < cnt; i++) {
 		/* the offsets at which the read overlaps with the pointer */
@@ -11324,6 +11364,22 @@ static void gen_subprog_arg_proto(const struct bpf_subprog_info *sub, const stru
 	}
 }
 
+/*
+ * The argument slots that the code of a static subprog takes, whatever its BTF says.
+ * Liveness errs on the safe side: a callx in the subprog counts as a read of r1-r5.
+ * But it misses r3-r5 of bpf_trace_printk() and the flags of bpf_get_branch_snapshot(), which
+ * their protos do not declare. Such a subprog prints or passes a wrong number under a tracer.
+ * The helpers are safe with any value there: the verifier never checks these registers.
+ */
+static u32 code_arg_slots(struct bpf_verifier_env *env, struct bpf_subprog_info *sub)
+{
+	u32 live_regs = env->insn_aux_data[sub->start].live_regs_before;
+
+	if (bpf_in_stack_arg_cnt(sub))
+		return MAX_BPF_FUNC_REG_ARGS + bpf_in_stack_arg_cnt(sub);
+	return fls((live_regs & GENMASK(BPF_REG_5, BPF_REG_1)) >> BPF_REG_1);
+}
+
 static int btf_check_func_arg_match(struct bpf_verifier_env *env, int subprog, struct btf *btf)
 {
 	struct bpf_subprog_info *sub = subprog_info(env, subprog);
@@ -11331,7 +11387,7 @@ static int btf_check_func_arg_match(struct bpf_verifier_env *env, int subprog, s
 	const struct btf_type *func, *func_proto;
 	struct bpf_call_arg_meta meta;
 	struct bpf_func_proto *fn;
-	int ret, err;
+	int ret;
 	u32 i;
 
 	memset(&meta, 0, sizeof(meta));
@@ -11340,16 +11396,8 @@ static int btf_check_func_arg_match(struct bpf_verifier_env *env, int subprog, s
 	meta.func_name = bpf_subprog_name(env, subprog);
 
 	ret = btf_prepare_func_args(env, subprog);
-	if (ret) {
-		if (bpf_in_stack_arg_cnt(sub) > 0) {
-			err = check_outgoing_stack_args(env, caller, sub->arg_slot_cnt,
-							bpf_subprog_name(env, subprog),
-							NULL, NULL);
-			if (err)
-				return err;
-		}
+	if (ret)
 		return ret;
-	}
 
 	func = btf_type_by_id(btf, env->prog->aux->func_info[subprog].type_id);
 	func_proto = btf_type_by_id(btf, func->type);
@@ -11360,12 +11408,19 @@ static int btf_check_func_arg_match(struct bpf_verifier_env *env, int subprog, s
 	meta.func_proto = func_proto;
 
 	/*
-	 * Check if all register arguments declared in BTF are initialized.
-	 * If they aren't the BTF is unreliable.
+	 * Check if all arguments declared in BTF are initialized,
+	 * and if the code takes no other arguments: a trampoline keeps only
+	 * what BTF declares. If not, the BTF is unreliable.
 	 */
 	if (!bpf_subprog_is_global(env, subprog)) {
+		if (code_arg_slots(env, sub) > sub->arg_slot_cnt)
+			return -EINVAL;
 		for (i = 0; i < min_t(u32, sub->arg_slot_cnt, MAX_BPF_FUNC_REG_ARGS); i++)
 			if (caller->regs[BPF_REG_1 + i].type == NOT_INIT)
+				return -EINVAL;
+		/* check_func_args() reports a missing slot that the code loads: it has the name */
+		for (i = max(i, code_arg_slots(env, sub)); i < sub->arg_slot_cnt; i++)
+			if (!bpf_get_spilled_stack_arg(i - MAX_BPF_FUNC_REG_ARGS, caller))
 				return -EINVAL;
 	}
 	return check_func_args(env, &meta, env->insn_idx);
@@ -11476,7 +11531,7 @@ static int push_callback_call(struct bpf_verifier_env *env, struct bpf_insn *ins
 	    (insn->imm == BPF_FUNC_loop || insn->imm == BPF_FUNC_for_each_map_elem))
 		env->subprog_info[subprog].is_loop_cb = true;
 	else
-		env->subprog_info[subprog].is_called = true;
+		env->subprog_info[subprog].is_other_cb = true;
 
 	/* for callback functions enqueue entry to callback and
 	 * proceed with next instruction within current frame.
@@ -11507,8 +11562,8 @@ static int process_bpf_exit_full(struct bpf_verifier_env *env,
 static int check_static_func_call(struct bpf_verifier_env *env, int subprog,
 				  int *insn_idx)
 {
+	struct bpf_subprog_info *caller_info, *callee_info = &env->subprog_info[subprog];
 	struct bpf_verifier_state *state = env->cur_state;
-	struct bpf_subprog_info *caller_info;
 	u16 callee_incoming, stack_arg_cnt;
 	struct bpf_func_state *caller;
 	int err;
@@ -11519,12 +11574,23 @@ static int check_static_func_call(struct bpf_verifier_env *env, int subprog,
 	/*
 	 * Track caller's total stack arg count (incoming + max outgoing).
 	 * This is needed so the JIT knows how much stack arg space to allocate.
+	 * The callee can load less than its prototype has, and the caller can still store
+	 * all of it. Count the slots of the prototype only as far as the caller has stored
+	 * them: compilers store in front of the call. bpf_fixup_call_args() rejects the rest.
 	 */
 	caller_info = &env->subprog_info[caller->subprogno];
-	callee_incoming = bpf_in_stack_arg_cnt(&env->subprog_info[subprog]);
-	stack_arg_cnt = bpf_in_stack_arg_cnt(caller_info) + callee_incoming;
+	callee_incoming = bpf_in_stack_arg_cnt(callee_info);
+	stack_arg_cnt = bpf_in_stack_arg_cnt(caller_info) +
+			max_t(int, callee_incoming,
+			      min_t(int, caller_info->max_out_stack_arg_cnt,
+				    callee_info->arg_slot_cnt - MAX_BPF_FUNC_REG_ARGS));
 	if (stack_arg_cnt > caller_info->stack_arg_cnt)
 		caller_info->stack_arg_cnt = stack_arg_cnt;
+
+	err = check_outgoing_stack_args(env, caller, MAX_BPF_FUNC_REG_ARGS + callee_incoming,
+					bpf_subprog_name(env, subprog), NULL, NULL);
+	if (err)
+		return err;
 
 	/*
 	 * For regular function entry setup new frame and continue
@@ -15071,6 +15137,14 @@ scan_all_maps:
 		 * analyzed separately.
 		 */
 		return (struct arg_access_info) {};
+	case ARG_ANYTHING:
+		/*
+		 * A number that the program is free to choose. bpf_probe_read_kernel() and
+		 * the like may read what it points to. check_func_arg() does not look at
+		 * the number: do_check() keeps what it knows about the stack over the call.
+		 */
+		info.may_write = false;
+		return info;
 	default:
 		return info;
 	}
@@ -15195,12 +15269,29 @@ static bool try_btf_prepare_func_args(struct bpf_verifier_env *env, int subprog)
 /* Prepare argument metadata for liveness; the main program is handled separately. */
 static void prepare_subprog_args(struct bpf_verifier_env *env)
 {
-	int i;
+	struct bpf_subprog_info *sub;
+	struct bpf_insn *insn;
+	int i, j, cnt;
 
 	for (i = 1; i < env->subprog_cnt; i++) {
+		sub = &env->subprog_info[i];
 		if (!try_btf_prepare_func_args(env, i) && bpf_subprog_is_global(env, i))
 			/* Keep all argument registers live if the prototype is unavailable. */
-			env->subprog_info[i].arg_slot_cnt = MAX_BPF_FUNC_REG_ARGS;
+			sub->arg_slot_cnt = MAX_BPF_FUNC_REG_ARGS;
+		if (bpf_subprog_is_global(env, i))
+			continue;
+		cnt = 0;
+		for (j = sub->start; j < (sub + 1)->start; j++) {
+			insn = &env->prog->insnsi[j];
+			if (is_stack_arg_ldx(insn))
+				cnt = max(cnt, insn->off / BPF_REG_SIZE);
+		}
+		sub->stack_args_from_code = true;
+		sub->code_stack_args = min(cnt, MAX_STACK_ARG_SLOTS);
+		/* incoming + max outgoing. Calls add the latter. */
+		sub->stack_arg_cnt = sub->code_stack_args;
+		if (env->prog->aux->func_info_aux)
+			env->prog->aux->func_info_aux[i].stack_args = sub->code_stack_args;
 	}
 }
 
@@ -16358,6 +16449,7 @@ static int adjust_ptr_min_max_vals(struct bpf_verifier_env *env, struct bpf_insn
 	const char *reason;
 	int ret, bounds_ret;
 	bool to_scalar;
+	s64 smax;
 
 	dst_reg = &regs[dst];
 	/*
@@ -16513,12 +16605,18 @@ static int adjust_ptr_min_max_vals(struct bpf_verifier_env *env, struct bpf_insn
 			if (!known)
 				dst_reg->id = ++env->id_gen;
 			/*
-			 * Clear range for unknown addends since we can't know
-			 * where the pkt pointer ended up. Also clear AT_PKT_END /
+			 * The range is what umax of the pointer may get to, see
+			 * check_packet_access(). umax of the addend was added to it
+			 * and the pointer moved by that much at most, so the range
+			 * holds. Clear it if the addend may be negative: umax says
+			 * nothing then. Clear it if umax got to it: it permits no
+			 * byte at or after the pointer, and it would only keep equal
+			 * states apart in regsafe(). Also clear AT_PKT_END /
 			 * BEYOND_PKT_END from prior comparison as any pointer
 			 * arithmetic invalidates them.
 			 */
-			if (!known || dst_reg->range < 0)
+			if (dst_reg->range < 0 ||
+			    (!known && (smin_val < 0 || reg_umax(dst_reg) >= dst_reg->range)))
 				memset(&dst_reg->raw, 0, sizeof(dst_reg->raw));
 		}
 		break;
@@ -16611,11 +16709,18 @@ static int adjust_ptr_min_max_vals(struct bpf_verifier_env *env, struct bpf_insn
 	 * A packet pointer that keeps its id or range is checked against a
 	 * range set from the checked pointer's umax, so var_off must not tighten
 	 * its umax. r32 must still match var_off for reg_bounds_sanity_check().
+	 * A sum with a new id is different: progs rely on what var_off and the
+	 * step tell about it (alignment, umin). No other pointer has its id, so
+	 * it is enough that its range loses what its umax loses.
 	 */
-	if (reg_is_pkt_pointer(dst_reg) && (known || dst_reg->range > 0))
+	if (reg_is_pkt_pointer(dst_reg) &&
+	    (known || (opcode == BPF_SUB && dst_reg->range > 0))) {
 		__update_reg32_bounds(dst_reg);
-	else
+	} else {
+		smax = reg_smax(dst_reg);
 		reg_bounds_sync(dst_reg);
+		bpf_trim_pkt_range(dst_reg, smax);
+	}
 	bounds_ret = sanitize_check_bounds(env, insn, dst_reg);
 	if (bounds_ret == -EACCES)
 		return bounds_ret;
@@ -16743,10 +16848,11 @@ static void scalar_min_max_shmul(struct bpf_reg_state *dst_reg,
 static void scalar32_min_max_udiv(struct bpf_reg_state *dst_reg,
 				  struct bpf_reg_state *src_reg)
 {
-	u32 src_val = reg_u32_min(src_reg); /* non-zero, const divisor */
+	u32 src_min = reg_u32_min(src_reg), src_max = reg_u32_max(src_reg); /* src_max isn't 0 */
 
-	reg_set_urange32(dst_reg, reg_u32_min(dst_reg) / src_val,
-			 reg_u32_max(dst_reg) / src_val);
+	/* The largest divisor gives the smallest result, but for x / 0 = 0 */
+	reg_set_urange32(dst_reg, src_min ? reg_u32_min(dst_reg) / src_max : 0,
+			 reg_u32_max(dst_reg) / (src_min ?: 1));
 
 	/* Reset other ranges/tnum to unbounded/unknown. */
 	reset_reg64_and_tnum(dst_reg);
@@ -16755,10 +16861,11 @@ static void scalar32_min_max_udiv(struct bpf_reg_state *dst_reg,
 static void scalar_min_max_udiv(struct bpf_reg_state *dst_reg,
 				struct bpf_reg_state *src_reg)
 {
-	u64 src_val = reg_umin(src_reg); /* non-zero, const divisor */
+	u64 src_min = reg_umin(src_reg), src_max = reg_umax(src_reg); /* src_max isn't 0 */
 
-	reg_set_urange64(dst_reg, div64_u64(reg_umin(dst_reg), src_val),
-			 div64_u64(reg_umax(dst_reg), src_val));
+	/* The largest divisor gives the smallest result, but for x / 0 = 0 */
+	reg_set_urange64(dst_reg, src_min ? div64_u64(reg_umin(dst_reg), src_max) : 0,
+			 div64_u64(reg_umax(dst_reg), src_min ?: 1));
 
 	/* Reset other ranges/tnum to unbounded/unknown. */
 	reset_reg32_and_tnum(dst_reg);
@@ -16839,17 +16946,17 @@ reset:
 static void scalar32_min_max_umod(struct bpf_reg_state *dst_reg,
 				  struct bpf_reg_state *src_reg)
 {
-	u32 src_val = reg_u32_min(src_reg); /* non-zero, const divisor */
-	u32 res_max = src_val - 1;
+	u32 src_min = reg_u32_min(src_reg), src_max = reg_u32_max(src_reg); /* src_max isn't 0 */
 
 	/*
-	 * If dst_umax <= res_max, the result remains unchanged.
-	 * e.g., [2, 5] % 10 = [2, 5].
+	 * If dst_umax < src_min, the result remains unchanged.
+	 * e.g., [2, 5] % [10, 20] = [2, 5].
 	 */
-	if (reg_u32_max(dst_reg) <= res_max)
+	if (reg_u32_max(dst_reg) < src_min)
 		return;
 
-	reg_set_urange32(dst_reg, 0, min(reg_u32_max(dst_reg), res_max));
+	/* The result is below the divisor and not above x, and x % 0 = x */
+	reg_set_urange32(dst_reg, 0, min(reg_u32_max(dst_reg), src_min ? src_max - 1 : U32_MAX));
 
 	/* Reset other ranges/tnum to unbounded/unknown. */
 	reset_reg64_and_tnum(dst_reg);
@@ -16858,17 +16965,17 @@ static void scalar32_min_max_umod(struct bpf_reg_state *dst_reg,
 static void scalar_min_max_umod(struct bpf_reg_state *dst_reg,
 				struct bpf_reg_state *src_reg)
 {
-	u64 src_val = reg_umin(src_reg); /* non-zero, const divisor */
-	u64 res_max = src_val - 1;
+	u64 src_min = reg_umin(src_reg), src_max = reg_umax(src_reg); /* src_max isn't 0 */
 
 	/*
-	 * If dst_umax <= res_max, the result remains unchanged.
-	 * e.g., [2, 5] % 10 = [2, 5].
+	 * If dst_umax < src_min, the result remains unchanged.
+	 * e.g., [2, 5] % [10, 20] = [2, 5].
 	 */
-	if (reg_umax(dst_reg) <= res_max)
+	if (reg_umax(dst_reg) < src_min)
 		return;
 
-	reg_set_urange64(dst_reg, 0, min(reg_umax(dst_reg), res_max));
+	/* The result is below the divisor and not above x, and x % 0 = x */
+	reg_set_urange64(dst_reg, 0, min(reg_umax(dst_reg), src_min ? src_max - 1 : U64_MAX));
 
 	/* Reset other ranges/tnum to unbounded/unknown. */
 	reset_reg32_and_tnum(dst_reg);
@@ -17212,16 +17319,16 @@ static void scalar_min_max_rsh(struct bpf_reg_state *dst_reg,
 static void scalar32_min_max_arsh(struct bpf_reg_state *dst_reg,
 				  struct bpf_reg_state *src_reg)
 {
-	u64 umin_val = reg_u32_min(src_reg);
+	u32 umin_val = reg_u32_min(src_reg), umax_val = reg_u32_max(src_reg);
+	s32 smin = reg_s32_min(dst_reg), smax = reg_s32_max(dst_reg);
 
-	/* Upon reaching here, src_known is true and
-	 * umax_val is equal to umin_val.
+	/*
+	 * A larger count brings the result closer to 0, or to -1.
 	 * Blow away the dst_reg umin_value/umax_value and rely on
 	 * dst_reg var_off to refine the result.
 	 */
-	reg_set_srange32(dst_reg,
-			 (u32)(((s32)reg_s32_min(dst_reg)) >> umin_val),
-			 (u32)(((s32)reg_s32_max(dst_reg)) >> umin_val));
+	reg_set_srange32(dst_reg, smin >> (smin < 0 ? umin_val : umax_val),
+			 smax >> (smax < 0 ? umax_val : umin_val));
 
 	dst_reg->var_off = tnum_arshift(tnum_subreg(dst_reg->var_off), umin_val, 32);
 
@@ -17232,13 +17339,12 @@ static void scalar32_min_max_arsh(struct bpf_reg_state *dst_reg,
 static void scalar_min_max_arsh(struct bpf_reg_state *dst_reg,
 				struct bpf_reg_state *src_reg)
 {
-	u64 umin_val = reg_umin(src_reg);
+	u64 umin_val = reg_umin(src_reg), umax_val = reg_umax(src_reg);
+	s64 smin = reg_smin(dst_reg), smax = reg_smax(dst_reg);
 
-	/* Upon reaching here, src_known is true and umax_val is equal
-	 * to umin_val.
-	 */
-	reg_set_srange64(dst_reg, reg_smin(dst_reg) >> umin_val,
-			 reg_smax(dst_reg) >> umin_val);
+	/* A larger count brings the result closer to 0, or to -1 */
+	reg_set_srange64(dst_reg, smin >> (smin < 0 ? umin_val : umax_val),
+			 smax >> (smax < 0 ? umax_val : umin_val));
 
 	dst_reg->var_off = tnum_arshift(dst_reg->var_off, umin_val, 64);
 
@@ -17329,22 +17435,19 @@ static bool is_safe_to_compute_dst_reg_range(struct bpf_insn *insn,
 	case BPF_END:
 		return true;
 
-	/*
-	 * Division and modulo operators range is only safe to compute when the
-	 * divisor is a constant.
-	 */
+	/* The range of a signed division or modulo is computed for a constant divisor only */
 	case BPF_DIV:
 	case BPF_MOD:
-		return src_is_const;
+		return src_is_const || !insn->off;
 
-	/* Shift operators range is only computable if shift dimension operand
-	 * is a constant. Shifts greater than 31 or 63 are undefined. This
-	 * includes shifts by a negative number.
+	/*
+	 * Shifts greater than 31 or 63 are undefined. This includes shifts by
+	 * a negative number.
 	 */
 	case BPF_LSH:
 	case BPF_RSH:
 	case BPF_ARSH:
-		return (src_is_const && reg_umax(src_reg) < insn_bitness);
+		return reg_umax(src_reg) < insn_bitness;
 	default:
 		return false;
 	}
@@ -17413,6 +17516,11 @@ static int adjust_scalar_min_max_vals(struct bpf_verifier_env *env,
 			return sanitize_err(env, insn, ret);
 	}
 
+	/* The count of a shift is a range: a bit of dst_reg can end up in more than one place */
+	if ((opcode == BPF_LSH || opcode == BPF_RSH || opcode == BPF_ARSH) &&
+	    reg_umin(&src_reg) != reg_umax(&src_reg))
+		dst_reg->var_off = tnum_unknown;
+
 	/* Calculate sign/unsigned bounds and tnum for alu32 and alu64 bit ops.
 	 * There are two classes of instructions: The first class we track both
 	 * alu32 and alu64 sign/unsigned bounds independently this provides the
@@ -17475,7 +17583,7 @@ static int adjust_scalar_min_max_vals(struct bpf_verifier_env *env,
 		break;
 	case BPF_DIV:
 		/* BPF div specification: x / 0 = 0 */
-		if ((alu32 && reg_u32_min(&src_reg) == 0) || (!alu32 && reg_umin(&src_reg) == 0)) {
+		if ((alu32 && reg_u32_max(&src_reg) == 0) || (!alu32 && reg_umax(&src_reg) == 0)) {
 			___mark_reg_known(dst_reg, 0);
 			break;
 		}
@@ -17493,7 +17601,7 @@ static int adjust_scalar_min_max_vals(struct bpf_verifier_env *env,
 		break;
 	case BPF_MOD:
 		/* BPF mod specification: x % 0 = x */
-		if ((alu32 && reg_u32_min(&src_reg) == 0) || (!alu32 && reg_umin(&src_reg) == 0))
+		if ((alu32 && reg_u32_max(&src_reg) == 0) || (!alu32 && reg_umax(&src_reg) == 0))
 			break;
 		if (alu32)
 			if (off == 1)
@@ -17894,6 +18002,51 @@ int bpf_reg_union(struct bpf_verifier_env *env, struct bpf_reg_state *acc,
 	return reg_bounds_sanity_check(env, acc, "bpf_reg_union");
 }
 
+/*
+ * There are no address spaces in Rust. The compiler doesn't cast a pointer that
+ * comes from the kernel. But it can't always tell, and then it casts the pointer
+ * to as(0) before the access, like an address in arena.
+ * A pointer that the verifier knows is in as(0) already, so the cast is a move.
+ * arg_track_xfer() does the same for pointers to stack.
+ */
+static bool is_cast_mov(const struct bpf_insn *insn, const struct bpf_reg_state *src_reg)
+{
+	/* cast from as(1) to as(0) */
+	if (insn->imm != 1)
+		return false;
+
+	switch (base_type(src_reg->type)) {
+	case SCALAR_VALUE:
+	case PTR_TO_ARENA:
+		return false;
+	default:
+		return true;
+	}
+}
+
+static int check_addr_space_cast(struct bpf_verifier_env *env, struct bpf_insn *insn,
+				 struct bpf_reg_state *dst_reg, struct bpf_reg_state *src_reg)
+{
+	struct bpf_insn_aux_data *aux = cur_aux(env);
+
+	if (is_cast_mov(insn, src_reg)) {
+		aux->cast_mov = true;
+		*dst_reg = *src_reg;
+	} else {
+		aux->cast_arena = true;
+		mark_reg_unknown(env, cur_regs(env), insn->dst_reg);
+		if (insn->imm == 1) /* cast from as(1) to as(0) */
+			dst_reg->type = PTR_TO_ARENA;
+	}
+
+	/* it's either wX = wY or rX = rY, see bpf_lower_cast_mov() */
+	if (aux->cast_mov && aux->cast_arena) {
+		verbose(env, "same addr_space_cast insn cannot be used with a number and with a pointer\n");
+		return -EINVAL;
+	}
+	return 0;
+}
+
 /* check validity of 32-bit and 64-bit arithmetic operations */
 static int check_alu_op(struct bpf_verifier_env *env, struct bpf_insn *insn)
 {
@@ -17955,9 +18108,9 @@ static int check_alu_op(struct bpf_verifier_env *env, struct bpf_insn *insn)
 			if (BPF_CLASS(insn->code) == BPF_ALU64) {
 				if (insn->imm) {
 					/* off == BPF_ADDR_SPACE_CAST */
-					mark_reg_unknown(env, regs, insn->dst_reg);
-					if (insn->imm == 1) /* cast from as(1) to as(0) */
-						dst_reg->type = PTR_TO_ARENA;
+					err = check_addr_space_cast(env, insn, dst_reg, src_reg);
+					if (err)
+						return err;
 				} else if (insn->off == 0) {
 					/* case: R1 = R2
 					 * copy register state to dest reg
@@ -20321,6 +20474,11 @@ static int check_indirect_jump(struct bpf_verifier_env *env, struct bpf_insn *in
 	if (env->gotox_tmp_buf->items[0] < subprog_start)
 		return reject_gotox_out_of_subprog(env, env->gotox_tmp_buf->items[0],
 						   subprog_start, subprog_end);
+	/* it's the first insn of a function, it would be executed again */
+	if (is_arena_sp_adj(&env->prog->insnsi[env->gotox_tmp_buf->items[0]])) {
+		verbose(env, "jump to the insn that changes R%d\n", BPF_REG_ARENA_SP);
+		return -EINVAL;
+	}
 	if (env->gotox_tmp_buf->items[n - 1] >= subprog_end)
 		return reject_gotox_out_of_subprog(env, env->gotox_tmp_buf->items[n - 1],
 						   subprog_start, subprog_end);
@@ -20337,11 +20495,63 @@ static int check_indirect_jump(struct bpf_verifier_env *env, struct bpf_insn *in
 	return INSN_IDX_UPDATED;
 }
 
+/*
+ * r12 is not in regs[]. Only the kernel and 'r12 += N' change it, so it points
+ * to the stack in arena. What is there is not tracked, like the rest of arena.
+ */
+static int check_arena_sp_insn(struct bpf_verifier_env *env, struct bpf_insn *insn)
+{
+	struct bpf_reg_state arena = { .type = PTR_TO_ARENA };
+	argno_t argno = argno_from_reg(BPF_REG_ARENA_SP);
+	struct bpf_reg_state *regs = cur_regs(env);
+	int size = BPF_SIZE(insn->code);
+	int err, value_regno = -1;
+
+	if (is_arena_sp_adj(insn))
+		return 0;
+
+	/* the address of the frame is a number */
+	if (is_arena_sp_mov(insn)) {
+		bpf_diag_mod_begin(env, &regs[insn->dst_reg], NULL, BPF_DIAG_MOD_WRITE);
+		err = check_reg_arg(env, insn->dst_reg, DST_OP);
+		if (!err)
+			bpf_diag_mod_end(env);
+		return err;
+	}
+
+	if (is_arena_sp_ldx(insn)) {
+		err = check_reg_arg(env, insn->dst_reg, DST_OP_NO_MARK);
+		if (err)
+			return err;
+		bpf_diag_mod_begin(env, &regs[insn->dst_reg], NULL, BPF_DIAG_MOD_WRITE);
+		err = check_mem_access(env, env->insn_idx, &arena, argno, insn->off, size,
+				       BPF_READ, insn->dst_reg, false,
+				       BPF_MODE(insn->code) == BPF_MEMSX);
+		err = err ?: save_aux_ptr_type(env, PTR_TO_ARENA, false);
+		if (!err)
+			bpf_diag_mod_end(env);
+		return err;
+	}
+
+	if (BPF_CLASS(insn->code) == BPF_STX) {
+		err = check_reg_arg(env, insn->src_reg, SRC_OP);
+		if (err)
+			return err;
+		value_regno = insn->src_reg;
+	}
+	err = check_mem_access(env, env->insn_idx, &arena, argno, insn->off, size,
+			       BPF_WRITE, value_regno, false, false);
+	return err ?: save_aux_ptr_type(env, PTR_TO_ARENA, false);
+}
+
 static int do_check_insn(struct bpf_verifier_env *env, bool *do_print_state)
 {
 	int err;
 	struct bpf_insn *insn = &env->prog->insnsi[env->insn_idx];
 	u8 class = BPF_CLASS(insn->code);
+
+	if (is_arena_sp_insn(insn))
+		return check_arena_sp_insn(env, insn);
 
 	switch (class) {
 	case BPF_ALU:
@@ -20569,8 +20779,7 @@ static int maybe_clamp_scev_regs(struct bpf_verifier_env *env)
 	if (!entry->terminates)
 		return 0;
 
-	return bpf_clamp_scev_regs(env, frame, env->insn_idx, entry->entry_state,
-				   entry->max_header_count);
+	return bpf_clamp_scev_regs(env, frame, env->insn_idx, entry);
 }
 
 static int handle_loop_entry_exit(struct bpf_verifier_env *env)
@@ -20616,6 +20825,8 @@ static int handle_loop_entry_exit(struct bpf_verifier_env *env)
 
 	entry->min_header_count = iters.min_header_count;
 	entry->max_header_count = iters.max_header_count;
+	entry->iv_reg = iters.iv_reg;
+	entry->iv_range = iters.iv_range;
 	entry->entry_state = cur->parent;
 	entry->terminates = true;
 	err = bpf_widen_scev_regs(env, cur, cur->parent, &iters);
@@ -21537,6 +21748,86 @@ static int check_insn_fields(struct bpf_verifier_env *env, struct bpf_insn *insn
 	}
 }
 
+static bool jumps_to_arena_sp_adj(struct bpf_insn *insn)
+{
+	u8 class = BPF_CLASS(insn->code), op = BPF_OP(insn->code);
+
+	if (class != BPF_JMP && class != BPF_JMP32)
+		return false;
+	if (op == BPF_CALL || op == BPF_EXIT || insn->code == (BPF_JMP | BPF_JA | BPF_X))
+		return false;
+	return is_arena_sp_adj(insn + bpf_jmp_offset(insn) + 1);
+}
+
+/*
+ * Find the insns with BPF_REG_ARENA_SP. The sizes of the frames are in the text
+ * of the program.
+ */
+static int check_arena_stack(struct bpf_verifier_env *env)
+{
+	struct bpf_subprog_info *sub = env->subprog_info;
+	struct bpf_insn *insn = env->prog->insnsi;
+	int i;
+
+	for (i = 0; i < env->prog->len; i++, insn++) {
+		if (i == (sub + 1)->start)
+			sub++;
+		/* it would be executed again */
+		if (jumps_to_arena_sp_adj(insn)) {
+			verbose(env, "jump to the insn that changes R%d\n", BPF_REG_ARENA_SP);
+			return -EINVAL;
+		}
+		if (!is_arena_sp_insn(insn))
+			continue;
+		sub->uses_arena_sp = true;
+		env->uses_arena_sp = true;
+		if (!is_arena_sp_adj(insn))
+			continue;
+		if (i != sub->start) {
+			verbose(env, "R%d can be changed by the first insn of a function only\n",
+				BPF_REG_ARENA_SP);
+			return -EINVAL;
+		}
+		if (insn->imm <= 0 || insn->imm % 16 || insn->imm > BPF_ARENA_STACK_MAX) {
+			verbose(env, "invalid size of the frame in the stack in arena %d\n",
+				insn->imm);
+			return -EINVAL;
+		}
+		sub->arena_stack_depth = insn->imm;
+	}
+	if (!env->uses_arena_sp)
+		return 0;
+
+	if (!env->prog->aux->arena) {
+		verbose(env, "R%d can only be used in a program that has an associated arena\n",
+			BPF_REG_ARENA_SP);
+		return -EINVAL;
+	}
+	if (!bpf_jit_supports_arena_stack() || !bpf_jit_supports_percpu_insn() ||
+	    bpf_prog_is_offloaded(env->prog->aux)) {
+		verbose(env, "JIT doesn't support R%d\n", BPF_REG_ARENA_SP);
+		return -EOPNOTSUPP;
+	}
+	/* bpf_insert_arena_stack() relies on r2-r5 being free when the program starts */
+	if (env->prog->type == BPF_PROG_TYPE_EXT) {
+		verbose(env, "R%d is not supported in extension programs\n", BPF_REG_ARENA_SP);
+		return -EINVAL;
+	}
+	/*
+	 * It ends the function when the offset is out of the packet. bpf_do_misc_fixups()
+	 * emits that exit, after bpf_insert_arena_stack(): the frame wouldn't be dropped
+	 * and the stack wouldn't be returned.
+	 */
+	for (i = 0; i < env->subprog_cnt; i++) {
+		if (!env->subprog_info[i].has_ld_abs)
+			continue;
+		verbose(env, "BPF_LD_[ABS|IND] is not allowed in programs that use R%d\n",
+			BPF_REG_ARENA_SP);
+		return -EINVAL;
+	}
+	return bpf_arena_stack_init(env->prog->aux->arena);
+}
+
 /*
  * Check that insns are sane and rewrite pseudo imm in ld_imm64 instructions:
  *
@@ -21557,11 +21848,13 @@ static int check_and_resolve_insns(struct bpf_verifier_env *env)
 
 	for (i = 0; i < insn_cnt; i++, insn++) {
 		if (insn->dst_reg >= MAX_BPF_REG &&
-		    !is_stack_arg_st(insn) && !is_stack_arg_stx(insn)) {
+		    !is_stack_arg_st(insn) && !is_stack_arg_stx(insn) &&
+		    !is_arena_sp_adj(insn) && !is_arena_sp_st(insn)) {
 			verbose(env, "R%d is invalid\n", insn->dst_reg);
 			return -EINVAL;
 		}
-		if (insn->src_reg >= MAX_BPF_REG && !is_stack_arg_ldx(insn)) {
+		if (insn->src_reg >= MAX_BPF_REG && !is_stack_arg_ldx(insn) &&
+		    !is_arena_sp_mov(insn) && !is_arena_sp_ldx(insn)) {
 			verbose(env, "R%d is invalid\n", insn->src_reg);
 			return -EINVAL;
 		}
@@ -22030,7 +22323,6 @@ static int do_check_common(struct bpf_verifier_env *env, int subprog,
 			    sub->args[0].arg_type != ARG_PTR_TO_CTX) {
 				env->prog->aux->func_info_aux[0].unreliable = true;
 				sub->arg_slot_cnt = 1;
-				sub->stack_arg_cnt = 0;
 			}
 		}
 
@@ -22310,6 +22602,12 @@ static int check_struct_ops_btf_id(struct bpf_verifier_env *env)
 		}
 	}
 
+	/* A run that gets no stack in arena is skipped. Nobody would release the argument. */
+	if (has_refcounted_arg && env->uses_arena_sp) {
+		verbose(env, "program with __ref argument cannot use R%d\n", BPF_REG_ARENA_SP);
+		return -EINVAL;
+	}
+
 	prog->aux->st_ops = st_ops;
 	prog->aux->attach_st_ops_member_off = member_off;
 
@@ -22551,33 +22849,6 @@ static int flatten_bpf_func_model(struct bpf_verifier_log *log, const char *tnam
 	return 0;
 }
 
-/*
- * The verifier lets a static function use stack arguments counted from its
- * BTF, even if that BTF turns out unreliable. A trampoline on the function is
- * then given only MAX_BPF_FUNC_REG_ARGS u64 arguments and would lose the
- * stack arguments, so such a function cannot be attached to.
- */
-static int check_unreliable_func_args(struct bpf_verifier_log *log, struct btf *btf,
-				      const struct btf_type *func_proto, const char *tname)
-{
-	struct btf_func_model m;
-	u32 i, nslots = 0;
-
-	if (btf_distill_func_proto(NULL, btf, func_proto, tname, &m)) {
-		/* at least a slot for each argument */
-		nslots = btf_type_vlen(func_proto);
-	} else {
-		for (i = 0; i < m.nr_args; i++)
-			nslots += btf_func_model_arg_slots(&m, i);
-	}
-	if (nslots <= MAX_BPF_FUNC_REG_ARGS)
-		return 0;
-
-	bpf_log(log, "Cannot attach to static function %s: unreliable BTF and stack arguments\n",
-		tname);
-	return -EINVAL;
-}
-
 /* Functions may share a type id. The first of them is attached to. */
 static int find_tgt_subprog(const struct bpf_prog *tgt_prog, u32 btf_id)
 {
@@ -22723,6 +22994,12 @@ int bpf_check_attach_target(struct bpf_verifier_log *log,
 		 */
 		if (subprog == 0 && bpf_prog_has_arena_ctx_arg(tgt_prog)) {
 			bpf_log(log, "Cannot attach to a target with arena context arguments\n");
+			return -EOPNOTSUPP;
+		}
+		/* x86: the trampoline and the extension don't preserve BPF_REG_ARENA_SP */
+		if (subprog && aux->arena_stack_size) {
+			bpf_log(log, "Cannot attach to a subprog of a program that uses R%d\n",
+				BPF_REG_ARENA_SP);
 			return -EOPNOTSUPP;
 		}
 		if (aux->func && aux->func[subprog]->aux->exception_cb) {
@@ -22959,10 +23236,16 @@ int bpf_check_attach_target(struct bpf_verifier_log *log,
 			return -EINVAL;
 
 		if (tgt_prog && conservative) {
-			if (subprog > 0) {
-				ret = check_unreliable_func_args(log, btf, t, tname);
-				if (ret)
-					return ret;
+			/*
+			 * The verifier lets a static function use the stack arguments that
+			 * its code loads, whatever its BTF says. The trampoline is given
+			 * MAX_BPF_FUNC_REG_ARGS u64 arguments and would lose them.
+			 */
+			if (tgt_prog->aux->func_info_aux[subprog].stack_args) {
+				bpf_log(log,
+					"Cannot attach to static function %s: unreliable BTF and stack arguments\n",
+					tname);
+				return -EINVAL;
 			}
 			t = NULL;
 		}
@@ -22976,7 +23259,9 @@ int bpf_check_attach_target(struct bpf_verifier_log *log,
 				return ret;
 		}
 
-		if (tgt_info->fmodel.ret_size > 8 &&
+		/* The model for unreliable BTF has a u64. The function still returns R0:R2. */
+		if ((tgt_info->fmodel.ret_size > 8 ||
+		     (tgt_prog && tgt_prog->aux->func_info_aux[subprog].ret_reg_pair)) &&
 		    attach_uses_trampoline_retval(prog->expected_attach_type)) {
 			bpf_log(log,
 				"Attach to function %s with a >8 byte return value is not supported for this attach type\n",
@@ -24117,6 +24402,10 @@ int bpf_check(struct bpf_prog **prog, union bpf_attr *attr, bpfptr_t uattr,
 	if (ret < 0)
 		goto skip_full_check;
 
+	ret = check_arena_stack(env);
+	if (ret < 0)
+		goto skip_full_check;
+
 	/* Find pointers to functions in the read-only maps of the program. */
 	ret = resolve_func_ptrs(env);
 	if (ret < 0)
@@ -24231,6 +24520,9 @@ skip_full_check:
 	if (ret == 0)
 		ret = bpf_optimize_bpf_loop(env);
 
+	if (ret == 0)
+		bpf_lower_cast_mov(env);
+
 	if (is_priv) {
 		if (ret == 0)
 			bpf_opt_hard_wire_dead_code_branches(env);
@@ -24242,6 +24534,9 @@ skip_full_check:
 		if (ret == 0)
 			sanitize_dead_code(env);
 	}
+
+	if (ret == 0)
+		ret = bpf_insert_arena_stack(env);
 
 	if (ret == 0)
 		/* program is valid, convert *(u32*)(ctx + off) accesses */
