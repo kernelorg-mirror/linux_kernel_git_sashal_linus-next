@@ -847,7 +847,7 @@ int msm_csiphy_subdev_init(struct camss *camss, u8 port)
 		csiphy->res = &csiphy_res_phy;
 	}
 
-	snprintf(csiphy->name, ARRAY_SIZE(csiphy->name), "csi%d", csiphy->id);
+	snprintf(csiphy->name, ARRAY_SIZE(csiphy->name), "csiphy%d", csiphy->id);
 
 	return 0;
 
