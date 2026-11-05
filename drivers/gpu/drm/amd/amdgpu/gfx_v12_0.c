@@ -286,6 +286,8 @@ static void gfx_v12_0_ring_invalidate_tlbs(struct amdgpu_ring *ring,
 					   bool all_hub, uint8_t dst_sel);
 static void gfx_v12_0_set_safe_mode(struct amdgpu_device *adev, int xcc_id);
 static void gfx_v12_0_unset_safe_mode(struct amdgpu_device *adev, int xcc_id);
+static void gfx_v12_0_update_spm_vmid(struct amdgpu_device *adev, int xcc_id,
+				      unsigned int vmid);
 static void gfx_v12_0_userq_priv_fault_work(struct work_struct *work);
 static void gfx_v12_0_update_perf_clk(struct amdgpu_device *adev,
 				      bool enable);
@@ -458,6 +460,11 @@ static int gfx_v12_0_ring_test_ring(struct amdgpu_ring *ring)
 	int r;
 
 	WREG32(scratch, 0xCAFEDEAD);
+	/*
+	 * Read the value back so the posted write reaches the register before
+	 * the CP writes the test value; otherwise it can overwrite the result.
+	 */
+	RREG32(scratch);
 	r = amdgpu_ring_alloc(ring, 5);
 	if (r) {
 		drm_err(adev_to_drm(adev),
@@ -770,10 +777,6 @@ static int gfx_v12_0_rlc_init(struct amdgpu_device *adev)
 		if (r)
 			return r;
 	}
-
-	/* init spm vmid with 0xf */
-	if (adev->gfx.rlc.funcs->update_spm_vmid)
-		adev->gfx.rlc.funcs->update_spm_vmid(adev, 0, adev->vm_manager.spm_vmid);
 
 	return 0;
 }
@@ -2146,6 +2149,12 @@ static int gfx_v12_0_rlc_resume(struct amdgpu_device *adev)
 
 		adev->gfx.rlc.funcs->start(adev);
 	}
+
+	/*
+	 * The RLC comes up with RLC_SPM_MC_CNTL cleared, program the SPM VMID
+	 * once it runs, also after a GPU reset or a resume.
+	 */
+	gfx_v12_0_update_spm_vmid(adev, 0, adev->vm_manager.spm_vmid);
 
 	return 0;
 }
@@ -3963,6 +3972,7 @@ static void gfx_v12_0_update_spm_vmid(struct amdgpu_device *adev,
 {
 	u32 reg, data;
 
+	amdgpu_gfx_off_ctrl(adev, false);
 	reg = SOC15_REG_OFFSET(GC, 0, regRLC_SPM_MC_CNTL);
 	if (amdgpu_sriov_is_pp_one_vf(adev))
 		data = RREG32_NO_KIQ(reg);
@@ -3976,6 +3986,7 @@ static void gfx_v12_0_update_spm_vmid(struct amdgpu_device *adev,
 		WREG32_SOC15_NO_KIQ(GC, 0, regRLC_SPM_MC_CNTL, data);
 	else
 		WREG32_SOC15(GC, 0, regRLC_SPM_MC_CNTL, data);
+	amdgpu_gfx_off_ctrl(adev, true);
 }
 
 static const struct amdgpu_rlc_funcs gfx_v12_0_rlc_funcs = {

@@ -1506,7 +1506,8 @@ int amdgpu_ras_reset_error_count(struct amdgpu_device *adev,
 		return -EOPNOTSUPP;
 	}
 
-	if (!amdgpu_ras_is_supported(adev, block))
+	if (!amdgpu_ras_is_supported(adev, block) ||
+	    !amdgpu_ras_mgr_get_debug_mode(adev))
 		return -EOPNOTSUPP;
 
 	if (amdgpu_sriov_vf(adev))
@@ -4924,6 +4925,9 @@ void amdgpu_ras_event_log_print(struct amdgpu_device *adev, u64 event_id,
 bool amdgpu_ras_is_rma(struct amdgpu_device *adev)
 {
 	struct amdgpu_ras *con = amdgpu_ras_get_context(adev);
+
+	if (amdgpu_sriov_vf(adev))
+		return adev->virt.unrecov_err;
 
 	if (amdgpu_uniras_enabled(adev))
 		return amdgpu_ras_mgr_is_rma(adev);
