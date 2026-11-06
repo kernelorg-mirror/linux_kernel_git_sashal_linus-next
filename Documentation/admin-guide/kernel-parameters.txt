@@ -1208,7 +1208,8 @@ Kernel parameters
 			        get a -EPERM as result when trying to register files
 				or directories within debugfs.
 				This is equivalent of the runtime functionality if
-				debugfs was not enabled in the kernel at all.
+				debugfs was not enabled in the kernel at all,
+				except that the latter returns -ENODEV.
 			Default value is set in build-time with a kernel configuration.
 
 	debugpat	[X86] Enable PAT debugging
@@ -5132,7 +5133,12 @@ Kernel parameters
 				explicitly which ones they are.
 		assign-busses	[X86] Always assign all PCI bus
 				numbers ourselves, overriding
-				whatever the firmware may have done.
+				whatever the firmware may have done. Ignored
+				if any device was preserved across a Live
+				Update, where the kernel must preserve the
+				PCI topology (including bus numbers) to
+				avoid interrupting ongoing memory transactions
+				of preserved devices.
 		usepirqmask	[X86] Honor the possible IRQ mask stored
 				in the BIOS $PIR table. This is needed on
 				some systems with broken BIOSes, notably
@@ -7633,6 +7639,12 @@ Kernel parameters
 	tlbi=		[X86-64]
 			Format: {ipi}
 			ipi: switch to IPI-based TLB flushing
+
+	toolong_nmi_panic= [X86]
+			Cause a panic upon return from an NMI handler
+			that took longer than the specified number
+			of milliseconds.  The default value of zero
+			suppresses these panics.
 
 	topology=	[S390,EARLY]
 			Format: {off | on}
