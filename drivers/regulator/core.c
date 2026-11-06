@@ -44,6 +44,7 @@ static LIST_HEAD(regulator_ena_gpio_list);
 static LIST_HEAD(regulator_supply_alias_list);
 static LIST_HEAD(regulator_coupler_list);
 static bool has_full_constraints;
+static bool regulator_suspending;
 
 static const struct bus_type regulator_bus;
 
@@ -1698,7 +1699,7 @@ static int set_machine_constraints(struct regulator_dev *rdev,
 		if (rdev->constraints->always_on)
 			rdev->use_count++;
 	} else if (rdev->desc->off_on_delay) {
-		rdev->last_off = ktime_get();
+		rdev->last_off = ktime_get_boottime();
 	}
 
 	if (!rdev->constraints->pw_budget_mW)
@@ -1842,6 +1843,7 @@ static int set_supply(struct regulator_dev *rdev,
 		err = -ENOMEM;
 		return err;
 	}
+	get_device(&supply_rdev->dev);
 	supply_rdev->open_count++;
 
 	return 0;
@@ -2290,22 +2292,20 @@ static int regulator_resolve_supply(struct regulator_dev *rdev)
 		supply = rdev->supply;
 
 		regulator_unlock_two(rdev, r, &ww_ctx);
-		put_device(&r->dev);
 
 		/*
 		 * Supply resolved by concurrent task, and constraints set as
 		 * well (or not required): fast path.
 		 */
 		if (done)
-			goto out;
+			goto out_put;
 
 		do_final_setup = false;
 	} else {
 		ret = set_supply(rdev, r);
 		if (ret < 0) {
 			regulator_unlock_two(rdev, r, &ww_ctx);
-			put_device(&r->dev);
-			goto out;
+			goto out_put;
 		}
 
 		supply = rdev->supply;
@@ -2342,7 +2342,7 @@ static int regulator_resolve_supply(struct regulator_dev *rdev)
 			 */
 			regulator_unlock_dependent(rdev, &ww_ctx);
 			ret = -EPROBE_DEFER;
-			goto out;
+			goto out_put;
 		}
 
 		ret = set_machine_constraints(rdev, true);
@@ -2364,7 +2364,7 @@ static int regulator_resolve_supply(struct regulator_dev *rdev)
 				 * that again via unset_supply.
 				 */
 				regulator_unlock_two(rdev, r, &ww_ctx);
-				goto out;
+				goto out_put;
 			}
 
 			unregister_regulator_event_forwarding(rdev);
@@ -2376,11 +2376,13 @@ static int regulator_resolve_supply(struct regulator_dev *rdev)
 	regulator_unlock_dependent(rdev, &ww_ctx);
 
 	if (!do_final_setup)
-		goto out;
+		goto out_put;
 
 	/* rdev->supply was created in set_supply() */
 	link_and_create_debugfs(rdev->supply, rdev->supply->rdev, &rdev->dev);
 
+out_put:
+	put_device(&r->dev);
 out:
 	return ret;
 
@@ -2391,6 +2393,7 @@ unset_supply:
 	regulator_unlock_two(rdev, supply->rdev, &ww_ctx);
 
 	regulator_put(supply);
+	put_device(&r->dev);
 
 	return ret;
 }
@@ -3463,10 +3466,15 @@ int regulator_disable_deferred(struct regulator *regulator, int ms)
 {
 	struct regulator_dev *rdev = regulator->rdev;
 
-	if (!ms)
+	if (!ms || READ_ONCE(regulator_suspending))
 		return regulator_disable(regulator);
 
 	regulator_lock(rdev);
+	if (unlikely(READ_ONCE(regulator_suspending))) {
+		regulator_unlock(rdev);
+		return regulator_disable(regulator);
+	}
+
 	regulator->deferred_disables++;
 	mod_delayed_work(system_power_efficient_wq, &rdev->disable_work,
 			 msecs_to_jiffies(ms));
@@ -6299,6 +6307,8 @@ void regulator_unregister(struct regulator_dev *rdev)
 	if (rdev == NULL)
 		return;
 
+	flush_delayed_work(&rdev->disable_work);
+
 	if (rdev->supply) {
 		regulator_unregister_notifier(rdev->supply,
 					      &rdev->supply_fwd_nb);
@@ -6307,8 +6317,6 @@ void regulator_unregister(struct regulator_dev *rdev)
 			regulator_disable(rdev->supply);
 		regulator_put(rdev->supply);
 	}
-
-	flush_work(&rdev->disable_work.work);
 
 	mutex_lock(&regulator_list_mutex);
 
@@ -6327,6 +6335,24 @@ void regulator_unregister(struct regulator_dev *rdev)
 EXPORT_SYMBOL_GPL(regulator_unregister);
 
 #ifdef CONFIG_SUSPEND
+static int regulator_prepare(struct device *dev)
+{
+	struct regulator_dev *rdev = dev_to_rdev(dev);
+
+	regulator_lock(rdev);
+	WRITE_ONCE(regulator_suspending, true);
+	regulator_unlock(rdev);
+
+	flush_delayed_work(&rdev->disable_work);
+
+	return 0;
+}
+
+static void regulator_complete(struct device *dev)
+{
+	WRITE_ONCE(regulator_suspending, false);
+}
+
 /**
  * regulator_suspend - prepare regulators for system wide suspend
  * @dev: ``&struct device`` pointer that is passed to _regulator_suspend()
@@ -6380,6 +6406,8 @@ static int regulator_resume(struct device *dev)
 }
 #else /* !CONFIG_SUSPEND */
 
+#define regulator_prepare	NULL
+#define regulator_complete	NULL
 #define regulator_suspend	NULL
 #define regulator_resume	NULL
 
@@ -6387,6 +6415,8 @@ static int regulator_resume(struct device *dev)
 
 #ifdef CONFIG_PM
 static const struct dev_pm_ops __maybe_unused regulator_pm_ops = {
+	.prepare	= regulator_prepare,
+	.complete	= regulator_complete,
 	.suspend	= regulator_suspend,
 	.resume		= regulator_resume,
 };
