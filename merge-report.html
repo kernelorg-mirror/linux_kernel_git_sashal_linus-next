@@ -1,0 +1,3054 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>linux-next Merge Run Report</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+       line-height: 1.6; color: #333; max-width: 1400px; margin: 0 auto; padding: 20px; }
+h1 { margin-bottom: 10px; }
+h2 { margin: 30px 0 15px; border-bottom: 2px solid #ddd; padding-bottom: 8px; }
+h3 { margin: 20px 0 10px; }
+.timestamp { color: #666; margin-bottom: 5px; }
+.time-range { color: #888; font-size: 0.9em; margin-bottom: 20px; }
+.summary { display: flex; gap: 15px; flex-wrap: wrap; margin: 20px 0; }
+.stat { background: #f5f5f5; border-radius: 8px; padding: 15px 20px; min-width: 120px; }
+.stat .number { font-size: 2em; font-weight: bold; }
+.stat .label { color: #666; font-size: 0.9em; }
+.stat.conflict .number { color: #9a6700; }
+.stat.rerere .number { color: #0969da; }
+.stat.build-fix .number { color: #cf222e; }
+table { width: 100%; border-collapse: collapse; margin: 15px 0; }
+th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #eee; }
+th { background: #f5f5f5; font-weight: 600; }
+tr:hover { background: #f9f9f9; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.85em;
+          font-weight: 500; }
+.badge.conflict { background: #fff8c5; color: #9a6700; }
+.badge.build-fix { background: #ffebe9; color: #cf222e; }
+.badge.rerere { background: #ddf4ff; color: #0969da; }
+.badge.next-differ { background: #fff8c5; color: #9a6700; }
+.stat.next-differ .number { color: #9a6700; }
+details { margin: 5px 0; }
+summary { cursor: pointer; padding: 5px; font-weight: 500; }
+summary:hover { background: #f5f5f5; }
+.diff { background: #1e1e1e; color: #d4d4d4; padding: 15px; border-radius: 6px;
+         overflow-x: auto; font-family: 'SFMono-Regular', Consolas, monospace;
+         font-size: 0.85em; white-space: pre; margin: 10px 0; max-height: 600px;
+         overflow-y: auto; }
+.diff .add { color: #3fb950; }
+.diff .del { color: #f85149; }
+.diff .hdr { color: #79c0ff; }
+.diff .ctx { color: #8b949e; }
+nav { position: sticky; top: 0; background: white; padding: 10px 0; border-bottom: 1px solid #ddd;
+       margin-bottom: 20px; z-index: 100; }
+nav a { margin-right: 20px; text-decoration: none; color: #0969da; }
+nav a:hover { text-decoration: underline; }
+.controls { display: flex; gap: 15px; align-items: center; margin: 10px 0; }
+.controls select { padding: 5px 10px; border: 1px solid #ccc; border-radius: 4px; }
+.controls button { padding: 5px 12px; border: 1px solid #ccc; border-radius: 4px;
+                    background: #f5f5f5; cursor: pointer; }
+.controls button:hover { background: #e5e5e5; }
+.empty-state { text-align: center; padding: 60px 20px; color: #666; }
+.empty-state .icon { font-size: 3em; color: #2ea043; }
+.empty-state p { font-size: 1.1em; margin-top: 10px; }
+.category-count { background: #f5f5f5; border-radius: 12px; padding: 2px 10px;
+                   font-size: 0.85em; color: #666; display: inline-block; margin-left: 8px; }
+</style>
+</head>
+<body>
+<h1>linux-next Merge Run Report</h1>
+<p class="timestamp">Generated: 2026-11-09 03:04 UTC</p>
+<p class="time-range">Run window: 2026-11-09 00:36 UTC &mdash; 2026-11-09 02:57 UTC</p>
+
+<nav>
+    <a href="#summary">Summary</a>
+    <a href="#interventions">All Interventions</a>
+    <a href="#by-category">By Category</a>
+</nav>
+
+<h2 id="summary">Summary</h2>
+<div class="summary">
+    <div class="stat"><div class="number">24</div><div class="label">Total Interventions</div></div>
+    <div class="stat conflict"><div class="number">12</div><div class="label">Conflicts</div></div>
+    <div class="stat rerere"><div class="number">12</div><div class="label">Rerere</div></div>
+    <div class="stat build-fix"><div class="number">0</div><div class="label">Build Fixes</div></div>
+    <div class="stat next-differ"><div class="number">0</div><div class="label">Differ from linux-next</div></div>
+    <div class="stat"><div class="number">20</div><div class="label">Trees Affected</div></div>
+    <div class="stat"><div class="number">17</div><div class="label">Categories</div></div>
+</div>
+
+<h2 id="interventions">All Interventions</h2>
+<div class="controls">
+    <label>Filter: <select id="type-filter" onchange="filterByType(this.value)">
+        <option value="all">All types</option>
+        <option value="conflict">Conflicts</option>
+        <option value="rerere">Rerere</option>
+        <option value="build-fix">Build Fixes</option>
+    </select></label>
+    <button onclick="toggleAll()">Expand / Collapse All</button>
+</div>
+<table id="main-table">
+<thead>
+<tr><th>Tree</th><th>Category</th><th>Type</th><th>Files</th><th>Time</th><th>Details</th></tr>
+</thead>
+<tbody>
+<tr data-type="rerere" data-category="arch">
+<td><code>arm-soc</code></td>
+<td>arch</td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>-</code></td>
+<td>00:36 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">8b09a287b6d54b850926a0cbcc9645cefc56c064
+</div>
+</details></td>
+</tr>
+<tr data-type="conflict" data-category="bus">
+<td><code>spi</code></td>
+<td>bus</td>
+<td><span class="badge conflict">conflict</span></td>
+<td><code>MAINTAINERS, drivers/spi/spi-amlogic-spisg.c, drivers/spi/spi-fsl-dspi.c (+9 more)</code></td>
+<td>00:49 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">a8e7cb39d558db2b5847b471f6adc0953b96c6c4
+<span class="hdr">diff --cc drivers/spi/spi-amlogic-spisg.c</span>
+<span class="ctx">index c59df9b115eed,33c5cbf57cb87..f2ae1388d75fd</span>
+<span class="hdr">--- a/drivers/spi/spi-amlogic-spisg.c</span>
+<span class="hdr">+++ b/drivers/spi/spi-amlogic-spisg.c</span>
+<span class="ctx">@@@ -706,9 -707,7 +707,7 @@@ static int aml_spisg_clk_init(struct sp</span>
+  
+  	clk_set_min_rate(spisg-&gt;pclk, SPISG_PCLK_RATE_MIN);
+  
+<span class="del">- 	clk_disable_unprepare(spisg-&gt;pclk);</span>
+<span class="del">- </span>
+ -	tbl = devm_kcalloc(dev, (DIV_NUM + 1), sizeof(*tbl), GFP_KERNEL);
+ +	tbl = devm_kzalloc_objs(dev, *tbl, (DIV_NUM + 1));
+  	if (!tbl)
+  		return -ENOMEM;
+  
+</div>
+</details></td>
+</tr>
+<tr data-type="conflict" data-category="bpf">
+<td><code>bpf-next</code></td>
+<td>bpf</td>
+<td><span class="badge conflict">conflict</span></td>
+<td><code>include/linux/netdevice.h, kernel/bpf/btf.c, kernel/bpf/core.c (+4 more)</code></td>
+<td>00:52 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">78602613c42bb9113ceb09a15b664c3abbb16106
+<span class="hdr">diff --cc kernel/bpf/scev.c</span>
+<span class="ctx">index db123ef1f0718,4187ce955be99..133dc58d34ae8</span>
+<span class="hdr">--- a/kernel/bpf/scev.c</span>
+<span class="hdr">+++ b/kernel/bpf/scev.c</span>
+<span class="ctx">@@@ -1730,11 -1957,10 +1957,11 @@@ int bpf_init_scev(struct bpf_verifier_e</span>
+  		return -ENOMEM;
+  	env-&gt;scev = scev;
+  	bpf_mark_reg_known_scalar(&amp;scev-&gt;zero_reg, 0);
+<span class="del">- 	bpf_mark_reg_unknown_imprecise(&amp;scev-&gt;unknown_reg);</span>
+<span class="add">+ 	bpf_mark_reg_unknown(&amp;scev-&gt;unknown_reg);</span>
+  	/* A power of two for hash &amp; (exprs_ht_cnt - 1)` indexing. */
+  	scev-&gt;exprs_ht_cnt = roundup_pow_of_two(max(256U, DIV_ROUND_UP(env-&gt;prog-&gt;len, 4)));
+ -	scev-&gt;exprs_ht = kvcalloc(scev-&gt;exprs_ht_cnt, sizeof(*scev-&gt;exprs_ht), GFP_KERNEL_ACCOUNT);
+ +	scev-&gt;exprs_ht = kvzalloc_objs(*scev-&gt;exprs_ht, scev-&gt;exprs_ht_cnt,
+ +				       GFP_KERNEL_ACCOUNT);
+  	if (!scev-&gt;exprs_ht)
+  		goto nomem;
+  	if (expr0(scev, UNKNOWN) &lt; 0 || expr0(scev, OPAQUE)  &lt; 0)
+</div>
+</details></td>
+</tr>
+<tr data-type="rerere" data-category="core">
+<td><code>kapi</code></td>
+<td>core</td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>.gitignore, MAINTAINERS, Makefile (+10 more)</code></td>
+<td>00:53 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">f16dc30f1f2f1322070a7bd484ab7952071d5178
+<span class="hdr">diff --cc Makefile</span>
+<span class="ctx">index 7d8c4667e79f2,fd7917f78fa45..5a94f66da978b</span>
+<span class="hdr">--- a/Makefile</span>
+<span class="hdr">+++ b/Makefile</span>
+<span class="ctx">@@@ -2266,7 -2251,7 +2266,8 @@@ clean: $(clean-dirs</span>
+  		-o -name &#x27;*.ll&#x27; \
+  		-o -name &#x27;*.gcno&#x27; \
+  		-o -name &#x27;*.long-type-*.txt&#x27; \
+ +		-o -name &#x27;*.header-check&#x27; \
+<span class="add">+ 		-o -name &#x27;*.apispec.h&#x27; \</span>
+  		\) -type f -print \
+  		-o -name &#x27;.tmp_*&#x27; -print \
+  		| xargs rm -rf
+<span class="hdr">diff --cc fs/open.c</span>
+<span class="ctx">index bb484b07390ac,9f08c438f162a..f86d8955bdded</span>
+<span class="hdr">--- a/fs/open.c</span>
+<span class="hdr">+++ b/fs/open.c</span>
+<span class="ctx">@@@ -1563,19 -1861,239 +1887,252 @@@ int filp_close(struct file *filp, fl_ow</span>
+  }
+  EXPORT_SYMBOL(filp_close);
+  
+ +/* Like filp_close() but the last reference is put right here. */
+ +int filp_close_sync(struct file *filp, fl_owner_t id)
+ +{
+ +	int retval;
+ +
+ +	/* Kernel threads must never put their final reference here. */
+ +	VFS_WARN_ON_ONCE(current-&gt;flags &amp; PF_KTHREAD);
+ +	retval = filp_flush(filp, id);
+ +	fput_close_sync(filp);
+ +
+ +	return retval;
+ +}
+ +
+<span class="add">+ /**</span>
+<span class="add">+  * sys_close - Close a file descriptor</span>
+<span class="add">+  * @fd: The file descriptor to close</span>
+<span class="add">+  *</span>
+<span class="add">+  * long-desc: Terminates access to an open file descriptor, releasing the file</span>
+<span class="add">+  *   descriptor for reuse by subsequent open(), dup(), or similar syscalls.</span>
+<span class="add">+  *</span>
+<span class="add">+  *   Traditional POSIX advisory record locks held by the process on the</span>
+<span class="add">+  *   associated file are released when any of its fds for that inode is</span>
+<span class="add">+  *   closed, not only the last one. OFD locks and flock locks are associated</span>
+<span class="add">+  *   with the open file description and are only released when the last</span>
+<span class="add">+  *   reference to that open file description is dropped.</span>
+<span class="add">+  *</span>
+<span class="add">+  *   Closing a file descriptor drops one reference to its open file</span>
+<span class="add">+  *   description. Other descriptors (dup(), fork(), SCM_RIGHTS messages in</span>
+<span class="add">+  *   flight) and operations still running on the file, such as a concurrent</span>
+<span class="add">+  *   read(), also hold references. Only when the last reference is dropped are</span>
+<span class="add">+  *   the associated resources freed. If the file was previously unlinked, the</span>
+<span class="add">+  *   file itself is deleted when the last reference is dropped.</span>
+<span class="add">+  *</span>
+<span class="add">+  *   Except when close() fails with EBADF, the file descriptor is released even</span>
+<span class="add">+  *   when close() returns an error, because it is released before the flush</span>
+<span class="add">+  *   that may fail. POSIX leaves the state of the descriptor unspecified after</span>
+<span class="add">+  *   EINTR. Retrying close() after an error may close an unrelated file</span>
+<span class="add">+  *   descriptor that another thread has since been given.</span>
+<span class="add">+  *</span>
+<span class="add">+  *   Errors returned from close() come only from the file&#x27;s -&gt;flush() method,</span>
+<span class="add">+  *   called by filp_flush(). Errors from -&gt;release() are not reported.</span>
+<span class="add">+  *   Filesystems without a -&gt;flush() method, such as ext4, xfs and btrfs, never</span>
+<span class="add">+  *   report write errors from close(). Network filesystems such as NFS, CIFS and</span>
+<span class="add">+  *   FUSE implement -&gt;flush() and report deferred write errors (EIO, ENOSPC,</span>
+<span class="add">+  *   EDQUOT) at close time. A successful return does not mean the data reached</span>
+<span class="add">+  *   storage; call fsync() before close() for that.</span>
+<span class="add">+  *</span>
+<span class="add">+  *   On close, the following cleanup operations are performed: the -&gt;flush()</span>
+<span class="add">+  *   method is called if the file has one, POSIX advisory locks are removed,</span>
+<span class="add">+  *   dnotify registrations are cleaned up, and the file reference is released.</span>
+<span class="add">+  *   If this was the last reference, additional cleanup includes: fsnotify close</span>
+<span class="add">+  *   notification, epoll cleanup, OFD, flock and lease removal, FASYNC cleanup,</span>
+<span class="add">+  *   the -&gt;release() method, and the file structure deallocation.</span>
+<span class="add">+  *</span>
+<span class="add">+  * contexts: process, sleepable</span>
+<span class="add">+  *</span>
+<span class="add">+  * param: fd</span>
+<span class="add">+  *   type: fd, input</span>
+<span class="add">+  *   constraint-type: range(0, INT_MAX)</span>
+<span class="add">+  *   cdesc: Must be a valid, open file descriptor for the current process.</span>
+<span class="add">+  *     The value 0, 1, or 2 (stdin, stdout, stderr) may be closed like any other</span>
+<span class="add">+  *     fd, though this is unusual and may cause issues with libraries that assume</span>
+<span class="add">+  *     these descriptors are valid. The parameter is unsigned int to match kernel</span>
+<span class="add">+  *     file descriptor table indexing. A value that is not open, including any</span>
+<span class="add">+  *     value at or above the current table size, fails with EBADF.</span>
+<span class="add">+  *</span>
+<span class="add">+  * return:</span>
+<span class="add">+  *   type: int</span>
+<span class="add">+  *   check-type: exact</span>
+<span class="add">+  *   success: 0</span>
+<span class="add">+  *   desc: Returns 0 on success. On error, returns a negative error code. Except</span>
+<span class="add">+  *     for EBADF, the file descriptor is still closed when an error is returned</span>
+<span class="add">+  *     and must not be used again. The error comes from the file&#x27;s -&gt;flush()</span>
+<span class="add">+  *     method, not from the fd remaining open. With EBADF, nothing was released.</span>
+<span class="add">+  *</span>
+<span class="add">+  * error: EBADF, Bad file descriptor</span>
+<span class="add">+  *   desc: fd is at or above the file descriptor table size, has no file</span>
+<span class="add">+  *     assigned (including a slot reserved by a concurrent open() that has not</span>
+<span class="add">+  *     installed its file yet), or was already closed. This is the only error</span>
+<span class="add">+  *     for which no file descriptor was released.</span>
+<span class="add">+  *</span>
+<span class="add">+  * error: EINTR, Interrupted system call</span>
+<span class="add">+  *   desc: The flush operation was interrupted by a signal before completion.</span>
+<span class="add">+  *     This occurs when a driver&#x27;s -&gt;flush() method (for example wdm_flush() in</span>
+<span class="add">+  *     drivers/usb/class/cdc-wdm.c) performs an interruptible wait that receives</span>
+<span class="add">+  *     a signal. The file descriptor is still released and must not be used</span>
+<span class="add">+  *     again. Kernel-internal restart codes (ERESTARTSYS,</span>
+<span class="add">+  *     ERESTARTNOINTR, ERESTARTNOHAND, ERESTART_RESTARTBLOCK) are converted to</span>
+<span class="add">+  *     EINTR because restarting the syscall would be incorrect once the fd is</span>
+<span class="add">+  *     freed.</span>
+<span class="add">+  *</span>
+<span class="add">+  * error: EIO, I/O error</span>
+<span class="add">+  *   desc: The file&#x27;s -&gt;flush() method reported an I/O error, typically a</span>
+<span class="add">+  *     deferred write error on a network filesystem such as NFS, CIFS or FUSE,</span>
+<span class="add">+  *     or an error from a driver&#x27;s -&gt;flush(). Previously buffered write data</span>
+<span class="add">+  *     may have been lost.</span>
+<span class="add">+  *</span>
+<span class="add">+  * error: ENOSPC, No space left on device</span>
+<span class="add">+  *   desc: The file&#x27;s -&gt;flush() method reported that there was insufficient</span>
+<span class="add">+  *     space to flush buffered writes, for example on NFS when the server runs</span>
+<span class="add">+  *     out of space between write() and close().</span>
+<span class="add">+  *</span>
+<span class="add">+  * error: EDQUOT, Disk quota exceeded</span>
+<span class="add">+  *   desc: The file&#x27;s -&gt;flush() method reported that the user&#x27;s disk quota was</span>
+<span class="add">+  *     exceeded while flushing buffered writes, for example on NFS when the</span>
+<span class="add">+  *     quota is exceeded between write() and close().</span>
+<span class="add">+  *</span>
+<span class="add">+  * lock: files-&gt;file_lock</span>
+<span class="add">+  *   type: spinlock</span>
+<span class="add">+  *   acquired: true</span>
+<span class="add">+  *   released: true</span>
+<span class="add">+  *   desc: Taken by file_close_fd() to look up and clear the fd slot atomically,</span>
+<span class="add">+  *     so two concurrent close() calls on one fd cannot both obtain the struct</span>
+<span class="add">+  *     file. Dropped before -&gt;flush() and the final fput. From then on the fd</span>
+<span class="add">+  *     number may be handed out again. An fd reserved by a concurrent open() but</span>
+<span class="add">+  *     not yet installed has a NULL slot, so close() returns EBADF.</span>
+<span class="add">+  *</span>
+<span class="add">+  * lock: file-&gt;f_lock</span>
+<span class="add">+  *   type: spinlock</span>
+<span class="add">+  *   acquired: true</span>
+<span class="add">+  *   released: true</span>
+<span class="add">+  *   desc: Taken from __fput() on the last reference, by eventpoll_release_file()</span>
+<span class="add">+  *     when the file is registered with epoll, and by fasync_remove_entry()</span>
+<span class="add">+  *     (through the -&gt;fasync() method) when FASYNC is set. Protects the epoll</span>
+<span class="add">+  *     and fasync links of the file.</span>
+<span class="add">+  *</span>
+<span class="add">+  * lock: ep-&gt;mtx</span>
+<span class="add">+  *   type: mutex</span>
+<span class="add">+  *   acquired: true</span>
+<span class="add">+  *   released: true</span>
+<span class="add">+  *   desc: Acquired during epoll cleanup if the file was monitored by epoll.</span>
+<span class="add">+  *     Used to safely remove the file from epoll interest lists.</span>
+<span class="add">+  *</span>
+<span class="add">+  * lock: flc_lock</span>
+<span class="add">+  *   type: spinlock</span>
+<span class="add">+  *   acquired: true</span>
+<span class="add">+  *   released: true</span>
+<span class="add">+  *   desc: File lock context spinlock. Taken by locks_remove_posix() from</span>
+<span class="add">+  *     filp_flush() on every close when the file has POSIX locks, and by</span>
+<span class="add">+  *     locks_remove_file() from __fput() on the last reference to remove OFD,</span>
+<span class="add">+  *     flock, and lease locks.</span>
+<span class="add">+  *</span>
+<span class="add">+  * signal: pending_signals</span>
+<span class="add">+  *   direction: receive</span>
+<span class="add">+  *   action: return</span>
+<span class="add">+  *   condition: When close-time flush performs interruptible wait</span>
+<span class="add">+  *   desc: If the close-time -&gt;flush() method (for example wdm_flush() in</span>
+<span class="add">+  *     cdc-wdm) performs an interruptible wait and a signal is pending, the wait</span>
+<span class="add">+  *     is interrupted. Any kernel restart codes are converted to EINTR since</span>
+<span class="add">+  *     close cannot be restarted after the fd is freed.</span>
+<span class="add">+  *   errno: -EINTR</span>
+<span class="add">+  *   timing: during</span>
+<span class="add">+  *   restartable: no</span>
+<span class="add">+  *</span>
+<span class="add">+  * side-effect: resource_destroy | irreversible</span>
+<span class="add">+  *   target: File descriptor table entry</span>
+<span class="add">+  *   desc: The file descriptor is removed from the process&#x27;s file descriptor</span>
+<span class="add">+  *     table, making the fd number available for reuse by subsequent open(),</span>
+<span class="add">+  *     dup(), or similar calls. This happens before the flush that may fail, so</span>
+<span class="add">+  *     an error return does not undo it.</span>
+<span class="add">+  *   condition: Always (when fd is valid)</span>
+<span class="add">+  *   reversible: no</span>
+<span class="add">+  *</span>
+<span class="add">+  * side-effect: lock_release</span>
+<span class="add">+  *   target: POSIX advisory locks, OFD locks, flock locks</span>
+<span class="add">+  *   desc: POSIX locks held by this process on the inode are removed on every</span>
+<span class="add">+  *     close via locks_remove_posix() in filp_flush(), except for O_PATH files.</span>
+<span class="add">+  *     OFD and flock locks are removed via locks_remove_file() in __fput() only</span>
+<span class="add">+  *     when this is the last reference to the open file description.</span>
+<span class="add">+  *   condition: Any close of a non-O_PATH file for POSIX locks, last reference</span>
+<span class="add">+  *     for OFD and flock locks</span>
+<span class="add">+  *   reversible: no</span>
+<span class="add">+  *</span>
+<span class="add">+  * side-effect: resource_destroy</span>
+<span class="add">+  *   target: File leases</span>
+<span class="add">+  *   desc: Any file leases held on the file are removed during locks_remove_file()</span>
+<span class="add">+  *     when this is the last reference to the open file description.</span>
+<span class="add">+  *   condition: File had leases and this is the last reference</span>
+<span class="add">+  *   reversible: no</span>
+<span class="add">+  *</span>
+<span class="add">+  * side-effect: modify_state</span>
+<span class="add">+  *   target: dnotify registrations</span>
+<span class="add">+  *   desc: Directory notification (dnotify) registrations associated with this</span>
+<span class="add">+  *     file are cleaned up via dnotify_flush(). This only applies to directories.</span>
+<span class="add">+  *   condition: File is a directory with dnotify registrations</span>
+<span class="add">+  *   reversible: no</span>
+<span class="add">+  *</span>
+<span class="add">+  * side-effect: modify_state</span>
+<span class="add">+  *   target: epoll interest lists</span>
+<span class="add">+  *   desc: If the file was being monitored by epoll instances, it is removed</span>
+<span class="add">+  *     from those interest lists via eventpoll_release(), which runs from</span>
+<span class="add">+  *     __fput() only on the last reference. While other references remain, the</span>
+<span class="add">+  *     epoll registrations stay active.</span>
+<span class="add">+  *   condition: File was added to epoll instances and this is the last reference</span>
+<span class="add">+  *   reversible: no</span>
+<span class="add">+  *</span>
+<span class="add">+  * side-effect: filesystem</span>
+<span class="add">+  *   target: Buffered data</span>
+<span class="add">+  *   desc: The file&#x27;s -&gt;flush() method runs before the file reference is</span>
+<span class="add">+  *     dropped (for example on NFS, CIFS and FUSE) and may return errors such as</span>
+<span class="add">+  *     EIO, ENOSPC or EDQUOT.</span>
+<span class="add">+  *   condition: The filesystem or driver provides a -&gt;flush() method</span>
+<span class="add">+  *   reversible: no</span>
+<span class="add">+  *</span>
+<span class="add">+  * side-effect: free_memory</span>
+<span class="add">+  *   target: struct file and related structures</span>
+<span class="add">+  *   desc: When this is the last reference to the file, the file structure is</span>
+<span class="add">+  *     freed and the dentry and mount references are released.</span>
+<span class="add">+  *   condition: This is the last reference to the file</span>
+<span class="add">+  *   reversible: no</span>
+<span class="add">+  *</span>
+<span class="add">+  * side-effect: filesystem</span>
+<span class="add">+  *   target: Unlinked file deletion</span>
+<span class="add">+  *   desc: If the file was previously unlinked (deleted) but kept open, closing</span>
+<span class="add">+  *     the last reference causes the actual file data to be removed from the</span>
+<span class="add">+  *     filesystem and the inode to be freed.</span>
+<span class="add">+  *   condition: File was unlinked and this is the last reference</span>
+<span class="add">+  *   reversible: no</span>
+<span class="add">+  *</span>
+<span class="add">+  * state-trans: file_descriptor</span>
+<span class="add">+  *   from: open</span>
+<span class="add">+  *   to: closed/free</span>
+<span class="add">+  *   condition: Valid fd passed to close</span>
+<span class="add">+  *   desc: The file descriptor transitions from open (usable) to closed (invalid).</span>
+<span class="add">+  *     The fd number becomes available for reuse.</span>
+<span class="add">+  *</span>
+<span class="add">+  * state-trans: file_reference_count</span>
+<span class="add">+  *   from: n</span>
+<span class="add">+  *   to: n-1 (or freed if n was 1)</span>
+<span class="add">+  *   condition: Always on successful fd lookup</span>
+<span class="add">+  *   desc: The file&#x27;s reference count is decremented. If this was the last</span>
+<span class="add">+  *     reference, the file is fully cleaned up and freed.</span>
+<span class="add">+  *</span>
+<span class="add">+  * examples: close(fd);  // Ignoring the result loses -&gt;flush() errors</span>
+<span class="add">+  *   if (close(fd) == -1) perror(&quot;close&quot;);  // Log errors for debugging</span>
+<span class="add">+  *   fsync(fd); close(fd);  // Ensure data persistence before closing</span>
+<span class="add">+  *</span>
+<span class="add">+  * notes: close() drops its reference with fput_close_sync(), so when it is the last</span>
+<span class="add">+  *   reference __fput() runs synchronously in the calling task before close()</span>
+<span class="add">+  *   returns, instead of being deferred to task work.</span>
+<span class="add">+  *</span>
+<span class="add">+  *   Calling close() on a file descriptor while another thread is using it</span>
+<span class="add">+  *   (e.g., in a blocking read() or write()) does not interrupt the blocked</span>
+<span class="add">+  *   operation. The blocked operation continues on the underlying file and</span>
+<span class="add">+  *   may complete even after close() returns.</span>
+<span class="add">+  */</span>
+  /*
+   * Careful here! We test whether the file pointer is NULL before
+   * releasing the fd. This ensures that one clone task can&#x27;t release
+<span class="hdr">diff --cc include/linux/syscalls.h</span>
+<span class="ctx">index 552d9710a0d57,b062bac9ea1ed..ce707e3e05cd0</span>
+<span class="hdr">--- a/include/linux/syscalls.h</span>
+<span class="hdr">+++ b/include/linux/syscalls.h</span>
+<span class="ctx">@@@ -92,9 -92,12 +92,13 @@@ struct file_attr</span>
+  #include &lt;linux/quota.h&gt;
+  #include &lt;linux/key.h&gt;
+  #include &lt;linux/personality.h&gt;
+ +#include &lt;linux/error-injection.h&gt;
+  #include &lt;trace/syscall.h&gt;
+  
+<span class="add">+ #ifdef CONFIG_KAPI_RUNTIME_CHECKS</span>
+<span class="add">+ #include &lt;linux/kapi_syscall.h&gt;</span>
+<span class="add">+ #endif</span>
+<span class="add">+ </span>
+  #ifdef CONFIG_ARCH_HAS_SYSCALL_WRAPPER
+  /*
+   * It may be useful for an architecture to override the definitions of the
+</div>
+</details></td>
+</tr>
+<tr data-type="conflict" data-category="clock">
+<td><code>clk</code></td>
+<td>clock</td>
+<td><span class="badge conflict">conflict</span></td>
+<td><code>drivers/clk/bcm/clk-bcm2835.c, drivers/clk/clk-tps68470.c, drivers/clk/stm32/clk-stm32mp1.c (+1 more)</code></td>
+<td>01:00 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">c3b27ab0c2f23a5153418cd6aaa1ca81a19a2e63
+</div>
+</details></td>
+</tr>
+<tr data-type="rerere" data-category="fixes">
+<td><code>iwlwifi</code></td>
+<td>fixes</td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>drivers/net/wireless/intel/iwlwifi/iwl-nvm-parse.c, drivers/net/wireless/intel/iwlwifi/iwl-trans.c, drivers/net/wireless/intel/iwlwifi/mvm/debugfs.c (+2 more)</code></td>
+<td>01:11 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">0a6e98836e7daaa67c696737aa1d86c128d9a920
+</div>
+</details></td>
+</tr>
+<tr data-type="conflict" data-category="gpio">
+<td><code>gpio-brgl</code></td>
+<td>gpio</td>
+<td><span class="badge conflict">conflict</span></td>
+<td><code>MAINTAINERS, drivers/gpio/gpio-74x164.c, drivers/gpio/gpio-adnp.c (+111 more)</code></td>
+<td>01:20 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">97cb95d49256d6da0d59199e542750b09a22217c
+<span class="hdr">diff --cc drivers/gpio/gpio-mpc8xxx.c</span>
+<span class="ctx">index 312250deb763c,fb280d87c578a..54ac69f96628e</span>
+<span class="hdr">--- a/drivers/gpio/gpio-mpc8xxx.c</span>
+<span class="hdr">+++ b/drivers/gpio/gpio-mpc8xxx.c</span>
+<span class="ctx">@@@ -306,27 -306,20 +306,28 @@@ static const struct mpc8xxx_gpio_devtyp</span>
+  };
+  
+  static const struct of_device_id mpc8xxx_gpio_ids[] = {
+<span class="del">- 	{ .compatible = &quot;fsl,mpc8314-gpio&quot;, },</span>
+<span class="del">- 	{ .compatible = &quot;fsl,mpc8349-gpio&quot;, },</span>
+<span class="del">- 	{ .compatible = &quot;fsl,mpc8572-gpio&quot;, .data = &amp;mpc8572_gpio_devtype, },</span>
+<span class="del">- 	{ .compatible = &quot;fsl,mpc8610-gpio&quot;, },</span>
+<span class="del">- 	{ .compatible = &quot;fsl,mpc5121-gpio&quot;, .data = &amp;mpc512x_gpio_devtype, },</span>
+<span class="del">- 	{ .compatible = &quot;fsl,mpc5125-gpio&quot;, .data = &amp;mpc5125_gpio_devtype, },</span>
+<span class="del">- 	{ .compatible = &quot;fsl,pq3-gpio&quot;,     },</span>
+<span class="del">- 	{ .compatible = &quot;fsl,ls1028a-gpio&quot;, },</span>
+<span class="del">- 	{ .compatible = &quot;fsl,ls1088a-gpio&quot;, },</span>
+<span class="del">- 	{ .compatible = &quot;fsl,qoriq-gpio&quot;,   },</span>
+<span class="del">- 	{}</span>
+<span class="add">+ 	{ .compatible = &quot;fsl,mpc8314-gpio&quot; },</span>
+<span class="add">+ 	{ .compatible = &quot;fsl,mpc8349-gpio&quot; },</span>
+<span class="add">+ 	{ .compatible = &quot;fsl,mpc8572-gpio&quot;, .data = &amp;mpc8572_gpio_devtype },</span>
+<span class="add">+ 	{ .compatible = &quot;fsl,mpc8610-gpio&quot; },</span>
+<span class="add">+ 	{ .compatible = &quot;fsl,mpc5121-gpio&quot;, .data = &amp;mpc512x_gpio_devtype },</span>
+<span class="add">+ 	{ .compatible = &quot;fsl,mpc5125-gpio&quot;, .data = &amp;mpc5125_gpio_devtype },</span>
+<span class="add">+ 	{ .compatible = &quot;fsl,pq3-gpio&quot; },</span>
+<span class="add">+ 	{ .compatible = &quot;fsl,ls1028a-gpio&quot; },</span>
+<span class="add">+ 	{ .compatible = &quot;fsl,ls1088a-gpio&quot; },</span>
+<span class="add">+ 	{ .compatible = &quot;fsl,qoriq-gpio&quot; },</span>
+<span class="add">+ 	{ }</span>
+  };
+<span class="add">+ MODULE_DEVICE_TABLE(of, mpc8xxx_gpio_ids);</span>
+  
+ +static void mpc8xxx_irq_domain_remove(void *data)
+ +{
+ +	struct mpc8xxx_gpio_chip *mpc8xxx_gc = data;
+ +
+ +	if (mpc8xxx_gc-&gt;irq)
+ +		irq_domain_remove(mpc8xxx_gc-&gt;irq);
+ +}
+ +
+  static int mpc8xxx_probe(struct platform_device *pdev)
+  {
+  	const struct mpc8xxx_gpio_devtype *devtype = NULL;
+<span class="hdr">diff --cc drivers/gpio/gpio-mxc.c</span>
+<span class="ctx">index 7dabe8073dc65,1fdbbc9617aa9..978aa5bca6c59</span>
+<span class="hdr">--- a/drivers/gpio/gpio-mxc.c</span>
+<span class="hdr">+++ b/drivers/gpio/gpio-mxc.c</span>
+<span class="ctx">@@@ -425,7 -479,7 +479,7 @@@ static int mxc_gpio_probe(struct platfo</span>
+  	int irq_base;
+  	int err;
+  
+<span class="del">- 	port = devm_kzalloc_obj(&amp;pdev-&gt;dev, *port);</span>
+ -	port = devm_kzalloc(dev, sizeof(*port), GFP_KERNEL);
+<span class="add">++	port = devm_kzalloc_obj(dev, *port);</span>
+  	if (!port)
+  		return -ENOMEM;
+  
+<span class="hdr">diff --cc drivers/gpio/gpio-sim.c</span>
+<span class="ctx">index ce205e88c0aba,898638e2794cb..01ef8e2df22c7</span>
+<span class="hdr">--- a/drivers/gpio/gpio-sim.c</span>
+<span class="hdr">+++ b/drivers/gpio/gpio-sim.c</span>
+<span class="ctx">@@@ -361,11 -361,11 +361,11 @@@ static int gpio_sim_setup_sysfs(struct </span>
+  	unsigned int num_lines = chip-&gt;gc.ngpio;
+  	struct device *dev = chip-&gt;gc.parent;
+  	struct attribute_group *attr_group;
+<span class="del">- 	struct attribute **attrs;</span>
+<span class="add">+ 	const struct attribute **attrs;</span>
+  	int i, ret;
+  
+ -	chip-&gt;attr_groups = devm_kcalloc(dev, sizeof(*chip-&gt;attr_groups),
+ -					 num_lines + 1, GFP_KERNEL);
+ +	chip-&gt;attr_groups = devm_kzalloc_objs(dev, *chip-&gt;attr_groups,
+ +					      num_lines + 1);
+  	if (!chip-&gt;attr_groups)
+  		return -ENOMEM;
+  
+</div>
+</details></td>
+</tr>
+<tr data-type="conflict" data-category="graphics">
+<td><code>amdgpu</code></td>
+<td>graphics</td>
+<td><span class="badge conflict">conflict</span></td>
+<td><code>drivers/gpu/drm/amd/amdgpu/amdgpu_debugfs.c, drivers/gpu/drm/amd/amdgpu/amdgpu_gem.c, drivers/gpu/drm/amd/amdgpu/amdgpu_kms.c (+16 more)</code></td>
+<td>01:21 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">0161b55c2b795c7c08962744b75060f25abf26a3
+<span class="hdr">diff --cc drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_freesync.c</span>
+<span class="ctx">index 0be4506e9ae5b,40f1dd8af21c3..1965dda63bd28</span>
+<span class="hdr">--- a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_freesync.c</span>
+<span class="hdr">+++ b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_freesync.c</span>
+<span class="ctx">@@@ -127,18 -152,32 +152,40 @@@ void amdgpu_dm_get_freesync_config_for_</span>
+  
+  	aconnector = to_amdgpu_dm_connector(new_con_state-&gt;base.connector);
+  
+<span class="add">+ 	vrr_timing_valid = amdgpu_dm_is_vrr_timing_valid(new_crtc_state-&gt;stream,</span>
+<span class="add">+ 							 aconnector-&gt;min_vfreq,</span>
+<span class="add">+ 							 aconnector-&gt;max_vfreq);</span>
+<span class="add">+ 	if (!vrr_timing_valid)</span>
+<span class="add">+ 		drm_dbg_kms(new_con_state-&gt;base.connector-&gt;dev,</span>
+<span class="add">+ 			    &quot;VRR invalid %s %s %dx%d@%d %d-%d clk=%u h=%u v=%u\n&quot;,</span>
+<span class="add">+ 			    new_con_state-&gt;base.connector-&gt;name, mode-&gt;name,</span>
+<span class="add">+ 			    mode-&gt;hdisplay, mode-&gt;vdisplay, vrefresh,</span>
+<span class="add">+ 			    aconnector-&gt;min_vfreq, aconnector-&gt;max_vfreq,</span>
+<span class="add">+ 			    new_crtc_state-&gt;stream-&gt;timing.pix_clk_100hz,</span>
+<span class="add">+ 			    new_crtc_state-&gt;stream-&gt;timing.h_total,</span>
+<span class="add">+ 			    new_crtc_state-&gt;stream-&gt;timing.v_total);</span>
+<span class="add">+ </span>
+  	new_crtc_state-&gt;vrr_supported = new_con_state-&gt;freesync_capable &amp;&amp;
+  					vrefresh &gt;= aconnector-&gt;min_vfreq &amp;&amp;
+<span class="del">- 					vrefresh &lt;= aconnector-&gt;max_vfreq;</span>
+<span class="add">+ 					vrefresh &lt;= aconnector-&gt;max_vfreq &amp;&amp;</span>
+<span class="add">+ 					vrr_timing_valid;</span>
+<span class="add">+ </span>
+<span class="add">+ 	/*</span>
+<span class="add">+ 	 * DC reads allow_freesync while validating the new state, for example</span>
+<span class="add">+ 	 * to keep SubVP off a single FreeSync display, but it is otherwise set</span>
+<span class="add">+ 	 * only on the first flip after the commit.  Set it here, so that a</span>
+<span class="add">+ 	 * stream created by this commit is not validated without it.</span>
+<span class="add">+ 	 */</span>
+<span class="add">+ 	new_crtc_state-&gt;stream-&gt;allow_freesync = new_crtc_state-&gt;vrr_supported;</span>
+  
+ +	/*
+ +	 * DC reads allow_freesync while validating the new state, for example
+ +	 * to keep SubVP off a single FreeSync display, but it is otherwise set
+ +	 * only on the first flip after the commit.  Set it here, so that a
+ +	 * stream created by this commit is not validated without it.
+ +	 */
+ +	new_crtc_state-&gt;stream-&gt;allow_freesync = new_crtc_state-&gt;vrr_supported;
+ +
+  	if (new_crtc_state-&gt;vrr_supported) {
+  		new_crtc_state-&gt;stream-&gt;ignore_msa_timing_param = true;
+  		fs_vid_mode = new_crtc_state-&gt;freesync_config.state == VRR_STATE_ACTIVE_FIXED;
+<span class="hdr">diff --cc drivers/gpu/drm/amd/display/amdgpu_dm/tests/amdgpu_dm_crtc_test.c</span>
+<span class="ctx">index abdcf8fd808b9,c130d809098ca..c86aaaca911f0</span>
+<span class="hdr">--- a/drivers/gpu/drm/amd/display/amdgpu_dm/tests/amdgpu_dm_crtc_test.c</span>
+<span class="hdr">+++ b/drivers/gpu/drm/amd/display/amdgpu_dm/tests/amdgpu_dm_crtc_test.c</span>
+<span class="ctx">@@@ -1628,8 -1626,8 +1626,8 @@@ static void dm_test_crtc_destroy_cleans</span>
+  	KUNIT_ASSERT_NOT_ERR_OR_NULL(test, plane);
+  
+  	/* amdgpu_dm_crtc_destroy() kfree()s the CRTC, so use a plain alloc. */
+ -	acrtc = kzalloc_obj(*acrtc, GFP_KERNEL);
+ +	acrtc = kzalloc_obj(*acrtc);
+<span class="del">- 	KUNIT_ASSERT_NOT_ERR_OR_NULL(test, acrtc);</span>
+<span class="add">+ 	KUNIT_ASSERT_NOT_NULL(test, acrtc);</span>
+  
+  	ret = drm_crtc_init_with_planes(&amp;adev-&gt;ddev, &amp;acrtc-&gt;base, plane,
+  					NULL, &amp;dm_test_crtc_funcs, NULL);
+<span class="ctx">@@@ -1695,8 -1693,8 +1693,8 @@@ static void dm_test_crtc_reset_state_re</span>
+  	kref_get(&amp;stream-&gt;refcount);
+  
+  	/* reset_state kfree()s the old state, so use a plain (unmanaged) alloc. */
+ -	old = kzalloc_obj(*old, GFP_KERNEL);
+ +	old = kzalloc_obj(*old);
+<span class="del">- 	KUNIT_ASSERT_NOT_ERR_OR_NULL(test, old);</span>
+<span class="add">+ 	KUNIT_ASSERT_NOT_NULL(test, old);</span>
+  	old-&gt;stream = stream;
+  	crtc-&gt;state = &amp;old-&gt;base;
+  
+<span class="hdr">diff --cc drivers/gpu/drm/amd/display/amdgpu_dm/tests/amdgpu_dm_irq_test.c</span>
+<span class="ctx">index 8a0d68fc74d05,8c112bda46c89..1e7f128c65841</span>
+<span class="hdr">--- a/drivers/gpu/drm/amd/display/amdgpu_dm/tests/amdgpu_dm_irq_test.c</span>
+<span class="hdr">+++ b/drivers/gpu/drm/amd/display/amdgpu_dm/tests/amdgpu_dm_irq_test.c</span>
+<span class="ctx">@@@ -2293,8 -2328,8 +2328,8 @@@ dm_test_setup_hpd_rx_offload_work(struc</span>
+  	link-&gt;connector_signal = SIGNAL_TYPE_DISPLAY_PORT;
+  	aconn-&gt;dc_link = link;
+  
+ -	offload_work = kzalloc_obj(*offload_work, GFP_KERNEL);
+ +	offload_work = kzalloc_obj(*offload_work);
+<span class="del">- 	KUNIT_ASSERT_NOT_ERR_OR_NULL(test, offload_work);</span>
+<span class="add">+ 	KUNIT_ASSERT_NOT_NULL(test, offload_work);</span>
+  	offload_work-&gt;offload_wq = offload_wq;
+  	offload_work-&gt;adev = adev;
+  	INIT_WORK(&amp;offload_work-&gt;work, dm_handle_hpd_rx_offload_work);
+<span class="ctx">@@@ -3766,8 -3808,8 +3808,8 @@@ static void dm_test_pflip_high_irq_comp</span>
+  	acrtc-&gt;pflip_status = AMDGPU_FLIP_SUBMITTED;
+  
+  	/* drm_crtc_send_vblank_event() consumes (kfree()s) the event. */
+ -	event = kzalloc_obj(*event, GFP_KERNEL);
+ +	event = kzalloc_obj(*event);
+<span class="del">- 	KUNIT_ASSERT_NOT_ERR_OR_NULL(test, event);</span>
+<span class="add">+ 	KUNIT_ASSERT_NOT_NULL(test, event);</span>
+  	acrtc-&gt;event = event;
+  
+  	/* Balance the handler&#x27;s drm_crtc_vblank_put(). */
+<span class="ctx">@@@ -3842,8 -3884,8 +3884,8 @@@ static void dm_test_pflip_high_irq_vrr_</span>
+  	adev = drm_to_adev(acrtc-&gt;base.dev);
+  
+  	/* drm_crtc_send_vblank_event() consumes (kfree()s) the event. */
+ -	event = kzalloc_obj(*event, GFP_KERNEL);
+ +	event = kzalloc_obj(*event);
+<span class="del">- 	KUNIT_ASSERT_NOT_ERR_OR_NULL(test, event);</span>
+<span class="add">+ 	KUNIT_ASSERT_NOT_NULL(test, event);</span>
+  	acrtc-&gt;event = event;
+  
+  	/* Balance the handler&#x27;s drm_crtc_vblank_put(). */
+<span class="ctx">@@@ -3882,8 -3924,8 +3924,8 @@@ static void dm_test_pflip_high_irq_vrr_</span>
+  	acrtc = dm_test_setup_vrr_pflip_crtc(test, tg);
+  	adev = drm_to_adev(acrtc-&gt;base.dev);
+  
+ -	event = kzalloc_obj(*event, GFP_KERNEL);
+ +	event = kzalloc_obj(*event);
+<span class="del">- 	KUNIT_ASSERT_NOT_ERR_OR_NULL(test, event);</span>
+<span class="add">+ 	KUNIT_ASSERT_NOT_NULL(test, event);</span>
+  	acrtc-&gt;event = event;
+  
+  	params.adev = adev;
+<span class="ctx">@@@ -3943,8 -3985,8 +3985,8 @@@ static void dm_test_vupdate_high_irq_dc</span>
+  	acrtc = dm_test_add_crtc(test, adev);
+  	acrtc-&gt;pflip_status = AMDGPU_FLIP_SUBMITTED;
+  
+ -	event = kzalloc_obj(*event, GFP_KERNEL);
+ +	event = kzalloc_obj(*event);
+<span class="del">- 	KUNIT_ASSERT_NOT_ERR_OR_NULL(test, event);</span>
+<span class="add">+ 	KUNIT_ASSERT_NOT_NULL(test, event);</span>
+  	acrtc-&gt;event = event;
+  
+  	adev-&gt;ddev.vblank[0].time = ktime_get();
+<span class="ctx">@@@ -4217,8 -4259,8 +4259,8 @@@ static void dm_test_crtc_high_irq_write</span>
+  	 * The job carries no framebuffer or fence, so the deferred DRM cleanup
+  	 * work only kfree()s it; it needs nothing from this test.
+  	 */
+ -	job = kzalloc_obj(*job, GFP_KERNEL);
+ +	job = kzalloc_obj(*job);
+<span class="del">- 	KUNIT_ASSERT_NOT_ERR_OR_NULL(test, job);</span>
+<span class="add">+ 	KUNIT_ASSERT_NOT_NULL(test, job);</span>
+  	list_add_tail(&amp;job-&gt;list_entry, &amp;wb_conn-&gt;job_queue);
+  
+  	acrtc-&gt;wb_conn = wb_conn;
+<span class="ctx">@@@ -4309,8 -4351,8 +4351,8 @@@ static void dm_test_handle_hpd_work_nul</span>
+  	struct amdgpu_device *adev;
+  
+  	adev = dm_kunit_alloc_adev(test);
+ -	hpd_work = kzalloc_obj(*hpd_work, GFP_KERNEL);
+ +	hpd_work = kzalloc_obj(*hpd_work);
+<span class="del">- 	KUNIT_ASSERT_NOT_ERR_OR_NULL(test, hpd_work);</span>
+<span class="add">+ 	KUNIT_ASSERT_NOT_NULL(test, hpd_work);</span>
+  	hpd_work-&gt;adev = adev;
+  	INIT_WORK(&amp;hpd_work-&gt;handle_hpd_work, dm_handle_hpd_work);
+  
+</div>
+</details></td>
+</tr>
+<tr data-type="rerere" data-category="graphics">
+<td><code>drm-intel</code></td>
+<td>graphics</td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>drivers/gpu/drm/display/drm_dp_helper.c</code></td>
+<td>01:21 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">2245a5cd6e15dfdc65619f41c4579fd1e0bb6a52
+</div>
+</details></td>
+</tr>
+<tr data-type="conflict" data-category="fs">
+<td><code>exfat</code></td>
+<td>fs</td>
+<td><span class="badge conflict">conflict</span></td>
+<td><code>fs/exfat/file.c, fs/exfat/inode.c, fs/exfat/iomap.c (+1 more)</code></td>
+<td>01:21 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">aacc8a66deaa9eb7ddc11f6c61b10f7c1b91196c
+<span class="hdr">diff --cc fs/exfat/nls.c</span>
+<span class="ctx">index 47aa187c54ccc,bec4d9e5e5bd9..e5a6baa427106</span>
+<span class="hdr">--- a/fs/exfat/nls.c</span>
+<span class="hdr">+++ b/fs/exfat/nls.c</span>
+<span class="ctx">@@@ -655,7 -655,14 +655,14 @@@ static int exfat_load_upcase_table(stru</span>
+  	unsigned char skip = false;
+  	unsigned short *upcase_table;
+  
+<span class="add">+ 	if (!tbl_size || (tbl_size &amp; 1)) {</span>
+<span class="add">+ 		exfat_fs_error(sb,</span>
+<span class="add">+ 			       &quot;bad upcase table size (%llu bytes). Please run fsck&quot;,</span>
+<span class="add">+ 			       tbl_size);</span>
+<span class="add">+ 		return -EINVAL;</span>
+<span class="add">+ 	}</span>
+<span class="add">+ </span>
+ -	upcase_table = kvcalloc(UTBL_COUNT, sizeof(unsigned short), GFP_KERNEL);
+ +	upcase_table = kvzalloc_objs(unsigned short, UTBL_COUNT);
+  	if (!upcase_table)
+  		return -ENOMEM;
+  
+</div>
+</details></td>
+</tr>
+<tr data-type="conflict" data-category="hwmon">
+<td><code>hwmon-staging</code></td>
+<td>hwmon</td>
+<td><span class="badge conflict">conflict</span></td>
+<td><code>MAINTAINERS, drivers/hwmon/abituguru.c, drivers/hwmon/abituguru3.c (+120 more)</code></td>
+<td>01:36 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">0c099067e660fc2724c70d5725b2778d2203af86
+<span class="hdr">diff --cc drivers/hwmon/asus-ec-sensors.c</span>
+<span class="ctx">index a3cb595e713b7,ba7ec3168c572..5e5ed7289dac5</span>
+<span class="hdr">--- a/drivers/hwmon/asus-ec-sensors.c</span>
+<span class="hdr">+++ b/drivers/hwmon/asus-ec-sensors.c</span>
+<span class="ctx">@@@ -1537,7 -1612,8 +1611,8 @@@ static int asus_ec_probe(struct platfor</span>
+  	}
+  
+  	setup_sensor_data(ec_data);
+<span class="del">- 	ec_data-&gt;registers = devm_kzalloc_objs(dev, u16, ec_data-&gt;nr_registers);</span>
+ -	ec_data-&gt;registers = devm_kcalloc(dev, ec_data-&gt;nr_registers,
+ -					  sizeof(*ec_data-&gt;registers), GFP_KERNEL);
+<span class="add">++	ec_data-&gt;registers = devm_kzalloc_objs(dev, *ec_data-&gt;registers,</span>
+<span class="add">++					     ec_data-&gt;nr_registers);</span>
+  	ec_data-&gt;read_buffer = devm_kcalloc(dev, ec_data-&gt;nr_registers,
+  					    sizeof(u8), GFP_KERNEL);
+  
+</div>
+</details></td>
+</tr>
+<tr data-type="rerere" data-category="net">
+<td><code>iwlwifi</code></td>
+<td>net</td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>drivers/net/wireless/intel/iwlwifi/iwl-nvm-parse.c, drivers/net/wireless/intel/iwlwifi/iwl-trans.c, drivers/net/wireless/intel/iwlwifi/mvm/debugfs.c (+2 more)</code></td>
+<td>01:46 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">38336c60526493b074884f0e507221edcf594681
+</div>
+</details></td>
+</tr>
+<tr data-type="rerere" data-category="net">
+<td><code>bpf-next</code></td>
+<td>net</td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>include/linux/netdevice.h, kernel/bpf/btf.c, kernel/bpf/core.c (+4 more)</code></td>
+<td>01:46 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">907738033554391e707d598f325730d6dc843e1f
+<span class="hdr">diff --cc kernel/bpf/scev.c</span>
+<span class="ctx">index db123ef1f0718,4187ce955be99..133dc58d34ae8</span>
+<span class="hdr">--- a/kernel/bpf/scev.c</span>
+<span class="hdr">+++ b/kernel/bpf/scev.c</span>
+<span class="ctx">@@@ -1730,11 -1957,10 +1957,11 @@@ int bpf_init_scev(struct bpf_verifier_e</span>
+  		return -ENOMEM;
+  	env-&gt;scev = scev;
+  	bpf_mark_reg_known_scalar(&amp;scev-&gt;zero_reg, 0);
+<span class="del">- 	bpf_mark_reg_unknown_imprecise(&amp;scev-&gt;unknown_reg);</span>
+<span class="add">+ 	bpf_mark_reg_unknown(&amp;scev-&gt;unknown_reg);</span>
+  	/* A power of two for hash &amp; (exprs_ht_cnt - 1)` indexing. */
+  	scev-&gt;exprs_ht_cnt = roundup_pow_of_two(max(256U, DIV_ROUND_UP(env-&gt;prog-&gt;len, 4)));
+ -	scev-&gt;exprs_ht = kvcalloc(scev-&gt;exprs_ht_cnt, sizeof(*scev-&gt;exprs_ht), GFP_KERNEL_ACCOUNT);
+ +	scev-&gt;exprs_ht = kvzalloc_objs(*scev-&gt;exprs_ht, scev-&gt;exprs_ht_cnt,
+ +				       GFP_KERNEL_ACCOUNT);
+  	if (!scev-&gt;exprs_ht)
+  		goto nomem;
+  	if (expr0(scev, UNKNOWN) &lt; 0 || expr0(scev, OPAQUE)  &lt; 0)
+</div>
+</details></td>
+</tr>
+<tr data-type="rerere" data-category="net">
+<td><code>wireless-next</code></td>
+<td>net</td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>drivers/net/wireless/ath/ath12k/mac.c, drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c, drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c (+2 more)</code></td>
+<td>01:46 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">17c2ce314e7271aa8ee638af8c8f2c4247fa04d1
+</div>
+</details></td>
+</tr>
+<tr data-type="rerere" data-category="mm">
+<td><code>pagemap-headers</code></td>
+<td>mm</td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>arch/alpha/include/asm/pgtable.h, arch/arc/include/asm/pgtable-levels.h, arch/microblaze/include/asm/pgtable.h (+101 more)</code></td>
+<td>01:50 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">163a05079fcf792fca0c331800bc2055858f56d8
+<span class="hdr">diff --cc arch/x86/virt/vmx/tdx/tdx.c</span>
+<span class="ctx">index 96ced0494b687,3636a4d6ab8b9..680e5178a86f2</span>
+<span class="hdr">--- a/arch/x86/virt/vmx/tdx/tdx.c</span>
+<span class="hdr">+++ b/arch/x86/virt/vmx/tdx/tdx.c</span>
+<span class="ctx">@@@ -30,8 -30,8 +30,9 @@@</span>
+  #include &lt;linux/suspend.h&gt;
+  #include &lt;linux/syscore_ops.h&gt;
+  #include &lt;linux/idr.h&gt;
+ +#include &lt;linux/vmalloc.h&gt;
+  #include &lt;asm/page.h&gt;
+<span class="add">+ #include &lt;asm/cacheflush.h&gt;</span>
+  #include &lt;asm/special_insns.h&gt;
+  #include &lt;asm/msr-index.h&gt;
+  #include &lt;asm/msr.h&gt;
+<span class="hdr">diff --cc drivers/gpu/drm/amd/amdgpu/amdgpu_cs.c</span>
+<span class="ctx">index e552ee0487a72,b68a017afd530..b5668973fb498</span>
+<span class="hdr">--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_cs.c</span>
+<span class="hdr">+++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_cs.c</span>
+<span class="ctx">@@@ -26,10 -26,8 +26,9 @@@</span>
+   */
+  
+  #include &lt;linux/file.h&gt;
+<span class="del">- #include &lt;linux/pagemap.h&gt;</span>
+  #include &lt;linux/sync_file.h&gt;
+  #include &lt;linux/dma-buf.h&gt;
+ +#include &lt;linux/pm_runtime.h&gt;
+  
+  #include &lt;drm/amdgpu_drm.h&gt;
+  #include &lt;drm/drm_syncobj.h&gt;
+<span class="hdr">diff --cc drivers/gpu/drm/amd/amdgpu/amdgpu_gem.c</span>
+<span class="ctx">index fb518667bcaaa,e9017ff2cca73..b71e7ae3725ed</span>
+<span class="hdr">--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_gem.c</span>
+<span class="hdr">+++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_gem.c</span>
+<span class="ctx">@@@ -25,9 -25,9 +25,8 @@@</span>
+   *          Alex Deucher
+   *          Jerome Glisse
+   */
+ -#include &lt;linux/ktime.h&gt;
+  #include &lt;linux/module.h&gt;
+  #include &lt;linux/overflow.h&gt;
+<span class="del">- #include &lt;linux/pagemap.h&gt;</span>
+  #include &lt;linux/pci.h&gt;
+  #include &lt;linux/dma-buf.h&gt;
+  #include &lt;linux/dma-fence-unwrap.h&gt;
+<span class="hdr">diff --cc drivers/gpu/drm/amd/amdkfd/kfd_migrate.c</span>
+<span class="ctx">index 8b96e1fe741a1,460b289ddd4ef..9535ebe5837af</span>
+<span class="hdr">--- a/drivers/gpu/drm/amd/amdkfd/kfd_migrate.c</span>
+<span class="hdr">+++ b/drivers/gpu/drm/amd/amdkfd/kfd_migrate.c</span>
+<span class="ctx">@@@ -24,8 -24,7 +24,9 @@@</span>
+  #include &lt;linux/dma-direction.h&gt;
+  #include &lt;linux/dma-mapping.h&gt;
+  #include &lt;linux/migrate.h&gt;
+<span class="add">+ #include &lt;linux/pagemap.h&gt;</span>
+ +#include &quot;amdgpu.h&quot;
+ +#include &quot;amdgpu_sdma.h&quot;
+  #include &quot;amdgpu_sync.h&quot;
+  #include &quot;amdgpu_object.h&quot;
+  #include &quot;amdgpu_vm.h&quot;
+<span class="hdr">diff --cc drivers/gpu/drm/msm/msm_fb.c</span>
+<span class="ctx">index 60c108d35d2a1,e8954e6a5f439..1e236416e15f0</span>
+<span class="hdr">--- a/drivers/gpu/drm/msm/msm_fb.c</span>
+<span class="hdr">+++ b/drivers/gpu/drm/msm/msm_fb.c</span>
+<span class="ctx">@@@ -4,8 -4,11 +4,10 @@@</span>
+   * Author: Rob Clark &lt;robdclark@gmail.com&gt;
+   */
+  
+<span class="add">+ #include &lt;linux/seq_file.h&gt;</span>
+<span class="add">+ </span>
+  #include &lt;drm/drm_crtc.h&gt;
+  #include &lt;drm/drm_damage_helper.h&gt;
+ -#include &lt;drm/drm_file.h&gt;
+  #include &lt;drm/drm_fourcc.h&gt;
+  #include &lt;drm/drm_framebuffer.h&gt;
+  #include &lt;drm/drm_gem_framebuffer_helper.h&gt;
+<span class="hdr">diff --cc drivers/gpu/drm/panfrost/panfrost_gem.c</span>
+<span class="ctx">index 518f24549b9de,68546925f16b0..0f99c3c3184da</span>
+<span class="hdr">--- a/drivers/gpu/drm/panfrost/panfrost_gem.c</span>
+<span class="hdr">+++ b/drivers/gpu/drm/panfrost/panfrost_gem.c</span>
+<span class="ctx">@@@ -7,11 -7,13 +7,13 @@@</span>
+  #include &lt;linux/slab.h&gt;
+  #include &lt;linux/dma-buf.h&gt;
+  #include &lt;linux/dma-mapping.h&gt;
+<span class="add">+ #include &lt;linux/highmem.h&gt;</span>
+<span class="add">+ #include &lt;linux/seq_file.h&gt;</span>
+  
+  #include &lt;drm/panfrost_drm.h&gt;
+ +#include &lt;drm/drm_debugfs.h&gt;
+  #include &lt;drm/drm_print.h&gt;
+  #include &quot;panfrost_device.h&quot;
+ -#include &quot;panfrost_drv.h&quot;
+  #include &quot;panfrost_gem.h&quot;
+  #include &quot;panfrost_mmu.h&quot;
+  
+<span class="hdr">diff --cc drivers/regulator/tps65185.c</span>
+<span class="ctx">index 33728e764eb55,14d04c1a55f25..9795aec278388</span>
+<span class="hdr">--- a/drivers/regulator/tps65185.c</span>
+<span class="hdr">+++ b/drivers/regulator/tps65185.c</span>
+<span class="ctx">@@@ -5,9 -5,9 +5,10 @@@</span>
+  
+  #include &lt;linux/cleanup.h&gt;
+  #include &lt;linux/completion.h&gt;
+ +#include &lt;linux/delay.h&gt;
+  #include &lt;linux/gpio/consumer.h&gt;
+  #include &lt;linux/i2c.h&gt;
+<span class="add">+ #include &lt;linux/interrupt.h&gt;</span>
+  #include &lt;linux/module.h&gt;
+  #include &lt;linux/mutex.h&gt;
+  #include &lt;linux/hwmon.h&gt;
+<span class="hdr">diff --cc net/ceph/osd_client.c</span>
+<span class="ctx">index b8e4740d07fe2,86b681a56e206..baa324215bd49</span>
+<span class="hdr">--- a/net/ceph/osd_client.c</span>
+<span class="hdr">+++ b/net/ceph/osd_client.c</span>
+<span class="ctx">@@@ -6,8 -6,6 +6,7 @@@</span>
+  #include &lt;linux/err.h&gt;
+  #include &lt;linux/highmem.h&gt;
+  #include &lt;linux/mm.h&gt;
+ +#include &lt;linux/overflow.h&gt;
+<span class="del">- #include &lt;linux/pagemap.h&gt;</span>
+  #include &lt;linux/slab.h&gt;
+  #include &lt;linux/uaccess.h&gt;
+  #ifdef CONFIG_BLOCK
+</div>
+</details></td>
+</tr>
+<tr data-type="rerere" data-category="soc">
+<td><code>arm-soc</code></td>
+<td>soc</td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>-</code></td>
+<td>02:08 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">544c59c3404daf0f4ea1ff190d87eb52ab46f145
+</div>
+</details></td>
+</tr>
+<tr data-type="conflict" data-category="soc">
+<td><code>imx-mxs</code></td>
+<td>soc</td>
+<td><span class="badge conflict">conflict</span></td>
+<td><code>MAINTAINERS, drivers/firmware/imx/imx-scu-irq.c, drivers/firmware/imx/imx-scu.c (+1 more)</code></td>
+<td>02:19 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">42c7c4686fec5d394018e029e0ee795f51a63e5e
+<span class="hdr">diff --cc drivers/firmware/imx/imx-scu-irq.c</span>
+<span class="ctx">index bc22b10ddb20f,4f24e3c08a652..9c3436cb53ab0</span>
+<span class="hdr">--- a/drivers/firmware/imx/imx-scu-irq.c</span>
+<span class="hdr">+++ b/drivers/firmware/imx/imx-scu-irq.c</span>
+<span class="ctx">@@@ -219,7 -223,15 +223,15 @@@ int imx_scu_enable_general_irq_channel(</span>
+  	if (ret)
+  		return ret;
+  
+<span class="add">+ 	/*</span>
+<span class="add">+ 	 * imx_scu_irq_group_enable() tests imx_sc_irq_ipc_handle from other</span>
+<span class="add">+ 	 * drivers&#x27; probe paths and then passes it to imx_scu_call_rpc().</span>
+<span class="add">+ 	 * Publish it with release semantics so that the SCU state it points</span>
+<span class="add">+ 	 * to is visible to them.</span>
+<span class="add">+ 	 */</span>
+<span class="add">+ 	smp_store_release(&amp;imx_sc_irq_ipc_handle, ipc);</span>
+<span class="add">+ </span>
+ -	cl = devm_kzalloc(dev, sizeof(*cl), GFP_KERNEL);
+ +	cl = devm_kzalloc_obj(dev, *cl);
+  	if (!cl)
+  		return -ENOMEM;
+  
+</div>
+</details></td>
+</tr>
+<tr data-type="conflict" data-category="sound">
+<td><code>sound-asoc</code></td>
+<td>sound</td>
+<td><span class="badge conflict">conflict</span></td>
+<td><code>sound/soc/amd/acp/acp-sdw-legacy-mach.c, sound/soc/amd/acp/acp-sdw-sof-mach.c, sound/soc/codecs/cpcap.c (+72 more)</code></td>
+<td>02:20 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">21fcce07bcaa1dadf07b816f007d46576582c25c
+<span class="hdr">diff --cc sound/soc/amd/acp/acp-sdw-sof-mach.c</span>
+<span class="ctx">index 8336eb5c82ea9,1d7487c872657..401a04716551f</span>
+<span class="hdr">--- a/sound/soc/amd/acp/acp-sdw-sof-mach.c</span>
+<span class="hdr">+++ b/sound/soc/amd/acp/acp-sdw-sof-mach.c</span>
+<span class="ctx">@@@ -374,16 -406,28 +406,28 @@@ static int mc_probe(struct platform_dev</span>
+  	struct snd_soc_card *card;
+  	struct amd_mc_ctx *amd_ctx;
+  	struct asoc_sdw_mc_private *ctx;
+<span class="del">- 	int amp_num = 0, i;</span>
+<span class="add">+ 	int amp_num = 0, i, dmic_num;</span>
+  	int ret;
+  
+ -	amd_ctx = devm_kzalloc(&amp;pdev-&gt;dev, sizeof(*amd_ctx), GFP_KERNEL);
+ +	amd_ctx = devm_kzalloc_obj(&amp;pdev-&gt;dev, *amd_ctx);
+  	if (!amd_ctx)
+  		return -ENOMEM;
+  
+  	amd_ctx-&gt;acp_rev = mach-&gt;mach_params.subsystem_rev;
+<span class="del">- 	amd_ctx-&gt;max_sdw_links = ACP63_SDW_MAX_LINKS;</span>
+<span class="add">+ 	switch (amd_ctx-&gt;acp_rev) {</span>
+<span class="add">+ 	case ACP7B_PCI_REV:</span>
+<span class="add">+ 	case ACP7F_PCI_REV:</span>
+<span class="add">+ 		amd_ctx-&gt;max_sdw_links = ACP7X_SDW_MAX_LINKS;</span>
+<span class="add">+ 		break;</span>
+<span class="add">+ 	default:</span>
+<span class="add">+ 		amd_ctx-&gt;max_sdw_links = ACP63_SDW_MAX_LINKS;</span>
+<span class="add">+ 		break;</span>
+<span class="add">+ 	}</span>
+<span class="add">+ 	if (mach-&gt;pdata) {</span>
+<span class="add">+ 		pdm_pdata = mach-&gt;pdata;</span>
+<span class="add">+ 		amd_ctx-&gt;pdm_sel = pdm_pdata-&gt;pdm_sel;</span>
+<span class="add">+ 	}</span>
+ -	ctx = devm_kzalloc(&amp;pdev-&gt;dev, sizeof(*ctx), GFP_KERNEL);
+ +	ctx = devm_kzalloc_obj(&amp;pdev-&gt;dev, *ctx);
+  	if (!ctx)
+  		return -ENOMEM;
+  	ctx-&gt;codec_info_list_count = asoc_sdw_get_codec_info_list_count();
+<span class="hdr">diff --cc sound/soc/codecs/cpcap.c</span>
+<span class="ctx">index d3348fee0aaa1,0e7c05f5bab60..6a11fcea6e6ec</span>
+<span class="hdr">--- a/sound/soc/codecs/cpcap.c</span>
+<span class="hdr">+++ b/sound/soc/codecs/cpcap.c</span>
+<span class="ctx">@@@ -1761,9 -1761,9 +1761,9 @@@ static int cpcap_codec_probe(struct pla</span>
+  	if (!codec_node)
+  		return -ENODEV;
+  
+<span class="del">- 	pdev-&gt;dev.of_node = codec_node;</span>
+<span class="add">+ 	platform_device_set_of_node(pdev, codec_node);</span>
+  
+ -	cpcap = devm_kzalloc(&amp;pdev-&gt;dev, sizeof(*cpcap), GFP_KERNEL);
+ +	cpcap = devm_kzalloc_obj(&amp;pdev-&gt;dev, *cpcap);
+  	if (!cpcap)
+  		return -ENOMEM;
+  
+<span class="hdr">diff --cc sound/soc/codecs/twl4030.c</span>
+<span class="ctx">index e207721b99414,9541c8a5a24e8..853f801d49b72</span>
+<span class="hdr">--- a/sound/soc/codecs/twl4030.c</span>
+<span class="hdr">+++ b/sound/soc/codecs/twl4030.c</span>
+<span class="ctx">@@@ -198,40 -199,53 +199,53 @@@ static void twl4030_codec_enable(struc</span>
+  	udelay(10);
+  }
+  
+<span class="del">- static void</span>
+<span class="del">- twl4030_get_board_param_values(struct twl4030_board_params *board_params,</span>
+<span class="del">- 			       struct device_node *node)</span>
+<span class="add">+ static struct twl4030_board_params *twl4030_get_board_params(struct device *dev)</span>
+  {
+<span class="del">- 	of_property_read_u32(node, &quot;ti,digimic_delay&quot;, &amp;board_params-&gt;digimic_delay);</span>
+<span class="del">- 	of_property_read_u32(node, &quot;ti,ramp_delay_value&quot;, &amp;board_params-&gt;ramp_delay_value);</span>
+<span class="del">- 	of_property_read_u32(node, &quot;ti,offset_cncl_path&quot;, &amp;board_params-&gt;offset_cncl_path);</span>
+<span class="del">- 	board_params-&gt;hs_extmute = of_property_read_bool(node, &quot;ti,hs_extmute&quot;);</span>
+<span class="del">- </span>
+<span class="del">- 	if (of_property_present(node, &quot;ti,hs_extmute_gpio&quot;))</span>
+<span class="del">- 		board_params-&gt;hs_extmute = 1;</span>
+<span class="del">- }</span>
+<span class="del">- </span>
+<span class="del">- static struct twl4030_board_params*</span>
+<span class="del">- twl4030_get_board_params(struct device *dev)</span>
+<span class="del">- {</span>
+<span class="del">- 	struct twl4030_board_params *board_params = NULL;</span>
+<span class="del">- 	struct device_node *twl4030_codec_node = NULL;</span>
+<span class="del">- </span>
+<span class="del">- 	twl4030_codec_node = of_get_child_by_name(dev-&gt;parent-&gt;of_node,</span>
+<span class="del">- 						  &quot;codec&quot;);</span>
+<span class="del">- </span>
+<span class="del">- 	if (twl4030_codec_node) {</span>
+<span class="del">- 		board_params = devm_kzalloc_obj(dev,</span>
+<span class="del">- 						struct twl4030_board_params);</span>
+<span class="del">- 		if (!board_params) {</span>
+<span class="del">- 			of_node_put(twl4030_codec_node);</span>
+<span class="del">- 			return ERR_PTR(-ENOMEM);</span>
+<span class="del">- 		}</span>
+<span class="del">- 		twl4030_get_board_param_values(board_params, twl4030_codec_node);</span>
+<span class="del">- 		of_node_put(twl4030_codec_node);</span>
+<span class="add">+ 	struct twl4030_board_params *params;</span>
+<span class="add">+ 	int error;</span>
+<span class="add">+ </span>
+<span class="add">+ 	struct fwnode_handle *codec_node __free(fwnode_handle) =</span>
+<span class="add">+ 		device_get_named_child_node(dev-&gt;parent, &quot;codec&quot;);</span>
+<span class="add">+ 	if (!codec_node)</span>
+<span class="add">+ 		return NULL;</span>
+<span class="add">+ </span>
+ -	params = devm_kzalloc(dev, sizeof(*params), GFP_KERNEL);
+<span class="add">++	params = devm_kzalloc_obj(dev, *params);</span>
+<span class="add">+ 	if (!params)</span>
+<span class="add">+ 		return ERR_PTR(-ENOMEM);</span>
+<span class="add">+ </span>
+<span class="add">+ 	fwnode_property_read_u32(codec_node, &quot;ti,digimic_delay&quot;,</span>
+<span class="add">+ 				 &amp;params-&gt;digimic_delay);</span>
+<span class="add">+ 	fwnode_property_read_u32(codec_node, &quot;ti,ramp_delay_value&quot;,</span>
+<span class="add">+ 				 &amp;params-&gt;ramp_delay_value);</span>
+<span class="add">+ 	fwnode_property_read_u32(codec_node, &quot;ti,offset_cncl_path&quot;,</span>
+<span class="add">+ 				 &amp;params-&gt;offset_cncl_path);</span>
+<span class="add">+ </span>
+<span class="add">+ 	/*</span>
+<span class="add">+ 	 * Headset external mute can be controlled either via TWL4030&#x27;s</span>
+<span class="add">+ 	 * dedicated GPIO6/EXTMUTE pin (enabled by the boolean &quot;ti,hs_extmute&quot;</span>
+<span class="add">+ 	 * property) or via a separate GPIO line (&quot;ti,hs_extmute-gpios&quot; or</span>
+<span class="add">+ 	 * legacy &quot;ti,hs_extmute_gpio&quot;), which implies external mute is active.</span>
+<span class="add">+ 	 */</span>
+<span class="add">+ 	params-&gt;hs_extmute = fwnode_property_read_bool(codec_node, &quot;ti,hs_extmute&quot;);</span>
+<span class="add">+ </span>
+<span class="add">+ 	/*</span>
+<span class="add">+ 	 * This will attempt to parse &quot;ti,hs_extmute-gpios&quot; or</span>
+<span class="add">+ 	 * &quot;ti,hs_extmute_gpio&quot;.</span>
+<span class="add">+ 	 */</span>
+<span class="add">+ 	params-&gt;hs_extmute_gpio = devm_fwnode_gpiod_get_optional(dev, codec_node,</span>
+<span class="add">+ 								 &quot;ti,hs_extmute&quot;,</span>
+<span class="add">+ 								 GPIOD_OUT_LOW,</span>
+<span class="add">+ 								 &quot;hs_extmute&quot;);</span>
+<span class="add">+ 	error = PTR_ERR_OR_ZERO(params-&gt;hs_extmute_gpio);</span>
+<span class="add">+ 	if (error) {</span>
+<span class="add">+ 		dev_err_probe(dev, error, &quot;Failed to get hs_extmute GPIO\n&quot;);</span>
+<span class="add">+ 		return ERR_PTR(error);</span>
+  	}
+  
+<span class="del">- 	return board_params;</span>
+<span class="add">+ 	if (params-&gt;hs_extmute_gpio)</span>
+<span class="add">+ 		params-&gt;hs_extmute = 1;</span>
+<span class="add">+ </span>
+<span class="add">+ 	return params;</span>
+  }
+  
+  static int twl4030_get_hw_params(struct device *dev,
+<span class="hdr">diff --cc sound/soc/codecs/wcd937x.c</span>
+<span class="ctx">index b64fc16d50367,9d5d1df41c365..6e03b714fa389</span>
+<span class="hdr">--- a/sound/soc/codecs/wcd937x.c</span>
+<span class="hdr">+++ b/sound/soc/codecs/wcd937x.c</span>
+<span class="ctx">@@@ -2907,9 -3044,12 +3044,12 @@@ static int wcd937x_probe(struct platfor</span>
+  	struct device *dev = &amp;pdev-&gt;dev;
+  	struct wcd937x_priv *wcd937x;
+  	struct wcd_mbhc_config *cfg;
+<span class="add">+ #if IS_ENABLED(CONFIG_TYPEC)</span>
+<span class="add">+ 	struct device_node *np __free(device_node) = NULL;</span>
+<span class="add">+ #endif /* CONFIG_TYPEC */</span>
+  	int ret;
+  
+ -	wcd937x = devm_kzalloc(dev, sizeof(*wcd937x), GFP_KERNEL);
+ +	wcd937x = devm_kzalloc_obj(dev, *wcd937x);
+  	if (!wcd937x)
+  		return -ENOMEM;
+  
+</div>
+</details></td>
+</tr>
+<tr data-type="conflict" data-category="subsystem">
+<td><code>mfd</code></td>
+<td>subsystem</td>
+<td><span class="badge conflict">conflict</span></td>
+<td><code>MAINTAINERS, drivers/mfd/da9062-core.c, drivers/mfd/dln2.c (+5 more)</code></td>
+<td>02:31 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">684f9dc4099ee971a74d5cf5209262423710f71e
+<span class="hdr">diff --cc drivers/mfd/rz-mtu3.c</span>
+<span class="ctx">index 7e1313a57abc0,558ed3fbe5207..479ecf7a11232</span>
+<span class="hdr">--- a/drivers/mfd/rz-mtu3.c</span>
+<span class="hdr">+++ b/drivers/mfd/rz-mtu3.c</span>
+<span class="ctx">@@@ -315,17 -291,16 +291,16 @@@ static int rz_mtu3_probe(struct platfor</span>
+  	struct rz_mtu3 *ddata;
+  	struct reset_control *rstc;
+  	unsigned int i;
+<span class="add">+ 	int ret;</span>
+  
+ -	ddata = devm_kzalloc(dev, sizeof(*ddata), GFP_KERNEL);
+ +	ddata = devm_kzalloc_obj(dev, *ddata);
+  	if (!ddata)
+  		return -ENOMEM;
+  
+<span class="del">- 	ddata-&gt;priv_data = devm_kzalloc_obj(dev, *priv);</span>
+<span class="del">- 	if (!ddata-&gt;priv_data)</span>
+ -	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
+<span class="add">++	priv = devm_kzalloc_obj(dev, *priv);</span>
+<span class="add">+ 	if (!priv)</span>
+  		return -ENOMEM;
+  
+<span class="del">- 	priv = ddata-&gt;priv_data;</span>
+<span class="del">- </span>
+  	priv-&gt;mmio = devm_platform_ioremap_resource(pdev, 0);
+  	if (IS_ERR(priv-&gt;mmio))
+  		return PTR_ERR(priv-&gt;mmio);
+</div>
+</details></td>
+</tr>
+<tr data-type="conflict" data-category="soc">
+<td><code>tegra</code></td>
+<td>soc</td>
+<td><span class="badge conflict">conflict</span></td>
+<td><code>drivers/firmware/tegra/bpmp-tegra186.c, drivers/firmware/tegra/bpmp-tegra210.c, drivers/firmware/tegra/bpmp.c</code></td>
+<td>02:34 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">1889da67840ccc02fb0385350635fda2aad5648e
+<span class="hdr">diff --cc drivers/firmware/tegra/bpmp-tegra186.c</span>
+<span class="ctx">index 5a97496600ac1,c34f6d2d275cd..d2febe53b66c9</span>
+<span class="hdr">--- a/drivers/firmware/tegra/bpmp-tegra186.c</span>
+<span class="hdr">+++ b/drivers/firmware/tegra/bpmp-tegra186.c</span>
+<span class="ctx">@@@ -324,7 -325,11 +324,11 @@@ static int tegra186_bpmp_init(struct te</span>
+  	struct tegra186_bpmp *priv;
+  	int err;
+  
+<span class="add">+ 	err = tegra_bpmp_init_channels(bpmp);</span>
+<span class="add">+ 	if (err &lt; 0)</span>
+<span class="add">+ 		return err;</span>
+<span class="add">+ </span>
+ -	priv = devm_kzalloc(bpmp-&gt;dev, sizeof(*priv), GFP_KERNEL);
+ +	priv = devm_kzalloc_obj(bpmp-&gt;dev, *priv);
+  	if (!priv)
+  		return -ENOMEM;
+  
+<span class="hdr">diff --cc drivers/firmware/tegra/bpmp-tegra210.c</span>
+<span class="ctx">index a33bb027c8b8d,fdc26c66f7c2f..1ab95463e66f7</span>
+<span class="hdr">--- a/drivers/firmware/tegra/bpmp-tegra210.c</span>
+<span class="hdr">+++ b/drivers/firmware/tegra/bpmp-tegra210.c</span>
+<span class="ctx">@@@ -166,7 -166,11 +166,11 @@@ static int tegra210_bpmp_init(struct te</span>
+  	unsigned int i;
+  	int err;
+  
+<span class="add">+ 	err = tegra_bpmp_init_channels(bpmp);</span>
+<span class="add">+ 	if (err &lt; 0)</span>
+<span class="add">+ 		return err;</span>
+<span class="add">+ </span>
+ -	priv = devm_kzalloc(&amp;pdev-&gt;dev, sizeof(*priv), GFP_KERNEL);
+ +	priv = devm_kzalloc_obj(&amp;pdev-&gt;dev, *priv);
+  	if (!priv)
+  		return -ENOMEM;
+  
+<span class="hdr">diff --cc drivers/firmware/tegra/bpmp.c</span>
+<span class="ctx">index 5fbd6a3e69e09,d3508e98e3382..50d9c6ec934a0</span>
+<span class="hdr">--- a/drivers/firmware/tegra/bpmp.c</span>
+<span class="hdr">+++ b/drivers/firmware/tegra/bpmp.c</span>
+<span class="ctx">@@@ -764,17 -975,19 +975,17 @@@ int tegra_bpmp_init_channels(struct teg</span>
+  		return -ENOMEM;
+  
+  	spin_lock_init(&amp;bpmp-&gt;atomic_tx_lock);
+<span class="del">- 	bpmp-&gt;tx_channel = devm_kzalloc_obj(&amp;pdev-&gt;dev, *bpmp-&gt;tx_channel);</span>
+ -	bpmp-&gt;tx_channel = devm_kzalloc(bpmp-&gt;dev, sizeof(*bpmp-&gt;tx_channel),
+ -					GFP_KERNEL);
+<span class="add">++	bpmp-&gt;tx_channel = devm_kzalloc_obj(bpmp-&gt;dev, *bpmp-&gt;tx_channel);</span>
+  	if (!bpmp-&gt;tx_channel)
+  		return -ENOMEM;
+  
+<span class="del">- 	bpmp-&gt;rx_channel = devm_kzalloc_obj(&amp;pdev-&gt;dev, *bpmp-&gt;rx_channel);</span>
+ -	bpmp-&gt;rx_channel = devm_kzalloc(bpmp-&gt;dev, sizeof(*bpmp-&gt;rx_channel),
+ -					GFP_KERNEL);
+<span class="add">++	bpmp-&gt;rx_channel = devm_kzalloc_obj(bpmp-&gt;dev, *bpmp-&gt;rx_channel);</span>
+  	if (!bpmp-&gt;rx_channel)
+  		return -ENOMEM;
+  
+<span class="del">- 	bpmp-&gt;threaded_channels = devm_kzalloc_objs(&amp;pdev-&gt;dev,</span>
+ -	bpmp-&gt;threaded_channels = devm_kcalloc(bpmp-&gt;dev, bpmp-&gt;threaded.count,
+ -					       sizeof(*bpmp-&gt;threaded_channels),
+ -					       GFP_KERNEL);
+<span class="add">++	bpmp-&gt;threaded_channels = devm_kzalloc_objs(bpmp-&gt;dev,</span>
+ +						    *bpmp-&gt;threaded_channels,
+ +						    bpmp-&gt;threaded.count);
+  	if (!bpmp-&gt;threaded_channels)
+  		return -ENOMEM;
+  
+<span class="ctx">@@@ -795,36 -1009,86 +1007,86 @@@ int tegra_bpmp_init_ping(struct tegra_b</span>
+  		goto free_mrq;
+  	}
+  
+<span class="del">- 	err = tegra_bpmp_get_firmware_tag(bpmp, tag, sizeof(tag));</span>
+<span class="del">- 	if (err &lt; 0) {</span>
+<span class="del">- 		dev_err(&amp;pdev-&gt;dev, &quot;failed to get firmware tag: %d\n&quot;, err);</span>
+<span class="del">- 		goto free_mrq;</span>
+<span class="del">- 	}</span>
+<span class="add">+ 	return 0;</span>
+  
+<span class="del">- 	dev_info(&amp;pdev-&gt;dev, &quot;firmware: %.*s\n&quot;, (int)sizeof(tag), tag);</span>
+<span class="add">+ free_mrq:</span>
+<span class="add">+ 	tegra_bpmp_free_mrq(bpmp, MRQ_PING, bpmp);</span>
+<span class="add">+ </span>
+<span class="add">+ 	return err;</span>
+<span class="add">+ }</span>
+<span class="add">+ </span>
+<span class="add">+ void tegra_bpmp_deinit_ping(struct tegra_bpmp *bpmp)</span>
+<span class="add">+ {</span>
+<span class="add">+ 	tegra_bpmp_free_mrq(bpmp, MRQ_PING, bpmp);</span>
+<span class="add">+ }</span>
+<span class="add">+ </span>
+<span class="add">+ int tegra_bpmp_init_dt_providers(struct tegra_bpmp *bpmp)</span>
+<span class="add">+ {</span>
+<span class="add">+ 	struct device *dev = bpmp-&gt;dev;</span>
+<span class="add">+ 	int err;</span>
+  
+<span class="del">- 	err = of_platform_default_populate(pdev-&gt;dev.of_node, NULL, &amp;pdev-&gt;dev);</span>
+<span class="add">+ 	err = of_platform_default_populate(dev-&gt;of_node, NULL, dev);</span>
+  	if (err &lt; 0)
+<span class="del">- 		goto free_mrq;</span>
+<span class="add">+ 		return err;</span>
+  
+<span class="del">- 	if (of_property_present(pdev-&gt;dev.of_node, &quot;#clock-cells&quot;)) {</span>
+<span class="add">+ 	if (of_property_present(dev-&gt;of_node, &quot;#clock-cells&quot;)) {</span>
+  		err = tegra_bpmp_init_clocks(bpmp);
+  		if (err &lt; 0)
+<span class="del">- 			goto free_mrq;</span>
+<span class="add">+ 			return err;</span>
+  	}
+  
+<span class="del">- 	if (of_property_present(pdev-&gt;dev.of_node, &quot;#reset-cells&quot;)) {</span>
+<span class="add">+ 	if (of_property_present(dev-&gt;of_node, &quot;#reset-cells&quot;)) {</span>
+  		err = tegra_bpmp_init_resets(bpmp);
+  		if (err &lt; 0)
+<span class="del">- 			goto free_mrq;</span>
+<span class="add">+ 			return err;</span>
+  	}
+  
+<span class="del">- 	if (of_property_present(pdev-&gt;dev.of_node, &quot;#power-domain-cells&quot;)) {</span>
+<span class="add">+ 	if (of_property_present(dev-&gt;of_node, &quot;#power-domain-cells&quot;)) {</span>
+  		err = tegra_bpmp_init_powergates(bpmp);
+  		if (err &lt; 0)
+<span class="del">- 			goto free_mrq;</span>
+<span class="add">+ 			return err;</span>
+  	}
+  
+<span class="add">+ 	return 0;</span>
+<span class="add">+ }</span>
+<span class="add">+ </span>
+<span class="add">+ static int tegra_bpmp_probe(struct platform_device *pdev)</span>
+<span class="add">+ {</span>
+<span class="add">+ 	struct tegra_bpmp *bpmp;</span>
+<span class="add">+ 	char tag[TAG_SZ];</span>
+<span class="add">+ 	int err;</span>
+<span class="add">+ </span>
+ -	bpmp = devm_kzalloc(&amp;pdev-&gt;dev, sizeof(*bpmp), GFP_KERNEL);
+<span class="add">++	bpmp = devm_kzalloc_obj(&amp;pdev-&gt;dev, *bpmp);</span>
+<span class="add">+ 	if (!bpmp)</span>
+<span class="add">+ 		return -ENOMEM;</span>
+<span class="add">+ </span>
+<span class="add">+ 	bpmp-&gt;soc = device_get_match_data(&amp;pdev-&gt;dev);</span>
+<span class="add">+ 	bpmp-&gt;dev = &amp;pdev-&gt;dev;</span>
+<span class="add">+ </span>
+<span class="add">+ 	platform_set_drvdata(pdev, bpmp);</span>
+<span class="add">+ </span>
+<span class="add">+ 	err = bpmp-&gt;soc-&gt;ops-&gt;init(bpmp);</span>
+<span class="add">+ 	if (err &lt; 0)</span>
+<span class="add">+ 		return err;</span>
+<span class="add">+ </span>
+<span class="add">+ 	err = tegra_bpmp_get_firmware_tag(bpmp, tag, sizeof(tag));</span>
+<span class="add">+ 	if (err &lt; 0) {</span>
+<span class="add">+ 		dev_err(&amp;pdev-&gt;dev, &quot;failed to get firmware tag: %d\n&quot;, err);</span>
+<span class="add">+ 		goto deinit;</span>
+<span class="add">+ 	}</span>
+<span class="add">+ </span>
+<span class="add">+ 	dev_info(&amp;pdev-&gt;dev, &quot;firmware: %.*s\n&quot;, (int)sizeof(tag), tag);</span>
+<span class="add">+ </span>
+<span class="add">+ 	if (bpmp-&gt;soc-&gt;ops-&gt;init_providers) {</span>
+<span class="add">+ 		err = bpmp-&gt;soc-&gt;ops-&gt;init_providers(bpmp);</span>
+<span class="add">+ 		if (err &lt; 0)</span>
+<span class="add">+ 			goto deinit;</span>
+<span class="add">+ 	}</span>
+<span class="add">+ </span>
+<span class="add">+ 	err = tegra_bpmp_init_sysfs(bpmp);</span>
+<span class="add">+ 	if (err &lt; 0)</span>
+<span class="add">+ 		dev_err(&amp;pdev-&gt;dev, &quot;failed to initialize sysfs: %d\n&quot;, err);</span>
+<span class="add">+ </span>
+  	err = tegra_bpmp_init_debugfs(bpmp);
+  	if (err &lt; 0)
+  		dev_err(&amp;pdev-&gt;dev, &quot;debugfs initialization failed: %d\n&quot;, err);
+</div>
+</details></td>
+</tr>
+<tr data-type="rerere" data-category="tracing">
+<td><code>bpf-next</code></td>
+<td>tracing</td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>include/linux/netdevice.h, kernel/bpf/btf.c, kernel/bpf/core.c (+4 more)</code></td>
+<td>02:34 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">bb30071beb523306abf1849b20a0ea8dd2ec9236
+<span class="hdr">diff --cc kernel/bpf/scev.c</span>
+<span class="ctx">index db123ef1f0718,4187ce955be99..133dc58d34ae8</span>
+<span class="hdr">--- a/kernel/bpf/scev.c</span>
+<span class="hdr">+++ b/kernel/bpf/scev.c</span>
+<span class="ctx">@@@ -1730,11 -1957,10 +1957,11 @@@ int bpf_init_scev(struct bpf_verifier_e</span>
+  		return -ENOMEM;
+  	env-&gt;scev = scev;
+  	bpf_mark_reg_known_scalar(&amp;scev-&gt;zero_reg, 0);
+<span class="del">- 	bpf_mark_reg_unknown_imprecise(&amp;scev-&gt;unknown_reg);</span>
+<span class="add">+ 	bpf_mark_reg_unknown(&amp;scev-&gt;unknown_reg);</span>
+  	/* A power of two for hash &amp; (exprs_ht_cnt - 1)` indexing. */
+  	scev-&gt;exprs_ht_cnt = roundup_pow_of_two(max(256U, DIV_ROUND_UP(env-&gt;prog-&gt;len, 4)));
+ -	scev-&gt;exprs_ht = kvcalloc(scev-&gt;exprs_ht_cnt, sizeof(*scev-&gt;exprs_ht), GFP_KERNEL_ACCOUNT);
+ +	scev-&gt;exprs_ht = kvzalloc_objs(*scev-&gt;exprs_ht, scev-&gt;exprs_ht_cnt,
+ +				       GFP_KERNEL_ACCOUNT);
+  	if (!scev-&gt;exprs_ht)
+  		goto nomem;
+  	if (expr0(scev, UNKNOWN) &lt; 0 || expr0(scev, OPAQUE)  &lt; 0)
+</div>
+</details></td>
+</tr>
+<tr data-type="rerere" data-category="tracing">
+<td><code>ftrace</code></td>
+<td>tracing</td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>-</code></td>
+<td>02:34 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">99bf400b41e0e718b490a888781bdcd06ad549fa
+</div>
+</details></td>
+</tr>
+<tr data-type="rerere" data-category="fixes">
+<td><code>fixes-next</code></td>
+<td>fixes</td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>MAINTAINERS, drivers/pci/controller/pci-hyperv.c, drivers/w1/masters/ds2482.c (+6 more)</code></td>
+<td>02:47 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">6b41765628ac11f0c47748d57a29ffdfbc0ec204
+<span class="hdr">diff --cc drivers/w1/masters/ds2482.c</span>
+<span class="ctx">index 43cf860763be2,700c11aecbad4..2c9e5a216cae9</span>
+<span class="hdr">--- a/drivers/w1/masters/ds2482.c</span>
+<span class="hdr">+++ b/drivers/w1/masters/ds2482.c</span>
+<span class="ctx">@@@ -423,24 -437,16 +437,16 @@@ static u8 ds2482_w1_set_pullup(void *da</span>
+  
+  	/* if delay is non-zero activate the pullup,
+  	 * the strong pullup will be automatically deactivated
+ -	 * by the master, so do not explicitly deactive it
+ +	 * by the master, so do not explicitly deactivate it
+<span class="add">+ 	 *</span>
+<span class="add">+ 	 * The setting is used up by the next byte on any channel of the chip:</span>
+<span class="add">+ 	 * ds2482_w1_write_byte() makes it, in one go with the byte.</span>
+  	 */
+<span class="del">- 	if (delay) {</span>
+<span class="del">- 		/* both waits are crucial, otherwise devices might not be</span>
+<span class="del">- 		 * powered long enough, causing e.g. a w1_therm sensor to</span>
+<span class="del">- 		 * provide wrong conversion results</span>
+<span class="del">- 		 */</span>
+<span class="del">- 		ds2482_wait_1wire_idle(pdev);</span>
+<span class="del">- 		/* note: it seems like both SPU and APU have to be set! */</span>
+<span class="del">- 		retval = ds2482_send_cmd_data(pdev, DS2482_CMD_WRITE_CONFIG,</span>
+<span class="del">- 			ds2482_calculate_config(DS2482_REG_CFG_SPU |</span>
+<span class="del">- 						DS2482_REG_CFG_APU));</span>
+<span class="del">- 		ds2482_wait_1wire_idle(pdev);</span>
+<span class="del">- 	}</span>
+<span class="add">+ 	if (!delay)</span>
+<span class="add">+ 		return 1;</span>
+  
+<span class="del">- 	return retval;</span>
+<span class="add">+ 	pchan-&gt;spu = true;</span>
+<span class="add">+ 	return 0;</span>
+  }
+  
+  
+</div>
+</details></td>
+</tr>
+<tr data-type="conflict" data-category="staging">
+<td><code>staging-next</code></td>
+<td>staging</td>
+<td><span class="badge conflict">conflict</span></td>
+<td><code>-</code></td>
+<td>02:57 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">aa118c594ada3104da707b0bd2751d8d909e5165
+</div>
+</details></td>
+</tr>
+</tbody></table>
+<h2 id="by-category">By Category</h2>
+<h3>arch <span class="category-count">1</span></h3>
+<table>
+<thead>
+<tr><th>Tree</th><th>Type</th><th>Files</th><th>Time</th><th>Details</th></tr>
+</thead>
+<tbody>
+<tr>
+<td><code>arm-soc</code></td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>-</code></td>
+<td>00:36 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">8b09a287b6d54b850926a0cbcc9645cefc56c064
+</div>
+</details></td>
+</tr>
+</tbody></table>
+<h3>bpf <span class="category-count">1</span></h3>
+<table>
+<thead>
+<tr><th>Tree</th><th>Type</th><th>Files</th><th>Time</th><th>Details</th></tr>
+</thead>
+<tbody>
+<tr>
+<td><code>bpf-next</code></td>
+<td><span class="badge conflict">conflict</span></td>
+<td><code>include/linux/netdevice.h, kernel/bpf/btf.c, kernel/bpf/core.c (+4 more)</code></td>
+<td>00:52 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">78602613c42bb9113ceb09a15b664c3abbb16106
+<span class="hdr">diff --cc kernel/bpf/scev.c</span>
+<span class="ctx">index db123ef1f0718,4187ce955be99..133dc58d34ae8</span>
+<span class="hdr">--- a/kernel/bpf/scev.c</span>
+<span class="hdr">+++ b/kernel/bpf/scev.c</span>
+<span class="ctx">@@@ -1730,11 -1957,10 +1957,11 @@@ int bpf_init_scev(struct bpf_verifier_e</span>
+  		return -ENOMEM;
+  	env-&gt;scev = scev;
+  	bpf_mark_reg_known_scalar(&amp;scev-&gt;zero_reg, 0);
+<span class="del">- 	bpf_mark_reg_unknown_imprecise(&amp;scev-&gt;unknown_reg);</span>
+<span class="add">+ 	bpf_mark_reg_unknown(&amp;scev-&gt;unknown_reg);</span>
+  	/* A power of two for hash &amp; (exprs_ht_cnt - 1)` indexing. */
+  	scev-&gt;exprs_ht_cnt = roundup_pow_of_two(max(256U, DIV_ROUND_UP(env-&gt;prog-&gt;len, 4)));
+ -	scev-&gt;exprs_ht = kvcalloc(scev-&gt;exprs_ht_cnt, sizeof(*scev-&gt;exprs_ht), GFP_KERNEL_ACCOUNT);
+ +	scev-&gt;exprs_ht = kvzalloc_objs(*scev-&gt;exprs_ht, scev-&gt;exprs_ht_cnt,
+ +				       GFP_KERNEL_ACCOUNT);
+  	if (!scev-&gt;exprs_ht)
+  		goto nomem;
+  	if (expr0(scev, UNKNOWN) &lt; 0 || expr0(scev, OPAQUE)  &lt; 0)
+</div>
+</details></td>
+</tr>
+</tbody></table>
+<h3>bus <span class="category-count">1</span></h3>
+<table>
+<thead>
+<tr><th>Tree</th><th>Type</th><th>Files</th><th>Time</th><th>Details</th></tr>
+</thead>
+<tbody>
+<tr>
+<td><code>spi</code></td>
+<td><span class="badge conflict">conflict</span></td>
+<td><code>MAINTAINERS, drivers/spi/spi-amlogic-spisg.c, drivers/spi/spi-fsl-dspi.c (+9 more)</code></td>
+<td>00:49 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">a8e7cb39d558db2b5847b471f6adc0953b96c6c4
+<span class="hdr">diff --cc drivers/spi/spi-amlogic-spisg.c</span>
+<span class="ctx">index c59df9b115eed,33c5cbf57cb87..f2ae1388d75fd</span>
+<span class="hdr">--- a/drivers/spi/spi-amlogic-spisg.c</span>
+<span class="hdr">+++ b/drivers/spi/spi-amlogic-spisg.c</span>
+<span class="ctx">@@@ -706,9 -707,7 +707,7 @@@ static int aml_spisg_clk_init(struct sp</span>
+  
+  	clk_set_min_rate(spisg-&gt;pclk, SPISG_PCLK_RATE_MIN);
+  
+<span class="del">- 	clk_disable_unprepare(spisg-&gt;pclk);</span>
+<span class="del">- </span>
+ -	tbl = devm_kcalloc(dev, (DIV_NUM + 1), sizeof(*tbl), GFP_KERNEL);
+ +	tbl = devm_kzalloc_objs(dev, *tbl, (DIV_NUM + 1));
+  	if (!tbl)
+  		return -ENOMEM;
+  
+</div>
+</details></td>
+</tr>
+</tbody></table>
+<h3>clock <span class="category-count">1</span></h3>
+<table>
+<thead>
+<tr><th>Tree</th><th>Type</th><th>Files</th><th>Time</th><th>Details</th></tr>
+</thead>
+<tbody>
+<tr>
+<td><code>clk</code></td>
+<td><span class="badge conflict">conflict</span></td>
+<td><code>drivers/clk/bcm/clk-bcm2835.c, drivers/clk/clk-tps68470.c, drivers/clk/stm32/clk-stm32mp1.c (+1 more)</code></td>
+<td>01:00 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">c3b27ab0c2f23a5153418cd6aaa1ca81a19a2e63
+</div>
+</details></td>
+</tr>
+</tbody></table>
+<h3>core <span class="category-count">1</span></h3>
+<table>
+<thead>
+<tr><th>Tree</th><th>Type</th><th>Files</th><th>Time</th><th>Details</th></tr>
+</thead>
+<tbody>
+<tr>
+<td><code>kapi</code></td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>.gitignore, MAINTAINERS, Makefile (+10 more)</code></td>
+<td>00:53 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">f16dc30f1f2f1322070a7bd484ab7952071d5178
+<span class="hdr">diff --cc Makefile</span>
+<span class="ctx">index 7d8c4667e79f2,fd7917f78fa45..5a94f66da978b</span>
+<span class="hdr">--- a/Makefile</span>
+<span class="hdr">+++ b/Makefile</span>
+<span class="ctx">@@@ -2266,7 -2251,7 +2266,8 @@@ clean: $(clean-dirs</span>
+  		-o -name &#x27;*.ll&#x27; \
+  		-o -name &#x27;*.gcno&#x27; \
+  		-o -name &#x27;*.long-type-*.txt&#x27; \
+ +		-o -name &#x27;*.header-check&#x27; \
+<span class="add">+ 		-o -name &#x27;*.apispec.h&#x27; \</span>
+  		\) -type f -print \
+  		-o -name &#x27;.tmp_*&#x27; -print \
+  		| xargs rm -rf
+<span class="hdr">diff --cc fs/open.c</span>
+<span class="ctx">index bb484b07390ac,9f08c438f162a..f86d8955bdded</span>
+<span class="hdr">--- a/fs/open.c</span>
+<span class="hdr">+++ b/fs/open.c</span>
+<span class="ctx">@@@ -1563,19 -1861,239 +1887,252 @@@ int filp_close(struct file *filp, fl_ow</span>
+  }
+  EXPORT_SYMBOL(filp_close);
+  
+ +/* Like filp_close() but the last reference is put right here. */
+ +int filp_close_sync(struct file *filp, fl_owner_t id)
+ +{
+ +	int retval;
+ +
+ +	/* Kernel threads must never put their final reference here. */
+ +	VFS_WARN_ON_ONCE(current-&gt;flags &amp; PF_KTHREAD);
+ +	retval = filp_flush(filp, id);
+ +	fput_close_sync(filp);
+ +
+ +	return retval;
+ +}
+ +
+<span class="add">+ /**</span>
+<span class="add">+  * sys_close - Close a file descriptor</span>
+<span class="add">+  * @fd: The file descriptor to close</span>
+<span class="add">+  *</span>
+<span class="add">+  * long-desc: Terminates access to an open file descriptor, releasing the file</span>
+<span class="add">+  *   descriptor for reuse by subsequent open(), dup(), or similar syscalls.</span>
+<span class="add">+  *</span>
+<span class="add">+  *   Traditional POSIX advisory record locks held by the process on the</span>
+<span class="add">+  *   associated file are released when any of its fds for that inode is</span>
+<span class="add">+  *   closed, not only the last one. OFD locks and flock locks are associated</span>
+<span class="add">+  *   with the open file description and are only released when the last</span>
+<span class="add">+  *   reference to that open file description is dropped.</span>
+<span class="add">+  *</span>
+<span class="add">+  *   Closing a file descriptor drops one reference to its open file</span>
+<span class="add">+  *   description. Other descriptors (dup(), fork(), SCM_RIGHTS messages in</span>
+<span class="add">+  *   flight) and operations still running on the file, such as a concurrent</span>
+<span class="add">+  *   read(), also hold references. Only when the last reference is dropped are</span>
+<span class="add">+  *   the associated resources freed. If the file was previously unlinked, the</span>
+<span class="add">+  *   file itself is deleted when the last reference is dropped.</span>
+<span class="add">+  *</span>
+<span class="add">+  *   Except when close() fails with EBADF, the file descriptor is released even</span>
+<span class="add">+  *   when close() returns an error, because it is released before the flush</span>
+<span class="add">+  *   that may fail. POSIX leaves the state of the descriptor unspecified after</span>
+<span class="add">+  *   EINTR. Retrying close() after an error may close an unrelated file</span>
+<span class="add">+  *   descriptor that another thread has since been given.</span>
+<span class="add">+  *</span>
+<span class="add">+  *   Errors returned from close() come only from the file&#x27;s -&gt;flush() method,</span>
+<span class="add">+  *   called by filp_flush(). Errors from -&gt;release() are not reported.</span>
+<span class="add">+  *   Filesystems without a -&gt;flush() method, such as ext4, xfs and btrfs, never</span>
+<span class="add">+  *   report write errors from close(). Network filesystems such as NFS, CIFS and</span>
+<span class="add">+  *   FUSE implement -&gt;flush() and report deferred write errors (EIO, ENOSPC,</span>
+<span class="add">+  *   EDQUOT) at close time. A successful return does not mean the data reached</span>
+<span class="add">+  *   storage; call fsync() before close() for that.</span>
+<span class="add">+  *</span>
+<span class="add">+  *   On close, the following cleanup operations are performed: the -&gt;flush()</span>
+<span class="add">+  *   method is called if the file has one, POSIX advisory locks are removed,</span>
+<span class="add">+  *   dnotify registrations are cleaned up, and the file reference is released.</span>
+<span class="add">+  *   If this was the last reference, additional cleanup includes: fsnotify close</span>
+<span class="add">+  *   notification, epoll cleanup, OFD, flock and lease removal, FASYNC cleanup,</span>
+<span class="add">+  *   the -&gt;release() method, and the file structure deallocation.</span>
+<span class="add">+  *</span>
+<span class="add">+  * contexts: process, sleepable</span>
+<span class="add">+  *</span>
+<span class="add">+  * param: fd</span>
+<span class="add">+  *   type: fd, input</span>
+<span class="add">+  *   constraint-type: range(0, INT_MAX)</span>
+<span class="add">+  *   cdesc: Must be a valid, open file descriptor for the current process.</span>
+<span class="add">+  *     The value 0, 1, or 2 (stdin, stdout, stderr) may be closed like any other</span>
+<span class="add">+  *     fd, though this is unusual and may cause issues with libraries that assume</span>
+<span class="add">+  *     these descriptors are valid. The parameter is unsigned int to match kernel</span>
+<span class="add">+  *     file descriptor table indexing. A value that is not open, including any</span>
+<span class="add">+  *     value at or above the current table size, fails with EBADF.</span>
+<span class="add">+  *</span>
+<span class="add">+  * return:</span>
+<span class="add">+  *   type: int</span>
+<span class="add">+  *   check-type: exact</span>
+<span class="add">+  *   success: 0</span>
+<span class="add">+  *   desc: Returns 0 on success. On error, returns a negative error code. Except</span>
+<span class="add">+  *     for EBADF, the file descriptor is still closed when an error is returned</span>
+<span class="add">+  *     and must not be used again. The error comes from the file&#x27;s -&gt;flush()</span>
+<span class="add">+  *     method, not from the fd remaining open. With EBADF, nothing was released.</span>
+<span class="add">+  *</span>
+<span class="add">+  * error: EBADF, Bad file descriptor</span>
+<span class="add">+  *   desc: fd is at or above the file descriptor table size, has no file</span>
+<span class="add">+  *     assigned (including a slot reserved by a concurrent open() that has not</span>
+<span class="add">+  *     installed its file yet), or was already closed. This is the only error</span>
+<span class="add">+  *     for which no file descriptor was released.</span>
+<span class="add">+  *</span>
+<span class="add">+  * error: EINTR, Interrupted system call</span>
+<span class="add">+  *   desc: The flush operation was interrupted by a signal before completion.</span>
+<span class="add">+  *     This occurs when a driver&#x27;s -&gt;flush() method (for example wdm_flush() in</span>
+<span class="add">+  *     drivers/usb/class/cdc-wdm.c) performs an interruptible wait that receives</span>
+<span class="add">+  *     a signal. The file descriptor is still released and must not be used</span>
+<span class="add">+  *     again. Kernel-internal restart codes (ERESTARTSYS,</span>
+<span class="add">+  *     ERESTARTNOINTR, ERESTARTNOHAND, ERESTART_RESTARTBLOCK) are converted to</span>
+<span class="add">+  *     EINTR because restarting the syscall would be incorrect once the fd is</span>
+<span class="add">+  *     freed.</span>
+<span class="add">+  *</span>
+<span class="add">+  * error: EIO, I/O error</span>
+<span class="add">+  *   desc: The file&#x27;s -&gt;flush() method reported an I/O error, typically a</span>
+<span class="add">+  *     deferred write error on a network filesystem such as NFS, CIFS or FUSE,</span>
+<span class="add">+  *     or an error from a driver&#x27;s -&gt;flush(). Previously buffered write data</span>
+<span class="add">+  *     may have been lost.</span>
+<span class="add">+  *</span>
+<span class="add">+  * error: ENOSPC, No space left on device</span>
+<span class="add">+  *   desc: The file&#x27;s -&gt;flush() method reported that there was insufficient</span>
+<span class="add">+  *     space to flush buffered writes, for example on NFS when the server runs</span>
+<span class="add">+  *     out of space between write() and close().</span>
+<span class="add">+  *</span>
+<span class="add">+  * error: EDQUOT, Disk quota exceeded</span>
+<span class="add">+  *   desc: The file&#x27;s -&gt;flush() method reported that the user&#x27;s disk quota was</span>
+<span class="add">+  *     exceeded while flushing buffered writes, for example on NFS when the</span>
+<span class="add">+  *     quota is exceeded between write() and close().</span>
+<span class="add">+  *</span>
+<span class="add">+  * lock: files-&gt;file_lock</span>
+<span class="add">+  *   type: spinlock</span>
+<span class="add">+  *   acquired: true</span>
+<span class="add">+  *   released: true</span>
+<span class="add">+  *   desc: Taken by file_close_fd() to look up and clear the fd slot atomically,</span>
+<span class="add">+  *     so two concurrent close() calls on one fd cannot both obtain the struct</span>
+<span class="add">+  *     file. Dropped before -&gt;flush() and the final fput. From then on the fd</span>
+<span class="add">+  *     number may be handed out again. An fd reserved by a concurrent open() but</span>
+<span class="add">+  *     not yet installed has a NULL slot, so close() returns EBADF.</span>
+<span class="add">+  *</span>
+<span class="add">+  * lock: file-&gt;f_lock</span>
+<span class="add">+  *   type: spinlock</span>
+<span class="add">+  *   acquired: true</span>
+<span class="add">+  *   released: true</span>
+<span class="add">+  *   desc: Taken from __fput() on the last reference, by eventpoll_release_file()</span>
+<span class="add">+  *     when the file is registered with epoll, and by fasync_remove_entry()</span>
+<span class="add">+  *     (through the -&gt;fasync() method) when FASYNC is set. Protects the epoll</span>
+<span class="add">+  *     and fasync links of the file.</span>
+<span class="add">+  *</span>
+<span class="add">+  * lock: ep-&gt;mtx</span>
+<span class="add">+  *   type: mutex</span>
+<span class="add">+  *   acquired: true</span>
+<span class="add">+  *   released: true</span>
+<span class="add">+  *   desc: Acquired during epoll cleanup if the file was monitored by epoll.</span>
+<span class="add">+  *     Used to safely remove the file from epoll interest lists.</span>
+<span class="add">+  *</span>
+<span class="add">+  * lock: flc_lock</span>
+<span class="add">+  *   type: spinlock</span>
+<span class="add">+  *   acquired: true</span>
+<span class="add">+  *   released: true</span>
+<span class="add">+  *   desc: File lock context spinlock. Taken by locks_remove_posix() from</span>
+<span class="add">+  *     filp_flush() on every close when the file has POSIX locks, and by</span>
+<span class="add">+  *     locks_remove_file() from __fput() on the last reference to remove OFD,</span>
+<span class="add">+  *     flock, and lease locks.</span>
+<span class="add">+  *</span>
+<span class="add">+  * signal: pending_signals</span>
+<span class="add">+  *   direction: receive</span>
+<span class="add">+  *   action: return</span>
+<span class="add">+  *   condition: When close-time flush performs interruptible wait</span>
+<span class="add">+  *   desc: If the close-time -&gt;flush() method (for example wdm_flush() in</span>
+<span class="add">+  *     cdc-wdm) performs an interruptible wait and a signal is pending, the wait</span>
+<span class="add">+  *     is interrupted. Any kernel restart codes are converted to EINTR since</span>
+<span class="add">+  *     close cannot be restarted after the fd is freed.</span>
+<span class="add">+  *   errno: -EINTR</span>
+<span class="add">+  *   timing: during</span>
+<span class="add">+  *   restartable: no</span>
+<span class="add">+  *</span>
+<span class="add">+  * side-effect: resource_destroy | irreversible</span>
+<span class="add">+  *   target: File descriptor table entry</span>
+<span class="add">+  *   desc: The file descriptor is removed from the process&#x27;s file descriptor</span>
+<span class="add">+  *     table, making the fd number available for reuse by subsequent open(),</span>
+<span class="add">+  *     dup(), or similar calls. This happens before the flush that may fail, so</span>
+<span class="add">+  *     an error return does not undo it.</span>
+<span class="add">+  *   condition: Always (when fd is valid)</span>
+<span class="add">+  *   reversible: no</span>
+<span class="add">+  *</span>
+<span class="add">+  * side-effect: lock_release</span>
+<span class="add">+  *   target: POSIX advisory locks, OFD locks, flock locks</span>
+<span class="add">+  *   desc: POSIX locks held by this process on the inode are removed on every</span>
+<span class="add">+  *     close via locks_remove_posix() in filp_flush(), except for O_PATH files.</span>
+<span class="add">+  *     OFD and flock locks are removed via locks_remove_file() in __fput() only</span>
+<span class="add">+  *     when this is the last reference to the open file description.</span>
+<span class="add">+  *   condition: Any close of a non-O_PATH file for POSIX locks, last reference</span>
+<span class="add">+  *     for OFD and flock locks</span>
+<span class="add">+  *   reversible: no</span>
+<span class="add">+  *</span>
+<span class="add">+  * side-effect: resource_destroy</span>
+<span class="add">+  *   target: File leases</span>
+<span class="add">+  *   desc: Any file leases held on the file are removed during locks_remove_file()</span>
+<span class="add">+  *     when this is the last reference to the open file description.</span>
+<span class="add">+  *   condition: File had leases and this is the last reference</span>
+<span class="add">+  *   reversible: no</span>
+<span class="add">+  *</span>
+<span class="add">+  * side-effect: modify_state</span>
+<span class="add">+  *   target: dnotify registrations</span>
+<span class="add">+  *   desc: Directory notification (dnotify) registrations associated with this</span>
+<span class="add">+  *     file are cleaned up via dnotify_flush(). This only applies to directories.</span>
+<span class="add">+  *   condition: File is a directory with dnotify registrations</span>
+<span class="add">+  *   reversible: no</span>
+<span class="add">+  *</span>
+<span class="add">+  * side-effect: modify_state</span>
+<span class="add">+  *   target: epoll interest lists</span>
+<span class="add">+  *   desc: If the file was being monitored by epoll instances, it is removed</span>
+<span class="add">+  *     from those interest lists via eventpoll_release(), which runs from</span>
+<span class="add">+  *     __fput() only on the last reference. While other references remain, the</span>
+<span class="add">+  *     epoll registrations stay active.</span>
+<span class="add">+  *   condition: File was added to epoll instances and this is the last reference</span>
+<span class="add">+  *   reversible: no</span>
+<span class="add">+  *</span>
+<span class="add">+  * side-effect: filesystem</span>
+<span class="add">+  *   target: Buffered data</span>
+<span class="add">+  *   desc: The file&#x27;s -&gt;flush() method runs before the file reference is</span>
+<span class="add">+  *     dropped (for example on NFS, CIFS and FUSE) and may return errors such as</span>
+<span class="add">+  *     EIO, ENOSPC or EDQUOT.</span>
+<span class="add">+  *   condition: The filesystem or driver provides a -&gt;flush() method</span>
+<span class="add">+  *   reversible: no</span>
+<span class="add">+  *</span>
+<span class="add">+  * side-effect: free_memory</span>
+<span class="add">+  *   target: struct file and related structures</span>
+<span class="add">+  *   desc: When this is the last reference to the file, the file structure is</span>
+<span class="add">+  *     freed and the dentry and mount references are released.</span>
+<span class="add">+  *   condition: This is the last reference to the file</span>
+<span class="add">+  *   reversible: no</span>
+<span class="add">+  *</span>
+<span class="add">+  * side-effect: filesystem</span>
+<span class="add">+  *   target: Unlinked file deletion</span>
+<span class="add">+  *   desc: If the file was previously unlinked (deleted) but kept open, closing</span>
+<span class="add">+  *     the last reference causes the actual file data to be removed from the</span>
+<span class="add">+  *     filesystem and the inode to be freed.</span>
+<span class="add">+  *   condition: File was unlinked and this is the last reference</span>
+<span class="add">+  *   reversible: no</span>
+<span class="add">+  *</span>
+<span class="add">+  * state-trans: file_descriptor</span>
+<span class="add">+  *   from: open</span>
+<span class="add">+  *   to: closed/free</span>
+<span class="add">+  *   condition: Valid fd passed to close</span>
+<span class="add">+  *   desc: The file descriptor transitions from open (usable) to closed (invalid).</span>
+<span class="add">+  *     The fd number becomes available for reuse.</span>
+<span class="add">+  *</span>
+<span class="add">+  * state-trans: file_reference_count</span>
+<span class="add">+  *   from: n</span>
+<span class="add">+  *   to: n-1 (or freed if n was 1)</span>
+<span class="add">+  *   condition: Always on successful fd lookup</span>
+<span class="add">+  *   desc: The file&#x27;s reference count is decremented. If this was the last</span>
+<span class="add">+  *     reference, the file is fully cleaned up and freed.</span>
+<span class="add">+  *</span>
+<span class="add">+  * examples: close(fd);  // Ignoring the result loses -&gt;flush() errors</span>
+<span class="add">+  *   if (close(fd) == -1) perror(&quot;close&quot;);  // Log errors for debugging</span>
+<span class="add">+  *   fsync(fd); close(fd);  // Ensure data persistence before closing</span>
+<span class="add">+  *</span>
+<span class="add">+  * notes: close() drops its reference with fput_close_sync(), so when it is the last</span>
+<span class="add">+  *   reference __fput() runs synchronously in the calling task before close()</span>
+<span class="add">+  *   returns, instead of being deferred to task work.</span>
+<span class="add">+  *</span>
+<span class="add">+  *   Calling close() on a file descriptor while another thread is using it</span>
+<span class="add">+  *   (e.g., in a blocking read() or write()) does not interrupt the blocked</span>
+<span class="add">+  *   operation. The blocked operation continues on the underlying file and</span>
+<span class="add">+  *   may complete even after close() returns.</span>
+<span class="add">+  */</span>
+  /*
+   * Careful here! We test whether the file pointer is NULL before
+   * releasing the fd. This ensures that one clone task can&#x27;t release
+<span class="hdr">diff --cc include/linux/syscalls.h</span>
+<span class="ctx">index 552d9710a0d57,b062bac9ea1ed..ce707e3e05cd0</span>
+<span class="hdr">--- a/include/linux/syscalls.h</span>
+<span class="hdr">+++ b/include/linux/syscalls.h</span>
+<span class="ctx">@@@ -92,9 -92,12 +92,13 @@@ struct file_attr</span>
+  #include &lt;linux/quota.h&gt;
+  #include &lt;linux/key.h&gt;
+  #include &lt;linux/personality.h&gt;
+ +#include &lt;linux/error-injection.h&gt;
+  #include &lt;trace/syscall.h&gt;
+  
+<span class="add">+ #ifdef CONFIG_KAPI_RUNTIME_CHECKS</span>
+<span class="add">+ #include &lt;linux/kapi_syscall.h&gt;</span>
+<span class="add">+ #endif</span>
+<span class="add">+ </span>
+  #ifdef CONFIG_ARCH_HAS_SYSCALL_WRAPPER
+  /*
+   * It may be useful for an architecture to override the definitions of the
+</div>
+</details></td>
+</tr>
+</tbody></table>
+<h3>fixes <span class="category-count">2</span></h3>
+<table>
+<thead>
+<tr><th>Tree</th><th>Type</th><th>Files</th><th>Time</th><th>Details</th></tr>
+</thead>
+<tbody>
+<tr>
+<td><code>iwlwifi</code></td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>drivers/net/wireless/intel/iwlwifi/iwl-nvm-parse.c, drivers/net/wireless/intel/iwlwifi/iwl-trans.c, drivers/net/wireless/intel/iwlwifi/mvm/debugfs.c (+2 more)</code></td>
+<td>01:11 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">0a6e98836e7daaa67c696737aa1d86c128d9a920
+</div>
+</details></td>
+</tr>
+<tr>
+<td><code>fixes-next</code></td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>MAINTAINERS, drivers/pci/controller/pci-hyperv.c, drivers/w1/masters/ds2482.c (+6 more)</code></td>
+<td>02:47 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">6b41765628ac11f0c47748d57a29ffdfbc0ec204
+<span class="hdr">diff --cc drivers/w1/masters/ds2482.c</span>
+<span class="ctx">index 43cf860763be2,700c11aecbad4..2c9e5a216cae9</span>
+<span class="hdr">--- a/drivers/w1/masters/ds2482.c</span>
+<span class="hdr">+++ b/drivers/w1/masters/ds2482.c</span>
+<span class="ctx">@@@ -423,24 -437,16 +437,16 @@@ static u8 ds2482_w1_set_pullup(void *da</span>
+  
+  	/* if delay is non-zero activate the pullup,
+  	 * the strong pullup will be automatically deactivated
+ -	 * by the master, so do not explicitly deactive it
+ +	 * by the master, so do not explicitly deactivate it
+<span class="add">+ 	 *</span>
+<span class="add">+ 	 * The setting is used up by the next byte on any channel of the chip:</span>
+<span class="add">+ 	 * ds2482_w1_write_byte() makes it, in one go with the byte.</span>
+  	 */
+<span class="del">- 	if (delay) {</span>
+<span class="del">- 		/* both waits are crucial, otherwise devices might not be</span>
+<span class="del">- 		 * powered long enough, causing e.g. a w1_therm sensor to</span>
+<span class="del">- 		 * provide wrong conversion results</span>
+<span class="del">- 		 */</span>
+<span class="del">- 		ds2482_wait_1wire_idle(pdev);</span>
+<span class="del">- 		/* note: it seems like both SPU and APU have to be set! */</span>
+<span class="del">- 		retval = ds2482_send_cmd_data(pdev, DS2482_CMD_WRITE_CONFIG,</span>
+<span class="del">- 			ds2482_calculate_config(DS2482_REG_CFG_SPU |</span>
+<span class="del">- 						DS2482_REG_CFG_APU));</span>
+<span class="del">- 		ds2482_wait_1wire_idle(pdev);</span>
+<span class="del">- 	}</span>
+<span class="add">+ 	if (!delay)</span>
+<span class="add">+ 		return 1;</span>
+  
+<span class="del">- 	return retval;</span>
+<span class="add">+ 	pchan-&gt;spu = true;</span>
+<span class="add">+ 	return 0;</span>
+  }
+  
+  
+</div>
+</details></td>
+</tr>
+</tbody></table>
+<h3>fs <span class="category-count">1</span></h3>
+<table>
+<thead>
+<tr><th>Tree</th><th>Type</th><th>Files</th><th>Time</th><th>Details</th></tr>
+</thead>
+<tbody>
+<tr>
+<td><code>exfat</code></td>
+<td><span class="badge conflict">conflict</span></td>
+<td><code>fs/exfat/file.c, fs/exfat/inode.c, fs/exfat/iomap.c (+1 more)</code></td>
+<td>01:21 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">aacc8a66deaa9eb7ddc11f6c61b10f7c1b91196c
+<span class="hdr">diff --cc fs/exfat/nls.c</span>
+<span class="ctx">index 47aa187c54ccc,bec4d9e5e5bd9..e5a6baa427106</span>
+<span class="hdr">--- a/fs/exfat/nls.c</span>
+<span class="hdr">+++ b/fs/exfat/nls.c</span>
+<span class="ctx">@@@ -655,7 -655,14 +655,14 @@@ static int exfat_load_upcase_table(stru</span>
+  	unsigned char skip = false;
+  	unsigned short *upcase_table;
+  
+<span class="add">+ 	if (!tbl_size || (tbl_size &amp; 1)) {</span>
+<span class="add">+ 		exfat_fs_error(sb,</span>
+<span class="add">+ 			       &quot;bad upcase table size (%llu bytes). Please run fsck&quot;,</span>
+<span class="add">+ 			       tbl_size);</span>
+<span class="add">+ 		return -EINVAL;</span>
+<span class="add">+ 	}</span>
+<span class="add">+ </span>
+ -	upcase_table = kvcalloc(UTBL_COUNT, sizeof(unsigned short), GFP_KERNEL);
+ +	upcase_table = kvzalloc_objs(unsigned short, UTBL_COUNT);
+  	if (!upcase_table)
+  		return -ENOMEM;
+  
+</div>
+</details></td>
+</tr>
+</tbody></table>
+<h3>gpio <span class="category-count">1</span></h3>
+<table>
+<thead>
+<tr><th>Tree</th><th>Type</th><th>Files</th><th>Time</th><th>Details</th></tr>
+</thead>
+<tbody>
+<tr>
+<td><code>gpio-brgl</code></td>
+<td><span class="badge conflict">conflict</span></td>
+<td><code>MAINTAINERS, drivers/gpio/gpio-74x164.c, drivers/gpio/gpio-adnp.c (+111 more)</code></td>
+<td>01:20 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">97cb95d49256d6da0d59199e542750b09a22217c
+<span class="hdr">diff --cc drivers/gpio/gpio-mpc8xxx.c</span>
+<span class="ctx">index 312250deb763c,fb280d87c578a..54ac69f96628e</span>
+<span class="hdr">--- a/drivers/gpio/gpio-mpc8xxx.c</span>
+<span class="hdr">+++ b/drivers/gpio/gpio-mpc8xxx.c</span>
+<span class="ctx">@@@ -306,27 -306,20 +306,28 @@@ static const struct mpc8xxx_gpio_devtyp</span>
+  };
+  
+  static const struct of_device_id mpc8xxx_gpio_ids[] = {
+<span class="del">- 	{ .compatible = &quot;fsl,mpc8314-gpio&quot;, },</span>
+<span class="del">- 	{ .compatible = &quot;fsl,mpc8349-gpio&quot;, },</span>
+<span class="del">- 	{ .compatible = &quot;fsl,mpc8572-gpio&quot;, .data = &amp;mpc8572_gpio_devtype, },</span>
+<span class="del">- 	{ .compatible = &quot;fsl,mpc8610-gpio&quot;, },</span>
+<span class="del">- 	{ .compatible = &quot;fsl,mpc5121-gpio&quot;, .data = &amp;mpc512x_gpio_devtype, },</span>
+<span class="del">- 	{ .compatible = &quot;fsl,mpc5125-gpio&quot;, .data = &amp;mpc5125_gpio_devtype, },</span>
+<span class="del">- 	{ .compatible = &quot;fsl,pq3-gpio&quot;,     },</span>
+<span class="del">- 	{ .compatible = &quot;fsl,ls1028a-gpio&quot;, },</span>
+<span class="del">- 	{ .compatible = &quot;fsl,ls1088a-gpio&quot;, },</span>
+<span class="del">- 	{ .compatible = &quot;fsl,qoriq-gpio&quot;,   },</span>
+<span class="del">- 	{}</span>
+<span class="add">+ 	{ .compatible = &quot;fsl,mpc8314-gpio&quot; },</span>
+<span class="add">+ 	{ .compatible = &quot;fsl,mpc8349-gpio&quot; },</span>
+<span class="add">+ 	{ .compatible = &quot;fsl,mpc8572-gpio&quot;, .data = &amp;mpc8572_gpio_devtype },</span>
+<span class="add">+ 	{ .compatible = &quot;fsl,mpc8610-gpio&quot; },</span>
+<span class="add">+ 	{ .compatible = &quot;fsl,mpc5121-gpio&quot;, .data = &amp;mpc512x_gpio_devtype },</span>
+<span class="add">+ 	{ .compatible = &quot;fsl,mpc5125-gpio&quot;, .data = &amp;mpc5125_gpio_devtype },</span>
+<span class="add">+ 	{ .compatible = &quot;fsl,pq3-gpio&quot; },</span>
+<span class="add">+ 	{ .compatible = &quot;fsl,ls1028a-gpio&quot; },</span>
+<span class="add">+ 	{ .compatible = &quot;fsl,ls1088a-gpio&quot; },</span>
+<span class="add">+ 	{ .compatible = &quot;fsl,qoriq-gpio&quot; },</span>
+<span class="add">+ 	{ }</span>
+  };
+<span class="add">+ MODULE_DEVICE_TABLE(of, mpc8xxx_gpio_ids);</span>
+  
+ +static void mpc8xxx_irq_domain_remove(void *data)
+ +{
+ +	struct mpc8xxx_gpio_chip *mpc8xxx_gc = data;
+ +
+ +	if (mpc8xxx_gc-&gt;irq)
+ +		irq_domain_remove(mpc8xxx_gc-&gt;irq);
+ +}
+ +
+  static int mpc8xxx_probe(struct platform_device *pdev)
+  {
+  	const struct mpc8xxx_gpio_devtype *devtype = NULL;
+<span class="hdr">diff --cc drivers/gpio/gpio-mxc.c</span>
+<span class="ctx">index 7dabe8073dc65,1fdbbc9617aa9..978aa5bca6c59</span>
+<span class="hdr">--- a/drivers/gpio/gpio-mxc.c</span>
+<span class="hdr">+++ b/drivers/gpio/gpio-mxc.c</span>
+<span class="ctx">@@@ -425,7 -479,7 +479,7 @@@ static int mxc_gpio_probe(struct platfo</span>
+  	int irq_base;
+  	int err;
+  
+<span class="del">- 	port = devm_kzalloc_obj(&amp;pdev-&gt;dev, *port);</span>
+ -	port = devm_kzalloc(dev, sizeof(*port), GFP_KERNEL);
+<span class="add">++	port = devm_kzalloc_obj(dev, *port);</span>
+  	if (!port)
+  		return -ENOMEM;
+  
+<span class="hdr">diff --cc drivers/gpio/gpio-sim.c</span>
+<span class="ctx">index ce205e88c0aba,898638e2794cb..01ef8e2df22c7</span>
+<span class="hdr">--- a/drivers/gpio/gpio-sim.c</span>
+<span class="hdr">+++ b/drivers/gpio/gpio-sim.c</span>
+<span class="ctx">@@@ -361,11 -361,11 +361,11 @@@ static int gpio_sim_setup_sysfs(struct </span>
+  	unsigned int num_lines = chip-&gt;gc.ngpio;
+  	struct device *dev = chip-&gt;gc.parent;
+  	struct attribute_group *attr_group;
+<span class="del">- 	struct attribute **attrs;</span>
+<span class="add">+ 	const struct attribute **attrs;</span>
+  	int i, ret;
+  
+ -	chip-&gt;attr_groups = devm_kcalloc(dev, sizeof(*chip-&gt;attr_groups),
+ -					 num_lines + 1, GFP_KERNEL);
+ +	chip-&gt;attr_groups = devm_kzalloc_objs(dev, *chip-&gt;attr_groups,
+ +					      num_lines + 1);
+  	if (!chip-&gt;attr_groups)
+  		return -ENOMEM;
+  
+</div>
+</details></td>
+</tr>
+</tbody></table>
+<h3>graphics <span class="category-count">2</span></h3>
+<table>
+<thead>
+<tr><th>Tree</th><th>Type</th><th>Files</th><th>Time</th><th>Details</th></tr>
+</thead>
+<tbody>
+<tr>
+<td><code>amdgpu</code></td>
+<td><span class="badge conflict">conflict</span></td>
+<td><code>drivers/gpu/drm/amd/amdgpu/amdgpu_debugfs.c, drivers/gpu/drm/amd/amdgpu/amdgpu_gem.c, drivers/gpu/drm/amd/amdgpu/amdgpu_kms.c (+16 more)</code></td>
+<td>01:21 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">0161b55c2b795c7c08962744b75060f25abf26a3
+<span class="hdr">diff --cc drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_freesync.c</span>
+<span class="ctx">index 0be4506e9ae5b,40f1dd8af21c3..1965dda63bd28</span>
+<span class="hdr">--- a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_freesync.c</span>
+<span class="hdr">+++ b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_freesync.c</span>
+<span class="ctx">@@@ -127,18 -152,32 +152,40 @@@ void amdgpu_dm_get_freesync_config_for_</span>
+  
+  	aconnector = to_amdgpu_dm_connector(new_con_state-&gt;base.connector);
+  
+<span class="add">+ 	vrr_timing_valid = amdgpu_dm_is_vrr_timing_valid(new_crtc_state-&gt;stream,</span>
+<span class="add">+ 							 aconnector-&gt;min_vfreq,</span>
+<span class="add">+ 							 aconnector-&gt;max_vfreq);</span>
+<span class="add">+ 	if (!vrr_timing_valid)</span>
+<span class="add">+ 		drm_dbg_kms(new_con_state-&gt;base.connector-&gt;dev,</span>
+<span class="add">+ 			    &quot;VRR invalid %s %s %dx%d@%d %d-%d clk=%u h=%u v=%u\n&quot;,</span>
+<span class="add">+ 			    new_con_state-&gt;base.connector-&gt;name, mode-&gt;name,</span>
+<span class="add">+ 			    mode-&gt;hdisplay, mode-&gt;vdisplay, vrefresh,</span>
+<span class="add">+ 			    aconnector-&gt;min_vfreq, aconnector-&gt;max_vfreq,</span>
+<span class="add">+ 			    new_crtc_state-&gt;stream-&gt;timing.pix_clk_100hz,</span>
+<span class="add">+ 			    new_crtc_state-&gt;stream-&gt;timing.h_total,</span>
+<span class="add">+ 			    new_crtc_state-&gt;stream-&gt;timing.v_total);</span>
+<span class="add">+ </span>
+  	new_crtc_state-&gt;vrr_supported = new_con_state-&gt;freesync_capable &amp;&amp;
+  					vrefresh &gt;= aconnector-&gt;min_vfreq &amp;&amp;
+<span class="del">- 					vrefresh &lt;= aconnector-&gt;max_vfreq;</span>
+<span class="add">+ 					vrefresh &lt;= aconnector-&gt;max_vfreq &amp;&amp;</span>
+<span class="add">+ 					vrr_timing_valid;</span>
+<span class="add">+ </span>
+<span class="add">+ 	/*</span>
+<span class="add">+ 	 * DC reads allow_freesync while validating the new state, for example</span>
+<span class="add">+ 	 * to keep SubVP off a single FreeSync display, but it is otherwise set</span>
+<span class="add">+ 	 * only on the first flip after the commit.  Set it here, so that a</span>
+<span class="add">+ 	 * stream created by this commit is not validated without it.</span>
+<span class="add">+ 	 */</span>
+<span class="add">+ 	new_crtc_state-&gt;stream-&gt;allow_freesync = new_crtc_state-&gt;vrr_supported;</span>
+  
+ +	/*
+ +	 * DC reads allow_freesync while validating the new state, for example
+ +	 * to keep SubVP off a single FreeSync display, but it is otherwise set
+ +	 * only on the first flip after the commit.  Set it here, so that a
+ +	 * stream created by this commit is not validated without it.
+ +	 */
+ +	new_crtc_state-&gt;stream-&gt;allow_freesync = new_crtc_state-&gt;vrr_supported;
+ +
+  	if (new_crtc_state-&gt;vrr_supported) {
+  		new_crtc_state-&gt;stream-&gt;ignore_msa_timing_param = true;
+  		fs_vid_mode = new_crtc_state-&gt;freesync_config.state == VRR_STATE_ACTIVE_FIXED;
+<span class="hdr">diff --cc drivers/gpu/drm/amd/display/amdgpu_dm/tests/amdgpu_dm_crtc_test.c</span>
+<span class="ctx">index abdcf8fd808b9,c130d809098ca..c86aaaca911f0</span>
+<span class="hdr">--- a/drivers/gpu/drm/amd/display/amdgpu_dm/tests/amdgpu_dm_crtc_test.c</span>
+<span class="hdr">+++ b/drivers/gpu/drm/amd/display/amdgpu_dm/tests/amdgpu_dm_crtc_test.c</span>
+<span class="ctx">@@@ -1628,8 -1626,8 +1626,8 @@@ static void dm_test_crtc_destroy_cleans</span>
+  	KUNIT_ASSERT_NOT_ERR_OR_NULL(test, plane);
+  
+  	/* amdgpu_dm_crtc_destroy() kfree()s the CRTC, so use a plain alloc. */
+ -	acrtc = kzalloc_obj(*acrtc, GFP_KERNEL);
+ +	acrtc = kzalloc_obj(*acrtc);
+<span class="del">- 	KUNIT_ASSERT_NOT_ERR_OR_NULL(test, acrtc);</span>
+<span class="add">+ 	KUNIT_ASSERT_NOT_NULL(test, acrtc);</span>
+  
+  	ret = drm_crtc_init_with_planes(&amp;adev-&gt;ddev, &amp;acrtc-&gt;base, plane,
+  					NULL, &amp;dm_test_crtc_funcs, NULL);
+<span class="ctx">@@@ -1695,8 -1693,8 +1693,8 @@@ static void dm_test_crtc_reset_state_re</span>
+  	kref_get(&amp;stream-&gt;refcount);
+  
+  	/* reset_state kfree()s the old state, so use a plain (unmanaged) alloc. */
+ -	old = kzalloc_obj(*old, GFP_KERNEL);
+ +	old = kzalloc_obj(*old);
+<span class="del">- 	KUNIT_ASSERT_NOT_ERR_OR_NULL(test, old);</span>
+<span class="add">+ 	KUNIT_ASSERT_NOT_NULL(test, old);</span>
+  	old-&gt;stream = stream;
+  	crtc-&gt;state = &amp;old-&gt;base;
+  
+<span class="hdr">diff --cc drivers/gpu/drm/amd/display/amdgpu_dm/tests/amdgpu_dm_irq_test.c</span>
+<span class="ctx">index 8a0d68fc74d05,8c112bda46c89..1e7f128c65841</span>
+<span class="hdr">--- a/drivers/gpu/drm/amd/display/amdgpu_dm/tests/amdgpu_dm_irq_test.c</span>
+<span class="hdr">+++ b/drivers/gpu/drm/amd/display/amdgpu_dm/tests/amdgpu_dm_irq_test.c</span>
+<span class="ctx">@@@ -2293,8 -2328,8 +2328,8 @@@ dm_test_setup_hpd_rx_offload_work(struc</span>
+  	link-&gt;connector_signal = SIGNAL_TYPE_DISPLAY_PORT;
+  	aconn-&gt;dc_link = link;
+  
+ -	offload_work = kzalloc_obj(*offload_work, GFP_KERNEL);
+ +	offload_work = kzalloc_obj(*offload_work);
+<span class="del">- 	KUNIT_ASSERT_NOT_ERR_OR_NULL(test, offload_work);</span>
+<span class="add">+ 	KUNIT_ASSERT_NOT_NULL(test, offload_work);</span>
+  	offload_work-&gt;offload_wq = offload_wq;
+  	offload_work-&gt;adev = adev;
+  	INIT_WORK(&amp;offload_work-&gt;work, dm_handle_hpd_rx_offload_work);
+<span class="ctx">@@@ -3766,8 -3808,8 +3808,8 @@@ static void dm_test_pflip_high_irq_comp</span>
+  	acrtc-&gt;pflip_status = AMDGPU_FLIP_SUBMITTED;
+  
+  	/* drm_crtc_send_vblank_event() consumes (kfree()s) the event. */
+ -	event = kzalloc_obj(*event, GFP_KERNEL);
+ +	event = kzalloc_obj(*event);
+<span class="del">- 	KUNIT_ASSERT_NOT_ERR_OR_NULL(test, event);</span>
+<span class="add">+ 	KUNIT_ASSERT_NOT_NULL(test, event);</span>
+  	acrtc-&gt;event = event;
+  
+  	/* Balance the handler&#x27;s drm_crtc_vblank_put(). */
+<span class="ctx">@@@ -3842,8 -3884,8 +3884,8 @@@ static void dm_test_pflip_high_irq_vrr_</span>
+  	adev = drm_to_adev(acrtc-&gt;base.dev);
+  
+  	/* drm_crtc_send_vblank_event() consumes (kfree()s) the event. */
+ -	event = kzalloc_obj(*event, GFP_KERNEL);
+ +	event = kzalloc_obj(*event);
+<span class="del">- 	KUNIT_ASSERT_NOT_ERR_OR_NULL(test, event);</span>
+<span class="add">+ 	KUNIT_ASSERT_NOT_NULL(test, event);</span>
+  	acrtc-&gt;event = event;
+  
+  	/* Balance the handler&#x27;s drm_crtc_vblank_put(). */
+<span class="ctx">@@@ -3882,8 -3924,8 +3924,8 @@@ static void dm_test_pflip_high_irq_vrr_</span>
+  	acrtc = dm_test_setup_vrr_pflip_crtc(test, tg);
+  	adev = drm_to_adev(acrtc-&gt;base.dev);
+  
+ -	event = kzalloc_obj(*event, GFP_KERNEL);
+ +	event = kzalloc_obj(*event);
+<span class="del">- 	KUNIT_ASSERT_NOT_ERR_OR_NULL(test, event);</span>
+<span class="add">+ 	KUNIT_ASSERT_NOT_NULL(test, event);</span>
+  	acrtc-&gt;event = event;
+  
+  	params.adev = adev;
+<span class="ctx">@@@ -3943,8 -3985,8 +3985,8 @@@ static void dm_test_vupdate_high_irq_dc</span>
+  	acrtc = dm_test_add_crtc(test, adev);
+  	acrtc-&gt;pflip_status = AMDGPU_FLIP_SUBMITTED;
+  
+ -	event = kzalloc_obj(*event, GFP_KERNEL);
+ +	event = kzalloc_obj(*event);
+<span class="del">- 	KUNIT_ASSERT_NOT_ERR_OR_NULL(test, event);</span>
+<span class="add">+ 	KUNIT_ASSERT_NOT_NULL(test, event);</span>
+  	acrtc-&gt;event = event;
+  
+  	adev-&gt;ddev.vblank[0].time = ktime_get();
+<span class="ctx">@@@ -4217,8 -4259,8 +4259,8 @@@ static void dm_test_crtc_high_irq_write</span>
+  	 * The job carries no framebuffer or fence, so the deferred DRM cleanup
+  	 * work only kfree()s it; it needs nothing from this test.
+  	 */
+ -	job = kzalloc_obj(*job, GFP_KERNEL);
+ +	job = kzalloc_obj(*job);
+<span class="del">- 	KUNIT_ASSERT_NOT_ERR_OR_NULL(test, job);</span>
+<span class="add">+ 	KUNIT_ASSERT_NOT_NULL(test, job);</span>
+  	list_add_tail(&amp;job-&gt;list_entry, &amp;wb_conn-&gt;job_queue);
+  
+  	acrtc-&gt;wb_conn = wb_conn;
+<span class="ctx">@@@ -4309,8 -4351,8 +4351,8 @@@ static void dm_test_handle_hpd_work_nul</span>
+  	struct amdgpu_device *adev;
+  
+  	adev = dm_kunit_alloc_adev(test);
+ -	hpd_work = kzalloc_obj(*hpd_work, GFP_KERNEL);
+ +	hpd_work = kzalloc_obj(*hpd_work);
+<span class="del">- 	KUNIT_ASSERT_NOT_ERR_OR_NULL(test, hpd_work);</span>
+<span class="add">+ 	KUNIT_ASSERT_NOT_NULL(test, hpd_work);</span>
+  	hpd_work-&gt;adev = adev;
+  	INIT_WORK(&amp;hpd_work-&gt;handle_hpd_work, dm_handle_hpd_work);
+  
+</div>
+</details></td>
+</tr>
+<tr>
+<td><code>drm-intel</code></td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>drivers/gpu/drm/display/drm_dp_helper.c</code></td>
+<td>01:21 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">2245a5cd6e15dfdc65619f41c4579fd1e0bb6a52
+</div>
+</details></td>
+</tr>
+</tbody></table>
+<h3>hwmon <span class="category-count">1</span></h3>
+<table>
+<thead>
+<tr><th>Tree</th><th>Type</th><th>Files</th><th>Time</th><th>Details</th></tr>
+</thead>
+<tbody>
+<tr>
+<td><code>hwmon-staging</code></td>
+<td><span class="badge conflict">conflict</span></td>
+<td><code>MAINTAINERS, drivers/hwmon/abituguru.c, drivers/hwmon/abituguru3.c (+120 more)</code></td>
+<td>01:36 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">0c099067e660fc2724c70d5725b2778d2203af86
+<span class="hdr">diff --cc drivers/hwmon/asus-ec-sensors.c</span>
+<span class="ctx">index a3cb595e713b7,ba7ec3168c572..5e5ed7289dac5</span>
+<span class="hdr">--- a/drivers/hwmon/asus-ec-sensors.c</span>
+<span class="hdr">+++ b/drivers/hwmon/asus-ec-sensors.c</span>
+<span class="ctx">@@@ -1537,7 -1612,8 +1611,8 @@@ static int asus_ec_probe(struct platfor</span>
+  	}
+  
+  	setup_sensor_data(ec_data);
+<span class="del">- 	ec_data-&gt;registers = devm_kzalloc_objs(dev, u16, ec_data-&gt;nr_registers);</span>
+ -	ec_data-&gt;registers = devm_kcalloc(dev, ec_data-&gt;nr_registers,
+ -					  sizeof(*ec_data-&gt;registers), GFP_KERNEL);
+<span class="add">++	ec_data-&gt;registers = devm_kzalloc_objs(dev, *ec_data-&gt;registers,</span>
+<span class="add">++					     ec_data-&gt;nr_registers);</span>
+  	ec_data-&gt;read_buffer = devm_kcalloc(dev, ec_data-&gt;nr_registers,
+  					    sizeof(u8), GFP_KERNEL);
+  
+</div>
+</details></td>
+</tr>
+</tbody></table>
+<h3>mm <span class="category-count">1</span></h3>
+<table>
+<thead>
+<tr><th>Tree</th><th>Type</th><th>Files</th><th>Time</th><th>Details</th></tr>
+</thead>
+<tbody>
+<tr>
+<td><code>pagemap-headers</code></td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>arch/alpha/include/asm/pgtable.h, arch/arc/include/asm/pgtable-levels.h, arch/microblaze/include/asm/pgtable.h (+101 more)</code></td>
+<td>01:50 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">163a05079fcf792fca0c331800bc2055858f56d8
+<span class="hdr">diff --cc arch/x86/virt/vmx/tdx/tdx.c</span>
+<span class="ctx">index 96ced0494b687,3636a4d6ab8b9..680e5178a86f2</span>
+<span class="hdr">--- a/arch/x86/virt/vmx/tdx/tdx.c</span>
+<span class="hdr">+++ b/arch/x86/virt/vmx/tdx/tdx.c</span>
+<span class="ctx">@@@ -30,8 -30,8 +30,9 @@@</span>
+  #include &lt;linux/suspend.h&gt;
+  #include &lt;linux/syscore_ops.h&gt;
+  #include &lt;linux/idr.h&gt;
+ +#include &lt;linux/vmalloc.h&gt;
+  #include &lt;asm/page.h&gt;
+<span class="add">+ #include &lt;asm/cacheflush.h&gt;</span>
+  #include &lt;asm/special_insns.h&gt;
+  #include &lt;asm/msr-index.h&gt;
+  #include &lt;asm/msr.h&gt;
+<span class="hdr">diff --cc drivers/gpu/drm/amd/amdgpu/amdgpu_cs.c</span>
+<span class="ctx">index e552ee0487a72,b68a017afd530..b5668973fb498</span>
+<span class="hdr">--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_cs.c</span>
+<span class="hdr">+++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_cs.c</span>
+<span class="ctx">@@@ -26,10 -26,8 +26,9 @@@</span>
+   */
+  
+  #include &lt;linux/file.h&gt;
+<span class="del">- #include &lt;linux/pagemap.h&gt;</span>
+  #include &lt;linux/sync_file.h&gt;
+  #include &lt;linux/dma-buf.h&gt;
+ +#include &lt;linux/pm_runtime.h&gt;
+  
+  #include &lt;drm/amdgpu_drm.h&gt;
+  #include &lt;drm/drm_syncobj.h&gt;
+<span class="hdr">diff --cc drivers/gpu/drm/amd/amdgpu/amdgpu_gem.c</span>
+<span class="ctx">index fb518667bcaaa,e9017ff2cca73..b71e7ae3725ed</span>
+<span class="hdr">--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_gem.c</span>
+<span class="hdr">+++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_gem.c</span>
+<span class="ctx">@@@ -25,9 -25,9 +25,8 @@@</span>
+   *          Alex Deucher
+   *          Jerome Glisse
+   */
+ -#include &lt;linux/ktime.h&gt;
+  #include &lt;linux/module.h&gt;
+  #include &lt;linux/overflow.h&gt;
+<span class="del">- #include &lt;linux/pagemap.h&gt;</span>
+  #include &lt;linux/pci.h&gt;
+  #include &lt;linux/dma-buf.h&gt;
+  #include &lt;linux/dma-fence-unwrap.h&gt;
+<span class="hdr">diff --cc drivers/gpu/drm/amd/amdkfd/kfd_migrate.c</span>
+<span class="ctx">index 8b96e1fe741a1,460b289ddd4ef..9535ebe5837af</span>
+<span class="hdr">--- a/drivers/gpu/drm/amd/amdkfd/kfd_migrate.c</span>
+<span class="hdr">+++ b/drivers/gpu/drm/amd/amdkfd/kfd_migrate.c</span>
+<span class="ctx">@@@ -24,8 -24,7 +24,9 @@@</span>
+  #include &lt;linux/dma-direction.h&gt;
+  #include &lt;linux/dma-mapping.h&gt;
+  #include &lt;linux/migrate.h&gt;
+<span class="add">+ #include &lt;linux/pagemap.h&gt;</span>
+ +#include &quot;amdgpu.h&quot;
+ +#include &quot;amdgpu_sdma.h&quot;
+  #include &quot;amdgpu_sync.h&quot;
+  #include &quot;amdgpu_object.h&quot;
+  #include &quot;amdgpu_vm.h&quot;
+<span class="hdr">diff --cc drivers/gpu/drm/msm/msm_fb.c</span>
+<span class="ctx">index 60c108d35d2a1,e8954e6a5f439..1e236416e15f0</span>
+<span class="hdr">--- a/drivers/gpu/drm/msm/msm_fb.c</span>
+<span class="hdr">+++ b/drivers/gpu/drm/msm/msm_fb.c</span>
+<span class="ctx">@@@ -4,8 -4,11 +4,10 @@@</span>
+   * Author: Rob Clark &lt;robdclark@gmail.com&gt;
+   */
+  
+<span class="add">+ #include &lt;linux/seq_file.h&gt;</span>
+<span class="add">+ </span>
+  #include &lt;drm/drm_crtc.h&gt;
+  #include &lt;drm/drm_damage_helper.h&gt;
+ -#include &lt;drm/drm_file.h&gt;
+  #include &lt;drm/drm_fourcc.h&gt;
+  #include &lt;drm/drm_framebuffer.h&gt;
+  #include &lt;drm/drm_gem_framebuffer_helper.h&gt;
+<span class="hdr">diff --cc drivers/gpu/drm/panfrost/panfrost_gem.c</span>
+<span class="ctx">index 518f24549b9de,68546925f16b0..0f99c3c3184da</span>
+<span class="hdr">--- a/drivers/gpu/drm/panfrost/panfrost_gem.c</span>
+<span class="hdr">+++ b/drivers/gpu/drm/panfrost/panfrost_gem.c</span>
+<span class="ctx">@@@ -7,11 -7,13 +7,13 @@@</span>
+  #include &lt;linux/slab.h&gt;
+  #include &lt;linux/dma-buf.h&gt;
+  #include &lt;linux/dma-mapping.h&gt;
+<span class="add">+ #include &lt;linux/highmem.h&gt;</span>
+<span class="add">+ #include &lt;linux/seq_file.h&gt;</span>
+  
+  #include &lt;drm/panfrost_drm.h&gt;
+ +#include &lt;drm/drm_debugfs.h&gt;
+  #include &lt;drm/drm_print.h&gt;
+  #include &quot;panfrost_device.h&quot;
+ -#include &quot;panfrost_drv.h&quot;
+  #include &quot;panfrost_gem.h&quot;
+  #include &quot;panfrost_mmu.h&quot;
+  
+<span class="hdr">diff --cc drivers/regulator/tps65185.c</span>
+<span class="ctx">index 33728e764eb55,14d04c1a55f25..9795aec278388</span>
+<span class="hdr">--- a/drivers/regulator/tps65185.c</span>
+<span class="hdr">+++ b/drivers/regulator/tps65185.c</span>
+<span class="ctx">@@@ -5,9 -5,9 +5,10 @@@</span>
+  
+  #include &lt;linux/cleanup.h&gt;
+  #include &lt;linux/completion.h&gt;
+ +#include &lt;linux/delay.h&gt;
+  #include &lt;linux/gpio/consumer.h&gt;
+  #include &lt;linux/i2c.h&gt;
+<span class="add">+ #include &lt;linux/interrupt.h&gt;</span>
+  #include &lt;linux/module.h&gt;
+  #include &lt;linux/mutex.h&gt;
+  #include &lt;linux/hwmon.h&gt;
+<span class="hdr">diff --cc net/ceph/osd_client.c</span>
+<span class="ctx">index b8e4740d07fe2,86b681a56e206..baa324215bd49</span>
+<span class="hdr">--- a/net/ceph/osd_client.c</span>
+<span class="hdr">+++ b/net/ceph/osd_client.c</span>
+<span class="ctx">@@@ -6,8 -6,6 +6,7 @@@</span>
+  #include &lt;linux/err.h&gt;
+  #include &lt;linux/highmem.h&gt;
+  #include &lt;linux/mm.h&gt;
+ +#include &lt;linux/overflow.h&gt;
+<span class="del">- #include &lt;linux/pagemap.h&gt;</span>
+  #include &lt;linux/slab.h&gt;
+  #include &lt;linux/uaccess.h&gt;
+  #ifdef CONFIG_BLOCK
+</div>
+</details></td>
+</tr>
+</tbody></table>
+<h3>net <span class="category-count">3</span></h3>
+<table>
+<thead>
+<tr><th>Tree</th><th>Type</th><th>Files</th><th>Time</th><th>Details</th></tr>
+</thead>
+<tbody>
+<tr>
+<td><code>iwlwifi</code></td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>drivers/net/wireless/intel/iwlwifi/iwl-nvm-parse.c, drivers/net/wireless/intel/iwlwifi/iwl-trans.c, drivers/net/wireless/intel/iwlwifi/mvm/debugfs.c (+2 more)</code></td>
+<td>01:46 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">38336c60526493b074884f0e507221edcf594681
+</div>
+</details></td>
+</tr>
+<tr>
+<td><code>bpf-next</code></td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>include/linux/netdevice.h, kernel/bpf/btf.c, kernel/bpf/core.c (+4 more)</code></td>
+<td>01:46 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">907738033554391e707d598f325730d6dc843e1f
+<span class="hdr">diff --cc kernel/bpf/scev.c</span>
+<span class="ctx">index db123ef1f0718,4187ce955be99..133dc58d34ae8</span>
+<span class="hdr">--- a/kernel/bpf/scev.c</span>
+<span class="hdr">+++ b/kernel/bpf/scev.c</span>
+<span class="ctx">@@@ -1730,11 -1957,10 +1957,11 @@@ int bpf_init_scev(struct bpf_verifier_e</span>
+  		return -ENOMEM;
+  	env-&gt;scev = scev;
+  	bpf_mark_reg_known_scalar(&amp;scev-&gt;zero_reg, 0);
+<span class="del">- 	bpf_mark_reg_unknown_imprecise(&amp;scev-&gt;unknown_reg);</span>
+<span class="add">+ 	bpf_mark_reg_unknown(&amp;scev-&gt;unknown_reg);</span>
+  	/* A power of two for hash &amp; (exprs_ht_cnt - 1)` indexing. */
+  	scev-&gt;exprs_ht_cnt = roundup_pow_of_two(max(256U, DIV_ROUND_UP(env-&gt;prog-&gt;len, 4)));
+ -	scev-&gt;exprs_ht = kvcalloc(scev-&gt;exprs_ht_cnt, sizeof(*scev-&gt;exprs_ht), GFP_KERNEL_ACCOUNT);
+ +	scev-&gt;exprs_ht = kvzalloc_objs(*scev-&gt;exprs_ht, scev-&gt;exprs_ht_cnt,
+ +				       GFP_KERNEL_ACCOUNT);
+  	if (!scev-&gt;exprs_ht)
+  		goto nomem;
+  	if (expr0(scev, UNKNOWN) &lt; 0 || expr0(scev, OPAQUE)  &lt; 0)
+</div>
+</details></td>
+</tr>
+<tr>
+<td><code>wireless-next</code></td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>drivers/net/wireless/ath/ath12k/mac.c, drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c, drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c (+2 more)</code></td>
+<td>01:46 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">17c2ce314e7271aa8ee638af8c8f2c4247fa04d1
+</div>
+</details></td>
+</tr>
+</tbody></table>
+<h3>soc <span class="category-count">3</span></h3>
+<table>
+<thead>
+<tr><th>Tree</th><th>Type</th><th>Files</th><th>Time</th><th>Details</th></tr>
+</thead>
+<tbody>
+<tr>
+<td><code>arm-soc</code></td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>-</code></td>
+<td>02:08 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">544c59c3404daf0f4ea1ff190d87eb52ab46f145
+</div>
+</details></td>
+</tr>
+<tr>
+<td><code>imx-mxs</code></td>
+<td><span class="badge conflict">conflict</span></td>
+<td><code>MAINTAINERS, drivers/firmware/imx/imx-scu-irq.c, drivers/firmware/imx/imx-scu.c (+1 more)</code></td>
+<td>02:19 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">42c7c4686fec5d394018e029e0ee795f51a63e5e
+<span class="hdr">diff --cc drivers/firmware/imx/imx-scu-irq.c</span>
+<span class="ctx">index bc22b10ddb20f,4f24e3c08a652..9c3436cb53ab0</span>
+<span class="hdr">--- a/drivers/firmware/imx/imx-scu-irq.c</span>
+<span class="hdr">+++ b/drivers/firmware/imx/imx-scu-irq.c</span>
+<span class="ctx">@@@ -219,7 -223,15 +223,15 @@@ int imx_scu_enable_general_irq_channel(</span>
+  	if (ret)
+  		return ret;
+  
+<span class="add">+ 	/*</span>
+<span class="add">+ 	 * imx_scu_irq_group_enable() tests imx_sc_irq_ipc_handle from other</span>
+<span class="add">+ 	 * drivers&#x27; probe paths and then passes it to imx_scu_call_rpc().</span>
+<span class="add">+ 	 * Publish it with release semantics so that the SCU state it points</span>
+<span class="add">+ 	 * to is visible to them.</span>
+<span class="add">+ 	 */</span>
+<span class="add">+ 	smp_store_release(&amp;imx_sc_irq_ipc_handle, ipc);</span>
+<span class="add">+ </span>
+ -	cl = devm_kzalloc(dev, sizeof(*cl), GFP_KERNEL);
+ +	cl = devm_kzalloc_obj(dev, *cl);
+  	if (!cl)
+  		return -ENOMEM;
+  
+</div>
+</details></td>
+</tr>
+<tr>
+<td><code>tegra</code></td>
+<td><span class="badge conflict">conflict</span></td>
+<td><code>drivers/firmware/tegra/bpmp-tegra186.c, drivers/firmware/tegra/bpmp-tegra210.c, drivers/firmware/tegra/bpmp.c</code></td>
+<td>02:34 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">1889da67840ccc02fb0385350635fda2aad5648e
+<span class="hdr">diff --cc drivers/firmware/tegra/bpmp-tegra186.c</span>
+<span class="ctx">index 5a97496600ac1,c34f6d2d275cd..d2febe53b66c9</span>
+<span class="hdr">--- a/drivers/firmware/tegra/bpmp-tegra186.c</span>
+<span class="hdr">+++ b/drivers/firmware/tegra/bpmp-tegra186.c</span>
+<span class="ctx">@@@ -324,7 -325,11 +324,11 @@@ static int tegra186_bpmp_init(struct te</span>
+  	struct tegra186_bpmp *priv;
+  	int err;
+  
+<span class="add">+ 	err = tegra_bpmp_init_channels(bpmp);</span>
+<span class="add">+ 	if (err &lt; 0)</span>
+<span class="add">+ 		return err;</span>
+<span class="add">+ </span>
+ -	priv = devm_kzalloc(bpmp-&gt;dev, sizeof(*priv), GFP_KERNEL);
+ +	priv = devm_kzalloc_obj(bpmp-&gt;dev, *priv);
+  	if (!priv)
+  		return -ENOMEM;
+  
+<span class="hdr">diff --cc drivers/firmware/tegra/bpmp-tegra210.c</span>
+<span class="ctx">index a33bb027c8b8d,fdc26c66f7c2f..1ab95463e66f7</span>
+<span class="hdr">--- a/drivers/firmware/tegra/bpmp-tegra210.c</span>
+<span class="hdr">+++ b/drivers/firmware/tegra/bpmp-tegra210.c</span>
+<span class="ctx">@@@ -166,7 -166,11 +166,11 @@@ static int tegra210_bpmp_init(struct te</span>
+  	unsigned int i;
+  	int err;
+  
+<span class="add">+ 	err = tegra_bpmp_init_channels(bpmp);</span>
+<span class="add">+ 	if (err &lt; 0)</span>
+<span class="add">+ 		return err;</span>
+<span class="add">+ </span>
+ -	priv = devm_kzalloc(&amp;pdev-&gt;dev, sizeof(*priv), GFP_KERNEL);
+ +	priv = devm_kzalloc_obj(&amp;pdev-&gt;dev, *priv);
+  	if (!priv)
+  		return -ENOMEM;
+  
+<span class="hdr">diff --cc drivers/firmware/tegra/bpmp.c</span>
+<span class="ctx">index 5fbd6a3e69e09,d3508e98e3382..50d9c6ec934a0</span>
+<span class="hdr">--- a/drivers/firmware/tegra/bpmp.c</span>
+<span class="hdr">+++ b/drivers/firmware/tegra/bpmp.c</span>
+<span class="ctx">@@@ -764,17 -975,19 +975,17 @@@ int tegra_bpmp_init_channels(struct teg</span>
+  		return -ENOMEM;
+  
+  	spin_lock_init(&amp;bpmp-&gt;atomic_tx_lock);
+<span class="del">- 	bpmp-&gt;tx_channel = devm_kzalloc_obj(&amp;pdev-&gt;dev, *bpmp-&gt;tx_channel);</span>
+ -	bpmp-&gt;tx_channel = devm_kzalloc(bpmp-&gt;dev, sizeof(*bpmp-&gt;tx_channel),
+ -					GFP_KERNEL);
+<span class="add">++	bpmp-&gt;tx_channel = devm_kzalloc_obj(bpmp-&gt;dev, *bpmp-&gt;tx_channel);</span>
+  	if (!bpmp-&gt;tx_channel)
+  		return -ENOMEM;
+  
+<span class="del">- 	bpmp-&gt;rx_channel = devm_kzalloc_obj(&amp;pdev-&gt;dev, *bpmp-&gt;rx_channel);</span>
+ -	bpmp-&gt;rx_channel = devm_kzalloc(bpmp-&gt;dev, sizeof(*bpmp-&gt;rx_channel),
+ -					GFP_KERNEL);
+<span class="add">++	bpmp-&gt;rx_channel = devm_kzalloc_obj(bpmp-&gt;dev, *bpmp-&gt;rx_channel);</span>
+  	if (!bpmp-&gt;rx_channel)
+  		return -ENOMEM;
+  
+<span class="del">- 	bpmp-&gt;threaded_channels = devm_kzalloc_objs(&amp;pdev-&gt;dev,</span>
+ -	bpmp-&gt;threaded_channels = devm_kcalloc(bpmp-&gt;dev, bpmp-&gt;threaded.count,
+ -					       sizeof(*bpmp-&gt;threaded_channels),
+ -					       GFP_KERNEL);
+<span class="add">++	bpmp-&gt;threaded_channels = devm_kzalloc_objs(bpmp-&gt;dev,</span>
+ +						    *bpmp-&gt;threaded_channels,
+ +						    bpmp-&gt;threaded.count);
+  	if (!bpmp-&gt;threaded_channels)
+  		return -ENOMEM;
+  
+<span class="ctx">@@@ -795,36 -1009,86 +1007,86 @@@ int tegra_bpmp_init_ping(struct tegra_b</span>
+  		goto free_mrq;
+  	}
+  
+<span class="del">- 	err = tegra_bpmp_get_firmware_tag(bpmp, tag, sizeof(tag));</span>
+<span class="del">- 	if (err &lt; 0) {</span>
+<span class="del">- 		dev_err(&amp;pdev-&gt;dev, &quot;failed to get firmware tag: %d\n&quot;, err);</span>
+<span class="del">- 		goto free_mrq;</span>
+<span class="del">- 	}</span>
+<span class="add">+ 	return 0;</span>
+  
+<span class="del">- 	dev_info(&amp;pdev-&gt;dev, &quot;firmware: %.*s\n&quot;, (int)sizeof(tag), tag);</span>
+<span class="add">+ free_mrq:</span>
+<span class="add">+ 	tegra_bpmp_free_mrq(bpmp, MRQ_PING, bpmp);</span>
+<span class="add">+ </span>
+<span class="add">+ 	return err;</span>
+<span class="add">+ }</span>
+<span class="add">+ </span>
+<span class="add">+ void tegra_bpmp_deinit_ping(struct tegra_bpmp *bpmp)</span>
+<span class="add">+ {</span>
+<span class="add">+ 	tegra_bpmp_free_mrq(bpmp, MRQ_PING, bpmp);</span>
+<span class="add">+ }</span>
+<span class="add">+ </span>
+<span class="add">+ int tegra_bpmp_init_dt_providers(struct tegra_bpmp *bpmp)</span>
+<span class="add">+ {</span>
+<span class="add">+ 	struct device *dev = bpmp-&gt;dev;</span>
+<span class="add">+ 	int err;</span>
+  
+<span class="del">- 	err = of_platform_default_populate(pdev-&gt;dev.of_node, NULL, &amp;pdev-&gt;dev);</span>
+<span class="add">+ 	err = of_platform_default_populate(dev-&gt;of_node, NULL, dev);</span>
+  	if (err &lt; 0)
+<span class="del">- 		goto free_mrq;</span>
+<span class="add">+ 		return err;</span>
+  
+<span class="del">- 	if (of_property_present(pdev-&gt;dev.of_node, &quot;#clock-cells&quot;)) {</span>
+<span class="add">+ 	if (of_property_present(dev-&gt;of_node, &quot;#clock-cells&quot;)) {</span>
+  		err = tegra_bpmp_init_clocks(bpmp);
+  		if (err &lt; 0)
+<span class="del">- 			goto free_mrq;</span>
+<span class="add">+ 			return err;</span>
+  	}
+  
+<span class="del">- 	if (of_property_present(pdev-&gt;dev.of_node, &quot;#reset-cells&quot;)) {</span>
+<span class="add">+ 	if (of_property_present(dev-&gt;of_node, &quot;#reset-cells&quot;)) {</span>
+  		err = tegra_bpmp_init_resets(bpmp);
+  		if (err &lt; 0)
+<span class="del">- 			goto free_mrq;</span>
+<span class="add">+ 			return err;</span>
+  	}
+  
+<span class="del">- 	if (of_property_present(pdev-&gt;dev.of_node, &quot;#power-domain-cells&quot;)) {</span>
+<span class="add">+ 	if (of_property_present(dev-&gt;of_node, &quot;#power-domain-cells&quot;)) {</span>
+  		err = tegra_bpmp_init_powergates(bpmp);
+  		if (err &lt; 0)
+<span class="del">- 			goto free_mrq;</span>
+<span class="add">+ 			return err;</span>
+  	}
+  
+<span class="add">+ 	return 0;</span>
+<span class="add">+ }</span>
+<span class="add">+ </span>
+<span class="add">+ static int tegra_bpmp_probe(struct platform_device *pdev)</span>
+<span class="add">+ {</span>
+<span class="add">+ 	struct tegra_bpmp *bpmp;</span>
+<span class="add">+ 	char tag[TAG_SZ];</span>
+<span class="add">+ 	int err;</span>
+<span class="add">+ </span>
+ -	bpmp = devm_kzalloc(&amp;pdev-&gt;dev, sizeof(*bpmp), GFP_KERNEL);
+<span class="add">++	bpmp = devm_kzalloc_obj(&amp;pdev-&gt;dev, *bpmp);</span>
+<span class="add">+ 	if (!bpmp)</span>
+<span class="add">+ 		return -ENOMEM;</span>
+<span class="add">+ </span>
+<span class="add">+ 	bpmp-&gt;soc = device_get_match_data(&amp;pdev-&gt;dev);</span>
+<span class="add">+ 	bpmp-&gt;dev = &amp;pdev-&gt;dev;</span>
+<span class="add">+ </span>
+<span class="add">+ 	platform_set_drvdata(pdev, bpmp);</span>
+<span class="add">+ </span>
+<span class="add">+ 	err = bpmp-&gt;soc-&gt;ops-&gt;init(bpmp);</span>
+<span class="add">+ 	if (err &lt; 0)</span>
+<span class="add">+ 		return err;</span>
+<span class="add">+ </span>
+<span class="add">+ 	err = tegra_bpmp_get_firmware_tag(bpmp, tag, sizeof(tag));</span>
+<span class="add">+ 	if (err &lt; 0) {</span>
+<span class="add">+ 		dev_err(&amp;pdev-&gt;dev, &quot;failed to get firmware tag: %d\n&quot;, err);</span>
+<span class="add">+ 		goto deinit;</span>
+<span class="add">+ 	}</span>
+<span class="add">+ </span>
+<span class="add">+ 	dev_info(&amp;pdev-&gt;dev, &quot;firmware: %.*s\n&quot;, (int)sizeof(tag), tag);</span>
+<span class="add">+ </span>
+<span class="add">+ 	if (bpmp-&gt;soc-&gt;ops-&gt;init_providers) {</span>
+<span class="add">+ 		err = bpmp-&gt;soc-&gt;ops-&gt;init_providers(bpmp);</span>
+<span class="add">+ 		if (err &lt; 0)</span>
+<span class="add">+ 			goto deinit;</span>
+<span class="add">+ 	}</span>
+<span class="add">+ </span>
+<span class="add">+ 	err = tegra_bpmp_init_sysfs(bpmp);</span>
+<span class="add">+ 	if (err &lt; 0)</span>
+<span class="add">+ 		dev_err(&amp;pdev-&gt;dev, &quot;failed to initialize sysfs: %d\n&quot;, err);</span>
+<span class="add">+ </span>
+  	err = tegra_bpmp_init_debugfs(bpmp);
+  	if (err &lt; 0)
+  		dev_err(&amp;pdev-&gt;dev, &quot;debugfs initialization failed: %d\n&quot;, err);
+</div>
+</details></td>
+</tr>
+</tbody></table>
+<h3>sound <span class="category-count">1</span></h3>
+<table>
+<thead>
+<tr><th>Tree</th><th>Type</th><th>Files</th><th>Time</th><th>Details</th></tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sound-asoc</code></td>
+<td><span class="badge conflict">conflict</span></td>
+<td><code>sound/soc/amd/acp/acp-sdw-legacy-mach.c, sound/soc/amd/acp/acp-sdw-sof-mach.c, sound/soc/codecs/cpcap.c (+72 more)</code></td>
+<td>02:20 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">21fcce07bcaa1dadf07b816f007d46576582c25c
+<span class="hdr">diff --cc sound/soc/amd/acp/acp-sdw-sof-mach.c</span>
+<span class="ctx">index 8336eb5c82ea9,1d7487c872657..401a04716551f</span>
+<span class="hdr">--- a/sound/soc/amd/acp/acp-sdw-sof-mach.c</span>
+<span class="hdr">+++ b/sound/soc/amd/acp/acp-sdw-sof-mach.c</span>
+<span class="ctx">@@@ -374,16 -406,28 +406,28 @@@ static int mc_probe(struct platform_dev</span>
+  	struct snd_soc_card *card;
+  	struct amd_mc_ctx *amd_ctx;
+  	struct asoc_sdw_mc_private *ctx;
+<span class="del">- 	int amp_num = 0, i;</span>
+<span class="add">+ 	int amp_num = 0, i, dmic_num;</span>
+  	int ret;
+  
+ -	amd_ctx = devm_kzalloc(&amp;pdev-&gt;dev, sizeof(*amd_ctx), GFP_KERNEL);
+ +	amd_ctx = devm_kzalloc_obj(&amp;pdev-&gt;dev, *amd_ctx);
+  	if (!amd_ctx)
+  		return -ENOMEM;
+  
+  	amd_ctx-&gt;acp_rev = mach-&gt;mach_params.subsystem_rev;
+<span class="del">- 	amd_ctx-&gt;max_sdw_links = ACP63_SDW_MAX_LINKS;</span>
+<span class="add">+ 	switch (amd_ctx-&gt;acp_rev) {</span>
+<span class="add">+ 	case ACP7B_PCI_REV:</span>
+<span class="add">+ 	case ACP7F_PCI_REV:</span>
+<span class="add">+ 		amd_ctx-&gt;max_sdw_links = ACP7X_SDW_MAX_LINKS;</span>
+<span class="add">+ 		break;</span>
+<span class="add">+ 	default:</span>
+<span class="add">+ 		amd_ctx-&gt;max_sdw_links = ACP63_SDW_MAX_LINKS;</span>
+<span class="add">+ 		break;</span>
+<span class="add">+ 	}</span>
+<span class="add">+ 	if (mach-&gt;pdata) {</span>
+<span class="add">+ 		pdm_pdata = mach-&gt;pdata;</span>
+<span class="add">+ 		amd_ctx-&gt;pdm_sel = pdm_pdata-&gt;pdm_sel;</span>
+<span class="add">+ 	}</span>
+ -	ctx = devm_kzalloc(&amp;pdev-&gt;dev, sizeof(*ctx), GFP_KERNEL);
+ +	ctx = devm_kzalloc_obj(&amp;pdev-&gt;dev, *ctx);
+  	if (!ctx)
+  		return -ENOMEM;
+  	ctx-&gt;codec_info_list_count = asoc_sdw_get_codec_info_list_count();
+<span class="hdr">diff --cc sound/soc/codecs/cpcap.c</span>
+<span class="ctx">index d3348fee0aaa1,0e7c05f5bab60..6a11fcea6e6ec</span>
+<span class="hdr">--- a/sound/soc/codecs/cpcap.c</span>
+<span class="hdr">+++ b/sound/soc/codecs/cpcap.c</span>
+<span class="ctx">@@@ -1761,9 -1761,9 +1761,9 @@@ static int cpcap_codec_probe(struct pla</span>
+  	if (!codec_node)
+  		return -ENODEV;
+  
+<span class="del">- 	pdev-&gt;dev.of_node = codec_node;</span>
+<span class="add">+ 	platform_device_set_of_node(pdev, codec_node);</span>
+  
+ -	cpcap = devm_kzalloc(&amp;pdev-&gt;dev, sizeof(*cpcap), GFP_KERNEL);
+ +	cpcap = devm_kzalloc_obj(&amp;pdev-&gt;dev, *cpcap);
+  	if (!cpcap)
+  		return -ENOMEM;
+  
+<span class="hdr">diff --cc sound/soc/codecs/twl4030.c</span>
+<span class="ctx">index e207721b99414,9541c8a5a24e8..853f801d49b72</span>
+<span class="hdr">--- a/sound/soc/codecs/twl4030.c</span>
+<span class="hdr">+++ b/sound/soc/codecs/twl4030.c</span>
+<span class="ctx">@@@ -198,40 -199,53 +199,53 @@@ static void twl4030_codec_enable(struc</span>
+  	udelay(10);
+  }
+  
+<span class="del">- static void</span>
+<span class="del">- twl4030_get_board_param_values(struct twl4030_board_params *board_params,</span>
+<span class="del">- 			       struct device_node *node)</span>
+<span class="add">+ static struct twl4030_board_params *twl4030_get_board_params(struct device *dev)</span>
+  {
+<span class="del">- 	of_property_read_u32(node, &quot;ti,digimic_delay&quot;, &amp;board_params-&gt;digimic_delay);</span>
+<span class="del">- 	of_property_read_u32(node, &quot;ti,ramp_delay_value&quot;, &amp;board_params-&gt;ramp_delay_value);</span>
+<span class="del">- 	of_property_read_u32(node, &quot;ti,offset_cncl_path&quot;, &amp;board_params-&gt;offset_cncl_path);</span>
+<span class="del">- 	board_params-&gt;hs_extmute = of_property_read_bool(node, &quot;ti,hs_extmute&quot;);</span>
+<span class="del">- </span>
+<span class="del">- 	if (of_property_present(node, &quot;ti,hs_extmute_gpio&quot;))</span>
+<span class="del">- 		board_params-&gt;hs_extmute = 1;</span>
+<span class="del">- }</span>
+<span class="del">- </span>
+<span class="del">- static struct twl4030_board_params*</span>
+<span class="del">- twl4030_get_board_params(struct device *dev)</span>
+<span class="del">- {</span>
+<span class="del">- 	struct twl4030_board_params *board_params = NULL;</span>
+<span class="del">- 	struct device_node *twl4030_codec_node = NULL;</span>
+<span class="del">- </span>
+<span class="del">- 	twl4030_codec_node = of_get_child_by_name(dev-&gt;parent-&gt;of_node,</span>
+<span class="del">- 						  &quot;codec&quot;);</span>
+<span class="del">- </span>
+<span class="del">- 	if (twl4030_codec_node) {</span>
+<span class="del">- 		board_params = devm_kzalloc_obj(dev,</span>
+<span class="del">- 						struct twl4030_board_params);</span>
+<span class="del">- 		if (!board_params) {</span>
+<span class="del">- 			of_node_put(twl4030_codec_node);</span>
+<span class="del">- 			return ERR_PTR(-ENOMEM);</span>
+<span class="del">- 		}</span>
+<span class="del">- 		twl4030_get_board_param_values(board_params, twl4030_codec_node);</span>
+<span class="del">- 		of_node_put(twl4030_codec_node);</span>
+<span class="add">+ 	struct twl4030_board_params *params;</span>
+<span class="add">+ 	int error;</span>
+<span class="add">+ </span>
+<span class="add">+ 	struct fwnode_handle *codec_node __free(fwnode_handle) =</span>
+<span class="add">+ 		device_get_named_child_node(dev-&gt;parent, &quot;codec&quot;);</span>
+<span class="add">+ 	if (!codec_node)</span>
+<span class="add">+ 		return NULL;</span>
+<span class="add">+ </span>
+ -	params = devm_kzalloc(dev, sizeof(*params), GFP_KERNEL);
+<span class="add">++	params = devm_kzalloc_obj(dev, *params);</span>
+<span class="add">+ 	if (!params)</span>
+<span class="add">+ 		return ERR_PTR(-ENOMEM);</span>
+<span class="add">+ </span>
+<span class="add">+ 	fwnode_property_read_u32(codec_node, &quot;ti,digimic_delay&quot;,</span>
+<span class="add">+ 				 &amp;params-&gt;digimic_delay);</span>
+<span class="add">+ 	fwnode_property_read_u32(codec_node, &quot;ti,ramp_delay_value&quot;,</span>
+<span class="add">+ 				 &amp;params-&gt;ramp_delay_value);</span>
+<span class="add">+ 	fwnode_property_read_u32(codec_node, &quot;ti,offset_cncl_path&quot;,</span>
+<span class="add">+ 				 &amp;params-&gt;offset_cncl_path);</span>
+<span class="add">+ </span>
+<span class="add">+ 	/*</span>
+<span class="add">+ 	 * Headset external mute can be controlled either via TWL4030&#x27;s</span>
+<span class="add">+ 	 * dedicated GPIO6/EXTMUTE pin (enabled by the boolean &quot;ti,hs_extmute&quot;</span>
+<span class="add">+ 	 * property) or via a separate GPIO line (&quot;ti,hs_extmute-gpios&quot; or</span>
+<span class="add">+ 	 * legacy &quot;ti,hs_extmute_gpio&quot;), which implies external mute is active.</span>
+<span class="add">+ 	 */</span>
+<span class="add">+ 	params-&gt;hs_extmute = fwnode_property_read_bool(codec_node, &quot;ti,hs_extmute&quot;);</span>
+<span class="add">+ </span>
+<span class="add">+ 	/*</span>
+<span class="add">+ 	 * This will attempt to parse &quot;ti,hs_extmute-gpios&quot; or</span>
+<span class="add">+ 	 * &quot;ti,hs_extmute_gpio&quot;.</span>
+<span class="add">+ 	 */</span>
+<span class="add">+ 	params-&gt;hs_extmute_gpio = devm_fwnode_gpiod_get_optional(dev, codec_node,</span>
+<span class="add">+ 								 &quot;ti,hs_extmute&quot;,</span>
+<span class="add">+ 								 GPIOD_OUT_LOW,</span>
+<span class="add">+ 								 &quot;hs_extmute&quot;);</span>
+<span class="add">+ 	error = PTR_ERR_OR_ZERO(params-&gt;hs_extmute_gpio);</span>
+<span class="add">+ 	if (error) {</span>
+<span class="add">+ 		dev_err_probe(dev, error, &quot;Failed to get hs_extmute GPIO\n&quot;);</span>
+<span class="add">+ 		return ERR_PTR(error);</span>
+  	}
+  
+<span class="del">- 	return board_params;</span>
+<span class="add">+ 	if (params-&gt;hs_extmute_gpio)</span>
+<span class="add">+ 		params-&gt;hs_extmute = 1;</span>
+<span class="add">+ </span>
+<span class="add">+ 	return params;</span>
+  }
+  
+  static int twl4030_get_hw_params(struct device *dev,
+<span class="hdr">diff --cc sound/soc/codecs/wcd937x.c</span>
+<span class="ctx">index b64fc16d50367,9d5d1df41c365..6e03b714fa389</span>
+<span class="hdr">--- a/sound/soc/codecs/wcd937x.c</span>
+<span class="hdr">+++ b/sound/soc/codecs/wcd937x.c</span>
+<span class="ctx">@@@ -2907,9 -3044,12 +3044,12 @@@ static int wcd937x_probe(struct platfor</span>
+  	struct device *dev = &amp;pdev-&gt;dev;
+  	struct wcd937x_priv *wcd937x;
+  	struct wcd_mbhc_config *cfg;
+<span class="add">+ #if IS_ENABLED(CONFIG_TYPEC)</span>
+<span class="add">+ 	struct device_node *np __free(device_node) = NULL;</span>
+<span class="add">+ #endif /* CONFIG_TYPEC */</span>
+  	int ret;
+  
+ -	wcd937x = devm_kzalloc(dev, sizeof(*wcd937x), GFP_KERNEL);
+ +	wcd937x = devm_kzalloc_obj(dev, *wcd937x);
+  	if (!wcd937x)
+  		return -ENOMEM;
+  
+</div>
+</details></td>
+</tr>
+</tbody></table>
+<h3>staging <span class="category-count">1</span></h3>
+<table>
+<thead>
+<tr><th>Tree</th><th>Type</th><th>Files</th><th>Time</th><th>Details</th></tr>
+</thead>
+<tbody>
+<tr>
+<td><code>staging-next</code></td>
+<td><span class="badge conflict">conflict</span></td>
+<td><code>-</code></td>
+<td>02:57 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">aa118c594ada3104da707b0bd2751d8d909e5165
+</div>
+</details></td>
+</tr>
+</tbody></table>
+<h3>subsystem <span class="category-count">1</span></h3>
+<table>
+<thead>
+<tr><th>Tree</th><th>Type</th><th>Files</th><th>Time</th><th>Details</th></tr>
+</thead>
+<tbody>
+<tr>
+<td><code>mfd</code></td>
+<td><span class="badge conflict">conflict</span></td>
+<td><code>MAINTAINERS, drivers/mfd/da9062-core.c, drivers/mfd/dln2.c (+5 more)</code></td>
+<td>02:31 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">684f9dc4099ee971a74d5cf5209262423710f71e
+<span class="hdr">diff --cc drivers/mfd/rz-mtu3.c</span>
+<span class="ctx">index 7e1313a57abc0,558ed3fbe5207..479ecf7a11232</span>
+<span class="hdr">--- a/drivers/mfd/rz-mtu3.c</span>
+<span class="hdr">+++ b/drivers/mfd/rz-mtu3.c</span>
+<span class="ctx">@@@ -315,17 -291,16 +291,16 @@@ static int rz_mtu3_probe(struct platfor</span>
+  	struct rz_mtu3 *ddata;
+  	struct reset_control *rstc;
+  	unsigned int i;
+<span class="add">+ 	int ret;</span>
+  
+ -	ddata = devm_kzalloc(dev, sizeof(*ddata), GFP_KERNEL);
+ +	ddata = devm_kzalloc_obj(dev, *ddata);
+  	if (!ddata)
+  		return -ENOMEM;
+  
+<span class="del">- 	ddata-&gt;priv_data = devm_kzalloc_obj(dev, *priv);</span>
+<span class="del">- 	if (!ddata-&gt;priv_data)</span>
+ -	priv = devm_kzalloc(dev, sizeof(*priv), GFP_KERNEL);
+<span class="add">++	priv = devm_kzalloc_obj(dev, *priv);</span>
+<span class="add">+ 	if (!priv)</span>
+  		return -ENOMEM;
+  
+<span class="del">- 	priv = ddata-&gt;priv_data;</span>
+<span class="del">- </span>
+  	priv-&gt;mmio = devm_platform_ioremap_resource(pdev, 0);
+  	if (IS_ERR(priv-&gt;mmio))
+  		return PTR_ERR(priv-&gt;mmio);
+</div>
+</details></td>
+</tr>
+</tbody></table>
+<h3>tracing <span class="category-count">2</span></h3>
+<table>
+<thead>
+<tr><th>Tree</th><th>Type</th><th>Files</th><th>Time</th><th>Details</th></tr>
+</thead>
+<tbody>
+<tr>
+<td><code>bpf-next</code></td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>include/linux/netdevice.h, kernel/bpf/btf.c, kernel/bpf/core.c (+4 more)</code></td>
+<td>02:34 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">bb30071beb523306abf1849b20a0ea8dd2ec9236
+<span class="hdr">diff --cc kernel/bpf/scev.c</span>
+<span class="ctx">index db123ef1f0718,4187ce955be99..133dc58d34ae8</span>
+<span class="hdr">--- a/kernel/bpf/scev.c</span>
+<span class="hdr">+++ b/kernel/bpf/scev.c</span>
+<span class="ctx">@@@ -1730,11 -1957,10 +1957,11 @@@ int bpf_init_scev(struct bpf_verifier_e</span>
+  		return -ENOMEM;
+  	env-&gt;scev = scev;
+  	bpf_mark_reg_known_scalar(&amp;scev-&gt;zero_reg, 0);
+<span class="del">- 	bpf_mark_reg_unknown_imprecise(&amp;scev-&gt;unknown_reg);</span>
+<span class="add">+ 	bpf_mark_reg_unknown(&amp;scev-&gt;unknown_reg);</span>
+  	/* A power of two for hash &amp; (exprs_ht_cnt - 1)` indexing. */
+  	scev-&gt;exprs_ht_cnt = roundup_pow_of_two(max(256U, DIV_ROUND_UP(env-&gt;prog-&gt;len, 4)));
+ -	scev-&gt;exprs_ht = kvcalloc(scev-&gt;exprs_ht_cnt, sizeof(*scev-&gt;exprs_ht), GFP_KERNEL_ACCOUNT);
+ +	scev-&gt;exprs_ht = kvzalloc_objs(*scev-&gt;exprs_ht, scev-&gt;exprs_ht_cnt,
+ +				       GFP_KERNEL_ACCOUNT);
+  	if (!scev-&gt;exprs_ht)
+  		goto nomem;
+  	if (expr0(scev, UNKNOWN) &lt; 0 || expr0(scev, OPAQUE)  &lt; 0)
+</div>
+</details></td>
+</tr>
+<tr>
+<td><code>ftrace</code></td>
+<td><span class="badge rerere">rerere</span></td>
+<td><code>-</code></td>
+<td>02:34 UTC</td>
+<td><details><summary>View diff</summary>
+<div class="diff">99bf400b41e0e718b490a888781bdcd06ad549fa
+</div>
+</details></td>
+</tr>
+</tbody></table>
+
+<script>
+function filterByType(type) {
+    var rows = document.querySelectorAll('#main-table tbody tr');
+    for (var i = 0; i < rows.length; i++) {
+        rows[i].style.display = (type === 'all' || rows[i].dataset.type === type) ? '' : 'none';
+    }
+}
+function toggleAll() {
+    var details = document.querySelectorAll('details');
+    var anyOpen = false;
+    for (var i = 0; i < details.length; i++) {
+        if (details[i].open) { anyOpen = true; break; }
+    }
+    for (var i = 0; i < details.length; i++) {
+        details[i].open = !anyOpen;
+    }
+}
+</script>
+</body></html>
