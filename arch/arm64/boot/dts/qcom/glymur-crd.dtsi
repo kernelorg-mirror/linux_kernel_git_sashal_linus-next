@@ -247,7 +247,9 @@
 				"VA DMIC0", "vdd-micb",
 				"VA DMIC1", "vdd-micb",
 				"VA DMIC2", "vdd-micb",
-				"VA DMIC3", "vdd-micb";
+				"VA DMIC3", "vdd-micb",
+				"VA DMIC4", "vdd-micb",
+				"VA DMIC5", "vdd-micb";
 
 		wsa-dai-link {
 			link-name = "WSA Playback";
@@ -472,6 +474,7 @@
 			regulator-min-microvolt = <720000>;
 			regulator-max-microvolt = <720000>;
 			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
+			regulator-boot-on;
 		};
 	};
 
@@ -695,7 +698,7 @@
 };
 
 &lpass_vamacro {
-	pinctrl-0 = <&dmic01_default>, <&dmic23_default>;
+	pinctrl-0 = <&dmic01_default>, <&dmic23_default>, <&dmic45_default>;
 	pinctrl-names = "default";
 	qcom,dmic-sample-rate = <4800000>;
 	vdd-micb-supply = <&vreg_l1b_e0_1p8>;
@@ -743,13 +746,13 @@
 };
 
 &pcie3b {
-	vddpe-3v3-supply = <&vreg_nvmesec>;
-
 	pinctrl-0 = <&pcie3b_default>;
 	pinctrl-names = "default";
 };
 
 &pcie3b_port0 {
+	vpcie3v3-supply = <&vreg_nvmesec>;
+
 	reset-gpios = <&tlmm 155 GPIO_ACTIVE_LOW>;
 	wake-gpios = <&tlmm 157 GPIO_ACTIVE_LOW>;
 };
@@ -789,8 +792,6 @@
 };
 
 &pcie5 {
-	vddpe-3v3-supply = <&vreg_nvme>;
-
 	pinctrl-0 = <&pcie5_default>;
 	pinctrl-names = "default";
 
@@ -805,13 +806,13 @@
 };
 
 &pcie5_port0 {
+	vpcie3v3-supply = <&vreg_nvme>;
+
 	reset-gpios = <&tlmm 152 GPIO_ACTIVE_LOW>;
 	wake-gpios = <&tlmm 154 GPIO_ACTIVE_LOW>;
 };
 
 &pcie6 {
-	vddpe-3v3-supply = <&vreg_wwan>;
-
 	pinctrl-0 = <&pcie6_default>;
 	pinctrl-names = "default";
 
@@ -826,6 +827,8 @@
 };
 
 &pcie6_port0 {
+	vpcie3v3-supply = <&vreg_wwan>;
+
 	reset-gpios = <&tlmm 149 GPIO_ACTIVE_LOW>;
 	wake-gpios = <&tlmm 151 GPIO_ACTIVE_LOW>;
 };
@@ -1110,7 +1113,7 @@
 		pins = "gpio221";
 		function = "gpio";
 		drive-strength = <2>;
-		bias-disable;
+		bias-pull-up;
 	};
 
 	tpad_default: tpad-default-state {
