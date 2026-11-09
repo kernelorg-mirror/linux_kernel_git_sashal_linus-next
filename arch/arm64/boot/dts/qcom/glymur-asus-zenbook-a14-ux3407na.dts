@@ -263,15 +263,6 @@
 		regulator-boot-on;
 	};
 
-	reserved-memory {
-		linux,cma {
-			compatible = "shared-dma-pool";
-			size = <0x0 0x10000000>;
-			reusable;
-			linux,cma-default;
-		};
-	};
-
 	sound {
 		compatible = "qcom,glymur-sndcard";
 		model = "GLYMUR-ASUS-Zenbook-A14-UX3407NA";
@@ -742,10 +733,12 @@
 &pcie4_port0 {
 	reset-gpios = <&tlmm 146 GPIO_ACTIVE_LOW>;
 	wake-gpios = <&tlmm 148 GPIO_ACTIVE_LOW>;
-};
 
-&pcie4_port0_ep {
-	remote-endpoint = <&m2_e_pcie_ep>;
+	port {
+		pcie4_port0_ep: endpoint {
+			remote-endpoint = <&m2_e_pcie_ep>;
+		};
+	};
 };
 
 &pmh0101_gpios {
