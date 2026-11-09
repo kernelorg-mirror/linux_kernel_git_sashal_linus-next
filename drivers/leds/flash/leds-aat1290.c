@@ -330,10 +330,9 @@ static int init_mm_current_scale(struct aat1290_led *led,
 	max_mm_current = mult_frac(cfg->max_flash_current, 1000,
 				   led->info->mm_to_fl_ratio);
 
-	led->mm_current_scale = devm_kcalloc(&led->pdev->dev,
-					ARRAY_SIZE(max_mm_current_percent),
-					sizeof(*led->mm_current_scale),
-					GFP_KERNEL);
+	led->mm_current_scale = devm_kzalloc_objs(&led->pdev->dev,
+						  *led->mm_current_scale,
+						  ARRAY_SIZE(max_mm_current_percent));
 	if (!led->mm_current_scale)
 		return -ENOMEM;
 
@@ -489,7 +488,7 @@ static int aat1290_led_probe(struct platform_device *pdev)
 	struct v4l2_flash_config v4l2_sd_cfg = {};
 	int ret;
 
-	led = devm_kzalloc(dev, sizeof(*led), GFP_KERNEL);
+	led = devm_kzalloc_obj(dev, *led);
 	if (!led)
 		return -ENOMEM;
 
