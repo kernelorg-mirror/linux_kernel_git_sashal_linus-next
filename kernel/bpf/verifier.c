@@ -21760,8 +21760,7 @@ static int do_check_block(struct bpf_verifier_env *env, int prev_insn_idx)
 		if (signal_pending(current))
 			return -EAGAIN;
 
-		if (need_resched())
-			cond_resched();
+		cond_resched_tasks_rcu_qs();
 
 		/* no insn makes as many ids as there are from here to BPF_INHERITED_ID */
 		if (env->id_gen >= BPF_MAX_ID) {
