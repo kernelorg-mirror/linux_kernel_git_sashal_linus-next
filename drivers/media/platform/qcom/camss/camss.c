@@ -4747,9 +4747,6 @@ static int camss_parse_ports(struct camss *camss)
 	fwnode_graph_for_each_endpoint_scoped(fwnode, ep) {
 		struct camss_async_subdev *csd;
 
-		if (!fwnode_device_is_available(ep))
-			continue;
-
 		if (camss->legacy_phy) {
 			csd = v4l2_async_nf_add_fwnode_remote(&camss->notifier, ep,
 							      typeof(*csd));
@@ -4764,6 +4761,11 @@ static int camss_parse_ports(struct camss *camss)
 			fwnode_handle_put(phy_out);
 			if (!phy_node)
 				continue;
+
+			if (!fwnode_device_is_available(phy_node)) {
+				fwnode_handle_put(phy_node);
+				continue;
+			}
 
 			phy_in = fwnode_graph_get_endpoint_by_id(phy_node, 0, 0, 0);
 			fwnode_handle_put(phy_node);
