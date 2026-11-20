@@ -45,6 +45,7 @@
 #include "nbio_v7_4.h"
 #include "nbio_v7_9.h"
 #include "nbio_v7_11.h"
+#include "nbio_v7_11_4.h"
 #include "nbio_v7_11_5.h"
 #include "hdp_v4_0.h"
 #include "vega10_ih.h"
@@ -768,6 +769,12 @@ static int amdgpu_discovery_init(struct amdgpu_device *adev)
 		drm_dbg(&adev->ddev, "use ip discovery information from file\n");
 		r = amdgpu_discovery_read_binary_from_file(adev, discovery_bin,
 							   fw_name);
+		if (r)
+			goto out;
+	} else if (amdgpu_is_spm_passthrough(adev)) {
+		drm_dbg(&adev->ddev, "use ip discovery information from psp mailbox\n");
+		r = amdgpu_psp_read_discovery(adev, discovery_bin,
+					      GFX_CTRL_ADDR_TYPE_GUEST_PHY_ADDR);
 		if (r)
 			goto out;
 	} else {
@@ -3866,9 +3873,12 @@ int amdgpu_discovery_set_ip_blocks(struct amdgpu_device *adev)
 		adev->nbio.hdp_flush_reg = &nbio_v7_7_hdp_flush_reg;
 		break;
 	case IP_VERSION(6, 3, 1):
-	case IP_VERSION(7, 11, 4):
 		adev->nbio.funcs = &nbif_v6_3_1_funcs;
 		adev->nbio.hdp_flush_reg = &nbif_v6_3_1_hdp_flush_reg;
+		break;
+	case IP_VERSION(7, 11, 4):
+		adev->nbio.funcs = &nbio_v7_11_4_funcs;
+		adev->nbio.hdp_flush_reg = &nbio_v7_11_4_hdp_flush_reg;
 		break;
 	case IP_VERSION(7, 11, 5):
 		adev->nbio.funcs = &nbio_v7_11_5_funcs;
