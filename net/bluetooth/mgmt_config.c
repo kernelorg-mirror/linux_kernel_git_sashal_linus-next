@@ -281,6 +281,12 @@ int set_def_system_config(struct sock *sk, struct hci_dev *hdev, void *data,
 		 * (32 bits), the one of the GFSK PHYs.
 		 */
 		switch (type) {
+		case 0x000c:
+			/* A zero rotation duration would make the advertising
+			 * instance scheduler requeue itself with no delay.
+			 */
+			invalid = !TLV_GET_LE16(buffer);
+			break;
 		case 0x0021:
 			invalid = TLV_GET_U8(buffer) != 0x01 &&
 				  TLV_GET_U8(buffer) != 0x02;
@@ -306,14 +312,6 @@ int set_def_system_config(struct sock *sk, struct hci_dev *hdev, void *data,
 				MGMT_OP_SET_DEF_SYSTEM_CONFIG,
 				MGMT_STATUS_INVALID_PARAMS);
 		}
-
-		/* A zero rotation duration would make the advertising instance
-		 * scheduler requeue itself with no delay.
-		 */
-		if (type == 0x000c && !TLV_GET_LE16(buffer))
-			return mgmt_cmd_status(sk, hdev->id,
-				MGMT_OP_SET_DEF_SYSTEM_CONFIG,
-				MGMT_STATUS_INVALID_PARAMS);
 
 		buffer_left -= exp_len;
 		buffer += exp_len;
