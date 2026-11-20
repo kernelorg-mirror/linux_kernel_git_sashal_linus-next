@@ -54,32 +54,18 @@ static LIST_HEAD(nvmem_lookup_list);
 
 static BLOCKING_NOTIFIER_HEAD(nvmem_notifier);
 
-static int __nvmem_reg_read(struct nvmem_device *nvmem, unsigned int offset,
-			    void *val, size_t bytes)
+static int nvmem_access_chunk(struct nvmem_device *nvmem,
+			      const struct nvmem_operations *ops,
+			      unsigned int offset, void *val, size_t bytes, bool write)
 {
-	struct nvmem_operations *ops;
-
-	guard(srcu)(&nvmem->srcu);
-	ops = srcu_dereference(nvmem->ops, &nvmem->srcu);
-	if (!ops)
-		return -ENODEV;
-
-	if (!ops->reg_read)
-		return -EOPNOTSUPP;
-
-	return ops->reg_read(nvmem->priv, offset, val, bytes);
-}
-
-static int __nvmem_reg_write(struct nvmem_device *nvmem, unsigned int offset,
-			     void *val, size_t bytes)
-{
-	struct nvmem_operations *ops;
 	int ret, wr_ok;
 
-	guard(srcu)(&nvmem->srcu);
-	ops = srcu_dereference(nvmem->ops, &nvmem->srcu);
-	if (!ops)
-		return -ENODEV;
+	if (!write) {
+		if (!ops->reg_read)
+			return -EOPNOTSUPP;
+
+		return ops->reg_read(nvmem->priv, offset, val, bytes);
+	}
 
 	if (!ops->reg_write)
 		return -EOPNOTSUPP;
@@ -97,17 +83,20 @@ static int __nvmem_reg_write(struct nvmem_device *nvmem, unsigned int offset,
 	return wr_ok;
 }
 
-static int nvmem_access_with_keepouts(struct nvmem_device *nvmem,
-				      unsigned int offset, void *val,
-				      size_t bytes, int write)
+static int nvmem_access_locked(struct nvmem_device *nvmem,
+			       const struct nvmem_operations *ops,
+			       unsigned int offset, void *val, size_t bytes, bool write)
 {
-
 	unsigned int end = offset + bytes;
 	unsigned int kend, ksize;
 	const struct nvmem_keepout *keepout = nvmem->keepout;
-	const struct nvmem_keepout *keepoutend = keepout + nvmem->nkeepout;
+	const struct nvmem_keepout *keepoutend;
 	int rc;
 
+	if (!nvmem->nkeepout)
+		return nvmem_access_chunk(nvmem, ops, offset, val, bytes, write);
+
+	keepoutend = keepout + nvmem->nkeepout;
 	/*
 	 * Skip all keepouts before the range being accessed.
 	 * Keepouts are sorted.
@@ -120,11 +109,7 @@ static int nvmem_access_with_keepouts(struct nvmem_device *nvmem,
 		if (offset < keepout->start) {
 			kend = min(end, keepout->start);
 			ksize = kend - offset;
-			if (write)
-				rc = __nvmem_reg_write(nvmem, offset, val, ksize);
-			else
-				rc = __nvmem_reg_read(nvmem, offset, val, ksize);
-
+			rc = nvmem_access_chunk(nvmem, ops, offset, val, ksize, write);
 			if (rc)
 				return rc;
 
@@ -150,13 +135,8 @@ static int nvmem_access_with_keepouts(struct nvmem_device *nvmem,
 	 * If we ran out of keepouts but there's still stuff to do, send it
 	 * down directly
 	 */
-	if (offset < end) {
-		ksize = end - offset;
-		if (write)
-			return __nvmem_reg_write(nvmem, offset, val, ksize);
-		else
-			return __nvmem_reg_read(nvmem, offset, val, ksize);
-	}
+	if (offset < end)
+		return nvmem_access_chunk(nvmem, ops, offset, val, end - offset, write);
 
 	return 0;
 }
@@ -164,19 +144,27 @@ static int nvmem_access_with_keepouts(struct nvmem_device *nvmem,
 static int nvmem_reg_read(struct nvmem_device *nvmem, unsigned int offset,
 			  void *val, size_t bytes)
 {
-	if (!nvmem->nkeepout)
-		return __nvmem_reg_read(nvmem, offset, val, bytes);
+	const struct nvmem_operations *ops;
 
-	return nvmem_access_with_keepouts(nvmem, offset, val, bytes, false);
+	guard(srcu)(&nvmem->srcu);
+	ops = srcu_dereference(nvmem->ops, &nvmem->srcu);
+	if (!ops)
+		return -ENODEV;
+
+	return nvmem_access_locked(nvmem, ops, offset, val, bytes, false);
 }
 
 static int nvmem_reg_write(struct nvmem_device *nvmem, unsigned int offset,
 			   void *val, size_t bytes)
 {
-	if (!nvmem->nkeepout)
-		return __nvmem_reg_write(nvmem, offset, val, bytes);
+	const struct nvmem_operations *ops;
 
-	return nvmem_access_with_keepouts(nvmem, offset, val, bytes, true);
+	guard(srcu)(&nvmem->srcu);
+	ops = srcu_dereference(nvmem->ops, &nvmem->srcu);
+	if (!ops)
+		return -ENODEV;
+
+	return nvmem_access_locked(nvmem, ops, offset, val, bytes, true);
 }
 
 #ifdef CONFIG_NVMEM_SYSFS
@@ -1651,10 +1639,15 @@ static int __nvmem_cell_read(struct nvmem_device *nvmem,
 			     struct nvmem_cell_entry *cell,
 			     void *buf, size_t *len, const char *id, int index)
 {
+	const struct nvmem_operations *ops;
 	int rc;
 
-	rc = nvmem_reg_read(nvmem, cell->offset, buf, cell->raw_len);
+	guard(srcu)(&nvmem->srcu);
+	ops = srcu_dereference(nvmem->ops, &nvmem->srcu);
+	if (!ops)
+		return -ENODEV;
 
+	rc = nvmem_access_locked(nvmem, ops, cell->offset, buf, cell->raw_len, false);
 	if (rc)
 		return rc;
 
@@ -1710,6 +1703,7 @@ void *nvmem_cell_read(struct nvmem_cell *cell, size_t *len)
 EXPORT_SYMBOL_GPL(nvmem_cell_read);
 
 static void *nvmem_cell_prepare_write_buffer(struct nvmem_cell_entry *cell,
+					     const struct nvmem_operations *ops,
 					     u8 *_buf, int len)
 {
 	struct nvmem_device *nvmem = cell->nvmem;
@@ -1729,7 +1723,7 @@ static void *nvmem_cell_prepare_write_buffer(struct nvmem_cell_entry *cell,
 		*b <<= bit_offset;
 
 		/* setup the first byte with lsb bits from nvmem */
-		rc = nvmem_reg_read(nvmem, cell->offset, &v, 1);
+		rc = nvmem_access_locked(nvmem, ops, cell->offset, &v, 1, false);
 		if (rc)
 			goto err;
 		*b++ |= GENMASK(bit_offset - 1, 0) & v;
@@ -1748,8 +1742,8 @@ static void *nvmem_cell_prepare_write_buffer(struct nvmem_cell_entry *cell,
 	/* if it's not end on byte boundary */
 	if ((nbits + bit_offset) % BITS_PER_BYTE) {
 		/* setup the last byte with msb bits from nvmem */
-		rc = nvmem_reg_read(nvmem,
-				    cell->offset + cell->bytes - 1, &v, 1);
+		rc = nvmem_access_locked(nvmem, ops, cell->offset + cell->bytes - 1,
+					 &v, 1, false);
 		if (rc)
 			goto err;
 		*p |= GENMASK(7, (nbits + bit_offset) % BITS_PER_BYTE) & v;
@@ -1765,10 +1759,18 @@ err:
 static int __nvmem_cell_entry_write(struct nvmem_cell_entry *cell, void *buf, size_t len)
 {
 	struct nvmem_device *nvmem = cell->nvmem;
+	const struct nvmem_operations *ops;
 	int rc;
 
-	if (!nvmem || nvmem->read_only ||
-	    (cell->bit_offset == 0 && len != cell->bytes))
+	if (!nvmem)
+		return -EINVAL;
+
+	guard(srcu)(&nvmem->srcu);
+	ops = srcu_dereference(nvmem->ops, &nvmem->srcu);
+	if (!ops)
+		return -ENODEV;
+
+	if (nvmem->read_only || (cell->bit_offset == 0 && len != cell->bytes))
 		return -EINVAL;
 
 	/*
@@ -1782,12 +1784,12 @@ static int __nvmem_cell_entry_write(struct nvmem_cell_entry *cell, void *buf, si
 	if (cell->bit_offset || cell->nbits) {
 		if (len != BITS_TO_BYTES(cell->nbits) && len != cell->bytes)
 			return -EINVAL;
-		buf = nvmem_cell_prepare_write_buffer(cell, buf, len);
+		buf = nvmem_cell_prepare_write_buffer(cell, ops, buf, len);
 		if (IS_ERR(buf))
 			return PTR_ERR(buf);
 	}
 
-	rc = nvmem_reg_write(nvmem, cell->offset, buf, cell->bytes);
+	rc = nvmem_access_locked(nvmem, ops, cell->offset, buf, cell->bytes, true);
 
 	/* free the tmp buffer */
 	if (cell->bit_offset || cell->nbits)
