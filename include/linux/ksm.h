@@ -10,7 +10,6 @@
 
 #include <linux/bitops.h>
 #include <linux/mm.h>
-#include <linux/pagemap.h>
 #include <linux/rmap.h>
 #include <linux/sched.h>
 
@@ -66,14 +65,6 @@ static inline void ksm_fork(struct mm_struct *mm, struct mm_struct *oldmm)
 	}
 }
 
-static inline int ksm_execve(struct mm_struct *mm)
-{
-	if (mm_flags_test(MMF_VM_MERGE_ANY, mm))
-		return __ksm_enter(mm);
-
-	return 0;
-}
-
 static inline void ksm_exit(struct mm_struct *mm)
 {
 	if (mm_flags_test(MMF_VM_MERGEABLE, mm))
@@ -116,11 +107,6 @@ static inline int ksm_disable(struct mm_struct *mm)
 
 static inline void ksm_fork(struct mm_struct *mm, struct mm_struct *oldmm)
 {
-}
-
-static inline int ksm_execve(struct mm_struct *mm)
-{
-	return 0;
 }
 
 static inline void ksm_exit(struct mm_struct *mm)
