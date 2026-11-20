@@ -3,9 +3,12 @@
 
 //! Support for the GMC (GPU Management Controller) API message type on the GSP command queue.
 
+use core::convert::Infallible;
+
 use kernel::{
     device,
     prelude::*,
+    time::Delta,
     transmute::{
         AsBytes,
         FromBytes, //
@@ -52,14 +55,17 @@ pub(crate) trait CommandToGsp {
     /// after the GMC API header.
     type Command: FromBytes + AsBytes;
 
-    /// Type of the reply expected from the GSP, or [`NoReply`] for commands that don't have a
-    /// reply.
+    /// Type of the reply expected from the GSP. Can be [`NoReply`] for commands that don't have a
+    /// reply, or `()` for commands that only expect a status code without a reply payload.
     type Reply;
 
     /// Largest reply this command accepts, in bytes. Zero for commands that the GSP does not
     /// answer, or for commands that expect a reply with an empty payload (i.e. just a status
     /// value).
     const MAX_REPLY_SIZE: u32;
+
+    /// Time given to the GSP to complete this command once it is sent.
+    const COMPLETION_TIMEOUT: Delta = Cmdq::RECEIVE_TIMEOUT;
 
     /// Error type returned by [`CommandToGsp::init`].
     type InitError;
@@ -174,6 +180,17 @@ pub(crate) trait MessageFromGsp: Sized {
     ) -> Result<Self, Self::InitError>;
 }
 
+/// Reply type for commands that the GSP answers with a status and no payload.
+impl MessageFromGsp for () {
+    type InitError = Infallible;
+
+    fn read(
+        _payload: &mut SBufferIter<core::array::IntoIter<&[u8], 2>>,
+    ) -> Result<Self, Self::InitError> {
+        Ok(())
+    }
+}
+
 /// A GMC message ready to be processed from the message queue.
 pub(crate) struct GmcMessage<'a> {
     // Reference to the GMC API header of the message.
@@ -283,8 +300,8 @@ impl Cmdq<'_> {
     ///
     /// - `EMSGSIZE` if the command does not fit in a single command queue element.
     /// - `ETIMEDOUT` if space does not become available to send the command, or if the reply does
-    ///   not arrive within [`Self::RECEIVE_TIMEOUT`] of the send, however many events arrive
-    ///   while waiting.
+    ///   not arrive within [`CommandToGsp::COMPLETION_TIMEOUT`] of the send, however many events
+    ///   arrive while waiting.
     /// - `EIO` if the variable payload requested by the command has not been entirely
     ///   written to by its [`CommandToGsp::init_variable_payload`] method, or if a message fails
     ///   framing or checksum validation.
@@ -351,7 +368,7 @@ impl CmdqInner<'_> {
     }
 
     /// Receives the reply of type `C::Reply` to the command sent with sequence number `seq`,
-    /// waiting up to [`Cmdq::RECEIVE_TIMEOUT`] from the call.
+    /// waiting up to [`CommandToGsp::COMPLETION_TIMEOUT`] from the call.
     ///
     /// Any GMC event that arrives first is passed to `on_event`, and any RPC message is logged.
     /// Neither extends the deadline.
@@ -377,8 +394,7 @@ impl CmdqInner<'_> {
     {
         let dev = self.dev;
 
-        // TODO: replace `u32` with `NvStatus` once it lands.
-        self.await_msg_with(|message| -> Result<Option<Result<C::Reply, u32>>> {
+        self.await_msg_with(C::COMPLETION_TIMEOUT, |message| {
             let gmc_message = match message {
                 GspParsedMessage::Gmc(gmc_message) => gmc_message,
                 _ => {
@@ -387,6 +403,7 @@ impl CmdqInner<'_> {
                 }
             };
 
+            // TODO: use `NvStatus` instead of `u32` for status once it lands.
             let status = match gmc_message.reply_status(C::COMMAND, seq) {
                 Some(status) => status,
                 // Reply to another command, e.g. one that timed out earlier.
