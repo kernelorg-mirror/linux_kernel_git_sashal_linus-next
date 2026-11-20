@@ -628,6 +628,37 @@ out:
 	return ret;
 }
 
+/*
+ * Whether a stored ACE is for the principal of a POSIX ACL entry. The entry
+ * for uid 0 is shown as S-1-22-1-0. sid_to_id() also maps the server domain
+ * SID with RID 0 to uid 0, so a stored ACE with that SID counts as well.
+ */
+static bool ace_is_for_entry(const struct smb_sid *ace_sid,
+			     const struct smb_sid *sid, bool root)
+{
+	const struct smb_sid *dom = &server_conf.domain_sid;
+
+	if (ace_sid->num_subauth == sid->num_subauth &&
+	    !compare_sids(ace_sid, sid))
+		return true;
+
+	return root && ace_sid->num_subauth == dom->num_subauth + 1 &&
+	       !compare_sids(ace_sid, dom) &&
+	       !ace_sid->sub_auth[dom->num_subauth];
+}
+
+/*
+ * Add the size of an ACE to the size of the ACEs in a DACL. Fail when the
+ * DACL with its header would no longer fit in its 16-bit size.
+ */
+static bool dacl_add_ace_size(u16 *size, u16 ace_sz)
+{
+	if (*size + ace_sz > U16_MAX - sizeof(struct smb_acl))
+		return false;
+	*size += ace_sz;
+	return true;
+}
+
 static void set_posix_acl_entries_dacl(const struct mnt_idmap *idmap,
 				       struct smb_ace *pndace,
 				       struct smb_fattr *fattr, u16 *num_aces,
@@ -646,6 +677,7 @@ static void set_posix_acl_entries_dacl(const struct mnt_idmap *idmap,
 	pace = fattr->cf_acls->a_entries;
 	for (i = 0; i < fattr->cf_acls->a_count; i++, pace++) {
 		int flags = 0;
+		bool root = false;
 
 		sid = kmalloc_obj(struct smb_sid, KSMBD_DEFAULT_GFP);
 		if (!sid)
@@ -656,8 +688,10 @@ static void set_posix_acl_entries_dacl(const struct mnt_idmap *idmap,
 			unsigned int sid_type = SIDOWNER;
 
 			uid = posix_acl_uid_translate(idmap, pace);
-			if (!uid)
+			if (!uid) {
 				sid_type = SIDUNIX_USER;
+				root = true;
+			}
 			id_to_sid(uid, sid_type, sid);
 		} else if (pace->e_tag == ACL_GROUP) {
 			gid_t gid;
@@ -672,8 +706,7 @@ static void set_posix_acl_entries_dacl(const struct mnt_idmap *idmap,
 		}
 		ntace = pndace;
 		for (j = 0; j < existing_nt_aces; j++) {
-			if (ntace->sid.sub_auth[ntace->sid.num_subauth - 1] ==
-					sid->sub_auth[sid->num_subauth - 1])
+			if (ace_is_for_entry(&ntace->sid, sid, root))
 				goto pass_same_sid;
 			ntace = (struct smb_ace *)((char *)ntace +
 					le16_to_cpu(ntace->size));
@@ -685,8 +718,7 @@ static void set_posix_acl_entries_dacl(const struct mnt_idmap *idmap,
 		ntace = (struct smb_ace *)((char *)pndace + *size);
 		ace_sz = fill_ace_for_sid(ntace, sid, ACCESS_ALLOWED, flags,
 				pace->e_perm, 0777);
-		if (check_add_overflow(*size, ace_sz, size)) {
-			*size -= ace_sz;
+		if (!dacl_add_ace_size(size, ace_sz)) {
 			kfree(sid);
 			break;
 		}
@@ -700,8 +732,7 @@ static void set_posix_acl_entries_dacl(const struct mnt_idmap *idmap,
 			ntace = (struct smb_ace *)((char *)pndace + *size);
 			ace_sz = fill_ace_for_sid(ntace, sid, ACCESS_ALLOWED,
 					0x03, pace->e_perm, 0777);
-			if (check_add_overflow(*size, ace_sz, size)) {
-				*size -= ace_sz;
+			if (!dacl_add_ace_size(size, ace_sz)) {
 				kfree(sid);
 				break;
 			}
@@ -746,8 +777,7 @@ posix_default_acl:
 		ntace = (struct smb_ace *)((char *)pndace + *size);
 		ace_sz = fill_ace_for_sid(ntace, sid, ACCESS_ALLOWED, 0x0b,
 				pace->e_perm, 0777);
-		if (check_add_overflow(*size, ace_sz, size)) {
-			*size -= ace_sz;
+		if (!dacl_add_ace_size(size, ace_sz)) {
 			kfree(sid);
 			break;
 		}
@@ -798,10 +828,8 @@ static void set_ntacl_dacl(const struct mnt_idmap *idmap,
 				goto next_ace;
 
 			memcpy((char *)pndace + size, ntace, nt_ace_size);
-			if (check_add_overflow(size, nt_ace_size, &size)) {
-				size -= nt_ace_size;
+			if (!dacl_add_ace_size(&size, nt_ace_size))
 				break;
-			}
 			num_aces++;
 
 next_ace:
