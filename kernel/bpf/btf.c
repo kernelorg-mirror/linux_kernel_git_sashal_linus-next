@@ -7645,7 +7645,7 @@ bool btf_ctx_access(int off, int size, enum bpf_access_type type,
 			info->reg_type = ctx_arg_info->reg_type;
 			info->btf = ctx_arg_info->btf ? : btf_vmlinux;
 			info->btf_id = ctx_arg_info->btf_id;
-			info->ref_id = ctx_arg_info->ref_id;
+			info->ref_arg = ctx_arg_info->ref_arg;
 			return true;
 		}
 	}
@@ -8132,6 +8132,7 @@ int btf_struct_access(struct bpf_verifier_log *log,
 			/* An access at 'lo' or above ends after the start of the field. */
 			s64 lo = max(min_off, (s64)offset - size + 1);
 
+			/* The fields are sorted: the next ones are out of reach too. */
 			if (lo > max_off)
 				break;
 			/* Round up to min_off + k * step. The step is never 0. */
