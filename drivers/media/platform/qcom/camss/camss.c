@@ -5021,24 +5021,30 @@ static int camss_link_entities(struct camss *camss)
 					}
 				}
 	} else {
-		for (i = 0; i < camss->res->csid_num; i++)
-			for (k = 0; k < camss->res->vfe_num; k++)
-				for (j = 0; j < camss->vfe[k].res->line_num; j++) {
-					struct v4l2_subdev *csid = &camss->csid[i].subdev;
-					struct v4l2_subdev *vfe = &camss->vfe[k].line[j].subdev;
 
-					ret = media_create_pad_link(&csid->entity,
-								    MSM_CSID_PAD_FIRST_SRC + j,
-								    &vfe->entity,
-								    MSM_VFE_PAD_SINK,
-								    0);
-					if (ret < 0) {
-						camss_link_err(camss, csid->entity.name,
-							       vfe->entity.name,
-							       ret);
-						return ret;
-					}
+		if (camss->res->csid_num != camss->res->vfe_num) {
+			return dev_err_probe(camss->dev, -EINVAL,
+					     "csid_num %u != vfe_num %u\n",
+					     camss->res->csid_num, camss->res->vfe_num);
+		}
+
+		for (i = 0; i < camss->res->csid_num; i++)
+			for (j = 0; j < camss->vfe[i].res->line_num; j++) {
+				struct v4l2_subdev *csid = &camss->csid[i].subdev;
+				struct v4l2_subdev *vfe = &camss->vfe[i].line[j].subdev;
+
+				ret = media_create_pad_link(&csid->entity,
+							    MSM_CSID_PAD_FIRST_SRC + j,
+							    &vfe->entity,
+							    MSM_VFE_PAD_SINK,
+							    0);
+				if (ret < 0) {
+					camss_link_err(camss, csid->entity.name,
+						       vfe->entity.name,
+						       ret);
+					return ret;
 				}
+			}
 	}
 
 	return 0;
