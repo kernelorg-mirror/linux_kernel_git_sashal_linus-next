@@ -356,7 +356,7 @@ static irqreturn_t vfe_isr(int irq, void *dev)
 			vfe->isr_ops.reg_update(vfe, i);
 
 	for (i = VFE_LINE_RDI0; i < vfe->res->line_num; i++)
-		if (status0 & STATUS_1_RDI_SOF(i))
+		if (status1 & STATUS_1_RDI_SOF(i))
 			vfe->isr_ops.sof(vfe, i);
 
 	for (i = 0; i < MSM_VFE_COMPOSITE_IRQ_NUM; i++)
