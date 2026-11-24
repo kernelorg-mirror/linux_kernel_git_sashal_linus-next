@@ -5237,6 +5237,10 @@ EXPORT_SYMBOL(rps_needed);
 struct static_key_false rfs_needed __read_mostly;
 EXPORT_SYMBOL(rfs_needed);
 
+#ifdef CONFIG_RFS_ACCEL
+struct static_key_false arfs_llc_affinity __read_mostly;
+#endif
+
 static u32 rfs_slot(u32 hash, rps_tag_ptr tag_ptr)
 {
 	return hash_32(hash, rps_tag_to_log(tag_ptr));
@@ -5274,7 +5278,7 @@ static bool rps_flow_is_active(struct rps_dev_flow *rflow,
 
 static struct rps_dev_flow *
 set_rps_cpu(struct net_device *dev, struct sk_buff *skb,
-	    struct rps_dev_flow *rflow, u16 next_cpu, u32 hash)
+	    struct rps_dev_flow *rflow, u16 old_cpu, u16 next_cpu, u32 hash)
 {
 	if (next_cpu < nr_cpu_ids) {
 		u32 head;
@@ -5293,6 +5297,13 @@ set_rps_cpu(struct net_device *dev, struct sk_buff *skb,
 		if (!skb_rx_queue_recorded(skb) || !dev->rx_cpu_rmap ||
 		    !(dev->features & NETIF_F_NTUPLE))
 			goto out;
+
+		if (static_branch_unlikely(&arfs_llc_affinity) &&
+		    old_cpu < nr_cpu_ids && cpu_online(old_cpu) &&
+		    cpus_share_cache(old_cpu, next_cpu) &&
+		    READ_ONCE(rflow->filter) != RPS_NO_FILTER)
+			goto out;
+
 		rxq_index = cpu_rmap_lookup_index(dev->rx_cpu_rmap, next_cpu);
 		if (rxq_index == skb_get_rx_queue(skb))
 			goto out;
@@ -5422,8 +5433,8 @@ static int get_rps_cpu(struct net_device *dev, struct sk_buff *skb,
 		    (tcpu >= nr_cpu_ids || !cpu_online(tcpu) ||
 		     ((int)(READ_ONCE(per_cpu(softnet_data, tcpu).input_queue_head) -
 		      rflow->last_qtail)) >= 0)) {
+			rflow = set_rps_cpu(dev, skb, rflow, tcpu, next_cpu, hash);
 			tcpu = next_cpu;
-			rflow = set_rps_cpu(dev, skb, rflow, next_cpu, hash);
 		}
 
 		if (tcpu < nr_cpu_ids && cpu_online(tcpu)) {
@@ -9330,6 +9341,9 @@ static void __netdev_upper_dev_unlink(struct net_device *dev,
 
 	__netdev_adjacent_dev_unlink_neighbour(dev, upper_dev);
 
+	if (changeupper_info.master)
+		dev->xdp_from_upper = 0;
+
 	call_netdevice_notifiers_info(NETDEV_CHANGEUPPER,
 				      &changeupper_info.info);
 
@@ -10565,6 +10579,15 @@ u8 dev_xdp_prog_count(struct net_device *dev)
 }
 EXPORT_SYMBOL_GPL(dev_xdp_prog_count);
 
+/* Does the device have an XDP program, and was it installed directly on the
+ * device rather than propagated down by an upper with netif_xdp_propagate()?
+ */
+bool dev_xdp_has_own_prog(struct net_device *dev)
+{
+	return dev_xdp_prog_count(dev) && !dev->xdp_from_upper;
+}
+EXPORT_SYMBOL_GPL(dev_xdp_has_own_prog);
+
 u8 dev_xdp_sb_prog_count(struct net_device *dev)
 {
 	struct bpf_prog *prog;
@@ -10579,35 +10602,6 @@ u8 dev_xdp_sb_prog_count(struct net_device *dev)
 	return count;
 }
 
-int netif_xdp_propagate(struct net_device *dev, struct netdev_bpf *bpf)
-{
-	if (!dev->netdev_ops->ndo_bpf)
-		return -EOPNOTSUPP;
-
-	if (dev->cfg->hds_config == ETHTOOL_TCP_DATA_SPLIT_ENABLED &&
-	    bpf->command == XDP_SETUP_PROG &&
-	    bpf->prog && !bpf->prog->aux->xdp_has_frags) {
-		NL_SET_ERR_MSG(bpf->extack,
-			       "unable to propagate XDP to device using tcp-data-split");
-		return -EBUSY;
-	}
-
-	if (dev_get_min_mp_channel_count(dev)) {
-		NL_SET_ERR_MSG(bpf->extack, "unable to propagate XDP to device using memory provider");
-		return -EBUSY;
-	}
-
-	return dev->netdev_ops->ndo_bpf(dev, bpf);
-}
-EXPORT_SYMBOL_GPL(netif_xdp_propagate);
-
-u32 dev_xdp_prog_id(struct net_device *dev, enum bpf_xdp_mode mode)
-{
-	struct bpf_prog *prog = dev_xdp_prog(dev, mode);
-
-	return prog ? prog->aux->id : 0;
-}
-
 static void dev_xdp_set_link(struct net_device *dev, enum bpf_xdp_mode mode,
 			     struct bpf_xdp_link *link)
 {
@@ -10620,6 +10614,71 @@ static void dev_xdp_set_prog(struct net_device *dev, enum bpf_xdp_mode mode,
 {
 	dev->xdp_state[mode].link = NULL;
 	dev->xdp_state[mode].prog = prog;
+}
+
+int netif_xdp_propagate(struct net_device *dev, struct netdev_bpf *bpf)
+{
+	struct bpf_prog *old_prog;
+	int err;
+
+	netdev_assert_locked_ops_compat(dev);
+
+	if (!dev->netdev_ops->ndo_bpf)
+		return -EOPNOTSUPP;
+
+	/* setup requires extra handling, bypass those for other commands */
+	if (bpf->command != XDP_SETUP_PROG)
+		return dev->netdev_ops->ndo_bpf(dev, bpf);
+
+	if (dev_xdp_has_own_prog(dev)) {
+		NL_SET_ERR_MSG(bpf->extack,
+			       "unable to propagate XDP to device with an XDP program of its own");
+		return -EBUSY;
+	}
+
+	if (bpf->prog) {
+		if (dev->cfg->hds_config == ETHTOOL_TCP_DATA_SPLIT_ENABLED &&
+		    !bpf->prog->aux->xdp_has_frags) {
+			NL_SET_ERR_MSG(bpf->extack,
+				       "unable to propagate XDP to device using tcp-data-split");
+			return -EBUSY;
+		}
+
+		if (dev_get_min_mp_channel_count(dev)) {
+			NL_SET_ERR_MSG(bpf->extack,
+				       "unable to propagate XDP to device using memory provider");
+			return -EBUSY;
+		}
+	}
+
+	err = dev->netdev_ops->ndo_bpf(dev, bpf);
+	if (err)
+		return err;
+	if (bpf->prog)
+		bpf_prog_inc(bpf->prog);
+
+	/* Record it like a program of our own, so that everything which asks
+	 * whether XDP is running here gets the right answer. @xdp_from_upper
+	 * keeps the two apart where it matters. Register it with the
+	 * dispatcher too, dev_xdp_uninstall() will drop it from there if this
+	 * device goes away first.
+	 */
+	old_prog = dev_xdp_prog(dev, XDP_MODE_DRV);
+	bpf_prog_change_xdp(old_prog, bpf->prog);
+	dev_xdp_set_prog(dev, XDP_MODE_DRV, bpf->prog);
+	dev->xdp_from_upper = !!bpf->prog;
+	if (old_prog)
+		bpf_prog_put(old_prog);
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(netif_xdp_propagate);
+
+u32 dev_xdp_prog_id(struct net_device *dev, enum bpf_xdp_mode mode)
+{
+	struct bpf_prog *prog = dev_xdp_prog(dev, mode);
+
+	return prog ? prog->aux->id : 0;
 }
 
 static int dev_xdp_install(struct net_device *dev, enum bpf_xdp_mode mode,
@@ -10660,17 +10719,17 @@ static int dev_xdp_install(struct net_device *dev, enum bpf_xdp_mode mode,
 			NL_SET_ERR_MSG(extack, "BPF_XDP_CPUMAP programs can not be attached to a device");
 			return -EINVAL;
 		}
-	}
-
-	if (dev->cfg->hds_config == ETHTOOL_TCP_DATA_SPLIT_ENABLED &&
-	    prog && !prog->aux->xdp_has_frags) {
-		NL_SET_ERR_MSG(extack, "unable to install XDP to device using tcp-data-split");
-		return -EBUSY;
-	}
-
-	if (dev_get_min_mp_channel_count(dev)) {
-		NL_SET_ERR_MSG(extack, "unable to install XDP to device using memory provider");
-		return -EBUSY;
+		if (dev->cfg->hds_config == ETHTOOL_TCP_DATA_SPLIT_ENABLED &&
+		    !prog->aux->xdp_has_frags) {
+			NL_SET_ERR_MSG(extack,
+				       "unable to install XDP to device using tcp-data-split");
+			return -EBUSY;
+		}
+		if (dev_get_min_mp_channel_count(dev)) {
+			NL_SET_ERR_MSG(extack,
+				       "unable to install XDP to device using memory provider");
+			return -EBUSY;
+		}
 	}
 
 	memset(&xdp, 0, sizeof(xdp));
@@ -10729,6 +10788,7 @@ static void dev_xdp_uninstall(struct net_device *dev)
 
 		dev_xdp_set_link(dev, mode, NULL);
 	}
+	dev->xdp_from_upper = 0;
 }
 
 static int dev_xdp_attach(struct net_device *dev, struct netlink_ext_ack *extack,
@@ -10771,6 +10831,10 @@ static int dev_xdp_attach(struct net_device *dev, struct netlink_ext_ack *extack
 	}
 
 	mode = dev_xdp_mode(dev, flags);
+	if (dev->xdp_from_upper) {
+		NL_SET_ERR_MSG(extack, "Can't replace an XDP program installed by an upper device");
+		return -EBUSY;
+	}
 	/* can't replace attached link */
 	if (dev_xdp_link(dev, mode)) {
 		NL_SET_ERR_MSG(extack, "Can't replace active BPF XDP link");
