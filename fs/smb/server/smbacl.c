@@ -376,6 +376,12 @@ void free_acl_state(struct posix_acl_state *state)
 	kfree(state->groups);
 }
 
+/* Whether two SIDs are the same SID */
+static bool smb_sid_equal(const struct smb_sid *a, const struct smb_sid *b)
+{
+	return a->num_subauth == b->num_subauth && !compare_sids(a, b);
+}
+
 static int parse_dacl(const struct mnt_idmap *idmap,
 		      struct ksmbd_sd *sd,
 		      const struct smb_sid *pownersid,
@@ -423,13 +429,13 @@ static int parse_dacl(const struct mnt_idmap *idmap,
 			continue;
 
 		if (ace->type == ACCESS_ALLOWED &&
-		    ace->sid->num_subauth >= 3 &&
+		    ace->sid->num_subauth == 3 &&
 		    !(compare_sids(ace->sid, &sid_unix_NFS_mode))) {
 			fattr->cf_mode =
 				le32_to_cpu(ace->sid->sub_auth[2]);
 			fattr->cf_posix_mode = true;
 			nfs_mode_found = true;
-		} else if (!compare_sids(ace->sid, pownersid)) {
+		} else if (pownersid && smb_sid_equal(ace->sid, pownersid)) {
 			acl_mode = access_flags_to_mode(fattr,
 							cpu_to_le32(ace->mask),
 							ace->type);
@@ -440,7 +446,7 @@ static int parse_dacl(const struct mnt_idmap *idmap,
 				mode |= acl_mode;
 			}
 			owner_found = true;
-		} else if (!compare_sids(ace->sid, pgrpsid) ||
+		} else if ((pgrpsid && smb_sid_equal(ace->sid, pgrpsid)) ||
 			   ace->sid->sub_auth[ace->sid->num_subauth - 1] ==
 			    DOMAIN_USER_RID_LE) {
 			acl_mode = access_flags_to_mode(fattr,
@@ -452,7 +458,7 @@ static int parse_dacl(const struct mnt_idmap *idmap,
 				mode |= acl_mode;
 			}
 			group_found = true;
-		} else if (!compare_sids(ace->sid, &sid_everyone)) {
+		} else if (smb_sid_equal(ace->sid, &sid_everyone)) {
 			acl_mode = access_flags_to_mode(fattr,
 							cpu_to_le32(ace->mask),
 							ace->type);
@@ -462,11 +468,11 @@ static int parse_dacl(const struct mnt_idmap *idmap,
 				mode |= acl_mode;
 			}
 			others_found = true;
-		} else if (!compare_sids(ace->sid, &creator_owner)) {
+		} else if (smb_sid_equal(ace->sid, &creator_owner)) {
 			continue;
-		} else if (!compare_sids(ace->sid, &creator_group)) {
+		} else if (smb_sid_equal(ace->sid, &creator_group)) {
 			continue;
-		} else if (!compare_sids(ace->sid, &sid_authusers)) {
+		} else if (smb_sid_equal(ace->sid, &sid_authusers)) {
 			continue;
 		} else {
 			struct smb_fattr temp_fattr;
@@ -790,7 +796,7 @@ int parse_sec_desc(const struct mnt_idmap *idmap, struct smb_ntsd *pntsd,
 	if (sd->dacl == KSMBD_ACL_ABSENT) {
 		ksmbd_debug(SMB, "DACL_PRESENT in DACL type is not set\n");
 		*psd = no_free_ptr(sd);
-		return rc;
+		return 0;
 	}
 
 	/* The stored SD keeps only the Control bits set below and no SACL */
@@ -1002,11 +1008,11 @@ int smb_inherit_dacl(struct ksmbd_conn *conn,
 			flags = 0;
 		}
 
-		if (!compare_sids(&creator_owner, parent_aces->sid)) {
+		if (smb_sid_equal(&creator_owner, parent_aces->sid)) {
 			creator = &creator_owner;
 			id_to_sid(uid, SIDOWNER, &owner_sid);
 			psid = &owner_sid;
-		} else if (!compare_sids(&creator_group, parent_aces->sid)) {
+		} else if (smb_sid_equal(&creator_group, parent_aces->sid)) {
 			creator = &creator_group;
 			id_to_sid(gid, SIDUNIX_GROUP, &group_sid);
 			psid = &group_sid;
@@ -1041,7 +1047,11 @@ int smb_inherit_dacl(struct ksmbd_conn *conn,
 		if (rc)
 			goto free_aces_base;
 
-		ksmbd_vfs_set_sd_xattr(conn, idmap, path, pntsd, pntsd_size);
+		/*
+		 * If the filesystem refuses this SD, the caller tries the SD
+		 * built from the inode, which may fit.
+		 */
+		rc = ksmbd_vfs_set_sd_xattr(conn, idmap, path, pntsd, pntsd_size);
 		kvfree(pntsd);
 	}
 free_aces_base:
@@ -1081,12 +1091,6 @@ static bool smb_sid_in_group(const struct smb_sid *sid)
 	 * mounts.
 	 */
 	return in_group_p(make_kgid(&init_user_ns, gid));
-}
-
-/* Whether two SIDs are the same SID */
-static bool smb_sid_equal(const struct smb_sid *a, const struct smb_sid *b)
-{
-	return a->num_subauth == b->num_subauth && !compare_sids(a, b);
 }
 
 /*
@@ -1193,8 +1197,8 @@ int smb_check_perm_dacl(struct ksmbd_conn *conn, const struct path *path,
 		     ace->type == ACCESS_DENIED_CALLBACK_OBJECT_ACE_TYPE) &&
 		    !(ace->flags & INHERIT_ONLY_ACE))
 			obj_deny = true;
-		/* ksmbd evaluates no object ACE, so one matches no one */
-		if (ace->obj_len)
+		/* An object ACE or a SID with no sub-authority matches no one */
+		if (ace->obj_len || !ace->sid->num_subauth)
 			continue;
 
 		if (!compare_sids(&sid_owner_rights, ace->sid)) {
@@ -1277,7 +1281,7 @@ int smb_check_perm_dacl(struct ksmbd_conn *conn, const struct path *path,
 
 	for (i = 0; i < sd->num_aces; i++) {
 		ace = &sd->aces[i];
-		if (ace->obj_len)
+		if (ace->obj_len || !ace->sid->num_subauth)
 			continue;
 		if (!compare_sids(&sid, ace->sid) ||
 		    !compare_sids(&sid_unix_NFS_mode, ace->sid)) {
