@@ -548,6 +548,19 @@ impl Delta {
     /// The `micros` can range from -9_223_372_036_854_775 to 9_223_372_036_854_775.
     /// If `micros` is outside this range, `i64::MIN` is used for negative values,
     /// and `i64::MAX` is used for positive values due to saturation.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use kernel::time::Delta;
+    ///
+    /// assert_eq!(Delta::from_micros(1).as_nanos(), 1_000);
+    /// assert_eq!(Delta::from_micros(-1).as_nanos(), -1_000);
+    ///
+    /// // A value out of range saturates.
+    /// assert_eq!(Delta::from_micros(i64::MAX).as_nanos(), i64::MAX);
+    /// assert_eq!(Delta::from_micros(i64::MIN).as_nanos(), i64::MIN);
+    /// ```
     #[inline]
     pub const fn from_micros(micros: i64) -> Self {
         Self {
@@ -560,6 +573,19 @@ impl Delta {
     /// The `millis` can range from -9_223_372_036_854 to 9_223_372_036_854.
     /// If `millis` is outside this range, `i64::MIN` is used for negative values,
     /// and `i64::MAX` is used for positive values due to saturation.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use kernel::time::Delta;
+    ///
+    /// assert_eq!(Delta::from_millis(1).as_nanos(), 1_000_000);
+    /// assert_eq!(Delta::from_millis(-1).as_nanos(), -1_000_000);
+    ///
+    /// // A value out of range saturates.
+    /// assert_eq!(Delta::from_millis(i64::MAX).as_nanos(), i64::MAX);
+    /// assert_eq!(Delta::from_millis(i64::MIN).as_nanos(), i64::MIN);
+    /// ```
     #[inline]
     pub const fn from_millis(millis: i64) -> Self {
         Self {
@@ -572,6 +598,19 @@ impl Delta {
     /// The `secs` can range from -9_223_372_036 to 9_223_372_036.
     /// If `secs` is outside this range, `i64::MIN` is used for negative values,
     /// and `i64::MAX` is used for positive values due to saturation.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use kernel::time::Delta;
+    ///
+    /// assert_eq!(Delta::from_secs(1).as_nanos(), 1_000_000_000);
+    /// assert_eq!(Delta::from_secs(-1).as_nanos(), -1_000_000_000);
+    ///
+    /// // A value out of range saturates.
+    /// assert_eq!(Delta::from_secs(i64::MAX).as_nanos(), i64::MAX);
+    /// assert_eq!(Delta::from_secs(i64::MIN).as_nanos(), i64::MIN);
+    /// ```
     #[inline]
     pub const fn from_secs(secs: i64) -> Self {
         Self {
@@ -599,6 +638,18 @@ impl Delta {
 
     /// Return the smallest number of microseconds greater than or equal
     /// to the value in the [`Delta`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use kernel::time::Delta;
+    ///
+    /// assert_eq!(Delta::from_nanos(1_000).as_micros_ceil(), 1);
+    ///
+    /// // A value between two whole microseconds is rounded towards positive infinity.
+    /// assert_eq!(Delta::from_nanos(1_001).as_micros_ceil(), 2);
+    /// assert_eq!(Delta::from_nanos(-1_001).as_micros_ceil(), -1);
+    /// ```
     #[inline]
     pub fn as_micros_ceil(self) -> i64 {
         // Only positive values need to be rounded up: truncating division already
@@ -624,6 +675,18 @@ impl Delta {
     }
 
     /// Return the number of milliseconds in the [`Delta`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use kernel::time::Delta;
+    ///
+    /// assert_eq!(Delta::from_nanos(1_000_000).as_millis(), 1);
+    ///
+    /// // A value between two whole milliseconds is rounded towards zero.
+    /// assert_eq!(Delta::from_nanos(1_999_999).as_millis(), 1);
+    /// assert_eq!(Delta::from_nanos(-1_999_999).as_millis(), -1);
+    /// ```
     #[inline]
     pub fn as_millis(self) -> i64 {
         #[cfg(CONFIG_64BIT)]
@@ -640,6 +703,18 @@ impl Delta {
 
     /// Return the smallest number of milliseconds greater than or equal
     /// to the value in the [`Delta`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use kernel::time::Delta;
+    ///
+    /// assert_eq!(Delta::from_nanos(1_000_000).as_millis_ceil(), 1);
+    ///
+    /// // A value between two whole milliseconds is rounded towards positive infinity.
+    /// assert_eq!(Delta::from_nanos(1_000_001).as_millis_ceil(), 2);
+    /// assert_eq!(Delta::from_nanos(-1_000_001).as_millis_ceil(), -1);
+    /// ```
     #[inline]
     pub fn as_millis_ceil(self) -> i64 {
         // Only positive values need to be rounded up: truncating division already
@@ -726,6 +801,15 @@ impl Delta {
     ///
     /// Panics if `divisor` is zero, or if `self` represents [`i64::MIN`]
     /// nanoseconds and `divisor` is `-1`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use kernel::time::Delta;
+    ///
+    /// assert_eq!(Delta::from_nanos(10).rem_nanos(3).as_nanos(), 1);
+    /// assert_eq!(Delta::from_nanos(-10).rem_nanos(3).as_nanos(), -1);
+    /// ```
     #[inline]
     pub fn rem_nanos(self, divisor: i32) -> Self {
         if divisor == 0 {
@@ -762,6 +846,69 @@ impl Delta {
 #[macros::kunit_tests(rust_kernel_time)]
 mod tests {
     use super::*;
+
+    // The largest values that `Delta::from_micros()`, `Delta::from_millis()` and
+    // `Delta::from_secs()` convert without saturation.
+    const MAX_MICROS: i64 = 9_223_372_036_854_775;
+    const MAX_MILLIS: i64 = 9_223_372_036_854;
+    const MAX_SECS: i64 = 9_223_372_036;
+
+    #[test]
+    fn from_micros_saturates() {
+        assert_eq!(
+            Delta::from_micros(MAX_MICROS).as_nanos(),
+            MAX_MICROS * NSEC_PER_USEC
+        );
+        assert_eq!(Delta::from_micros(MAX_MICROS + 1).as_nanos(), i64::MAX);
+
+        assert_eq!(
+            Delta::from_micros(-MAX_MICROS).as_nanos(),
+            -MAX_MICROS * NSEC_PER_USEC
+        );
+        assert_eq!(Delta::from_micros(-MAX_MICROS - 1).as_nanos(), i64::MIN);
+    }
+
+    #[test]
+    fn from_millis_saturates() {
+        assert_eq!(
+            Delta::from_millis(MAX_MILLIS).as_nanos(),
+            MAX_MILLIS * NSEC_PER_MSEC
+        );
+        assert_eq!(Delta::from_millis(MAX_MILLIS + 1).as_nanos(), i64::MAX);
+
+        assert_eq!(
+            Delta::from_millis(-MAX_MILLIS).as_nanos(),
+            -MAX_MILLIS * NSEC_PER_MSEC
+        );
+        assert_eq!(Delta::from_millis(-MAX_MILLIS - 1).as_nanos(), i64::MIN);
+    }
+
+    #[test]
+    fn from_secs_saturates() {
+        assert_eq!(
+            Delta::from_secs(MAX_SECS).as_nanos(),
+            MAX_SECS * NSEC_PER_SEC
+        );
+        assert_eq!(Delta::from_secs(MAX_SECS + 1).as_nanos(), i64::MAX);
+
+        assert_eq!(
+            Delta::from_secs(-MAX_SECS).as_nanos(),
+            -MAX_SECS * NSEC_PER_SEC
+        );
+        assert_eq!(Delta::from_secs(-MAX_SECS - 1).as_nanos(), i64::MIN);
+    }
+
+    #[test]
+    fn as_micros_ceil_handles_extremes() {
+        assert_eq!(Delta::from_nanos(i64::MAX).as_micros_ceil(), MAX_MICROS + 1);
+        assert_eq!(Delta::from_nanos(i64::MIN).as_micros_ceil(), -MAX_MICROS);
+    }
+
+    #[test]
+    fn as_millis_ceil_handles_extremes() {
+        assert_eq!(Delta::from_nanos(i64::MAX).as_millis_ceil(), MAX_MILLIS + 1);
+        assert_eq!(Delta::from_nanos(i64::MIN).as_millis_ceil(), -MAX_MILLIS);
+    }
 
     #[test]
     fn to_jiffies_timeout_converts() {
