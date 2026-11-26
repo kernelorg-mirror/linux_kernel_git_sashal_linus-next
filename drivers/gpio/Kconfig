@@ -1113,6 +1113,28 @@ config GPIO_IT87
 	  To compile this driver as a module, choose M here: the module will
 	  be called gpio_it87.
 
+config PC8736x_GPIO
+	tristate "NatSemi PC87365/PC87366 GPIO support"
+	depends on X86_32
+	default SCx200_GPIO
+	select ISA_BUS_API
+	help
+	  Support the GPIO controller in the National Semiconductor
+	  PC87365 and PC87366 Super I/O chips. The GPIO logical device
+	  must already be enabled by the firmware.
+
+	  This driver can also be built as a module called gpio-pc8736x.
+
+config SCx200_GPIO
+	tristate "NatSemi SCx200 GPIO support"
+	depends on SCx200 && HAS_IOPORT
+	help
+	  Support the GPIO controller on National Semiconductor SCx200 and
+	  SC1100 processors. The first bank is exposed to GPIO consumers
+	  such as the Soekris and PC Engines board LED drivers.
+
+	  This driver can also be built as a module called gpio-scx200.
+
 config GPIO_SCH
 	tristate "Intel SCH/TunnelCreek/Centerton/Quark X1000 GPIO"
 	depends on (X86 || COMPILE_TEST) && ACPI
