@@ -4976,7 +4976,8 @@ resolve_path:
 
 	if (file_present && req->CreateOptions & FILE_NON_DIRECTORY_FILE_LE &&
 	    S_ISDIR(d_inode(path.dentry)->i_mode) &&
-	    !(req->CreateOptions & FILE_DELETE_ON_CLOSE_LE)) {
+	    (!stream_name ||
+	     !(req->CreateOptions & FILE_DELETE_ON_CLOSE_LE))) {
 		ksmbd_debug(SMB, "open() argument is a directory: %s, %x\n",
 			    name, le32_to_cpu(req->CreateOptions));
 		rsp->hdr.Status = STATUS_FILE_IS_A_DIRECTORY;
