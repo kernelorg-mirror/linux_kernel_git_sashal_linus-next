@@ -616,7 +616,7 @@ u32 csid_hw_version(struct csid_device *csid)
 	hw_rev = (hw_version >> HW_VERSION_REVISION) & 0xFFF;
 	hw_step = (hw_version >> HW_VERSION_STEPPING) & 0xFFFF;
 	dev_dbg(csid->camss->dev, "CSID:%d HW Version = %u.%u.%u\n",
-		csid->id, hw_gen, hw_rev, hw_step);
+		csid_hwid(csid), hw_gen, hw_rev, hw_step);
 
 	return hw_version;
 }
@@ -682,7 +682,7 @@ static int csid_set_power(struct v4l2_subdev *sd, int on)
 	struct csid_device *csid = v4l2_get_subdevdata(sd);
 	struct camss *camss = csid->camss;
 	struct device *dev = camss->dev;
-	int ret = 0;
+	int ret;
 
 	if (on) {
 		/*
@@ -690,50 +690,34 @@ static int csid_set_power(struct v4l2_subdev *sd, int on)
 		 * switching on the CSID. Do so unconditionally, as there is no
 		 * drawback in following the same powering order on older SoCs.
 		 */
-		ret = csid->res->parent_dev_ops->get(camss, csid->id);
+		ret = csid->res->parent_dev_ops->get(camss, csid_index(csid));
 		if (ret < 0)
 			return ret;
 
 		ret = pm_runtime_resume_and_get(dev);
 		if (ret < 0)
-			return ret;
+			goto err_parent_put;
 
 		ret = regulator_bulk_enable(csid->num_supplies,
 					    csid->supplies);
-		if (ret < 0) {
-			pm_runtime_put_sync(dev);
-			return ret;
-		}
+		if (ret < 0)
+			goto err_pm_put;
 
 		ret = csid_set_clock_rates(csid);
-		if (ret < 0) {
-			regulator_bulk_disable(csid->num_supplies,
-					       csid->supplies);
-			pm_runtime_put_sync(dev);
-			return ret;
-		}
+		if (ret < 0)
+			goto err_regulators_disable;
 
 		ret = camss_enable_clocks(csid->nclocks, csid->clock, dev);
-		if (ret < 0) {
-			regulator_bulk_disable(csid->num_supplies,
-					       csid->supplies);
-			pm_runtime_put_sync(dev);
-			return ret;
-		}
+		if (ret < 0)
+			goto err_regulators_disable;
 
 		csid->phy.need_vc_update = true;
 
 		enable_irq(csid->irq);
 
 		ret = csid->res->hw_ops->reset(csid);
-		if (ret < 0) {
-			disable_irq(csid->irq);
-			camss_disable_clocks(csid->nclocks, csid->clock);
-			regulator_bulk_disable(csid->num_supplies,
-					       csid->supplies);
-			pm_runtime_put_sync(dev);
-			return ret;
-		}
+		if (ret < 0)
+			goto err_reset;
 
 		csid->res->hw_ops->hw_version(csid);
 	} else {
@@ -742,8 +726,20 @@ static int csid_set_power(struct v4l2_subdev *sd, int on)
 		regulator_bulk_disable(csid->num_supplies,
 				       csid->supplies);
 		pm_runtime_put_sync(dev);
-		csid->res->parent_dev_ops->put(camss, csid->id);
+		csid->res->parent_dev_ops->put(camss, csid_index(csid));
 	}
+
+	return 0;
+
+err_reset:
+	disable_irq(csid->irq);
+	camss_disable_clocks(csid->nclocks, csid->clock);
+err_regulators_disable:
+	regulator_bulk_disable(csid->num_supplies, csid->supplies);
+err_pm_put:
+	pm_runtime_put_sync(dev);
+err_parent_put:
+	csid->res->parent_dev_ops->put(camss, csid_index(csid));
 
 	return ret;
 }
@@ -760,6 +756,7 @@ static int csid_set_power(struct v4l2_subdev *sd, int on)
 static int csid_set_stream(struct v4l2_subdev *sd, int enable)
 {
 	struct csid_device *csid = v4l2_get_subdevdata(sd);
+	unsigned int i;
 	int ret;
 
 	if (enable) {
@@ -778,6 +775,10 @@ static int csid_set_stream(struct v4l2_subdev *sd, int enable)
 	}
 
 	if (csid->phy.need_vc_update) {
+		/* Set to -1 as we want to do atomic_inc_return to read */
+		for (i = 0; i < MSM_CSID_MAX_SRC_STREAMS; i++)
+			atomic_set(&csid->sof_seq[i], -1);
+
 		csid->res->hw_ops->configure_stream(csid, enable);
 		csid->phy.need_vc_update = false;
 	}
@@ -1100,9 +1101,11 @@ int msm_csid_subdev_init(struct camss *camss, struct csid_device *csid,
 	struct platform_device *pdev = to_platform_device(dev);
 	int i, j;
 	int ret;
+	u8 idx;
 
 	csid->camss = camss;
 	csid->id = id;
+	idx = csid_index(csid);
 	csid->res = &res->csid;
 
 	if (dev_WARN_ONCE(dev, !csid->res->parent_dev_ops,
@@ -1119,11 +1122,11 @@ int msm_csid_subdev_init(struct camss *camss, struct csid_device *csid,
 		 * between the VFE "top" and "bus" registers. this requires
 		 * VFE to be initialized before CSID
 		 */
-		if (id >= 2) /* VFE/CSID lite */
-			csid->base = csid->res->parent_dev_ops->get_base_address(camss, id)
+		if (idx >= 2) /* VFE/CSID lite */
+			csid->base = csid->res->parent_dev_ops->get_base_address(camss, idx)
 				+ VFE_480_LITE_CSID_OFFSET;
 		else
-			csid->base = csid->res->parent_dev_ops->get_base_address(camss, id)
+			csid->base = csid->res->parent_dev_ops->get_base_address(camss, idx)
 				 + VFE_480_CSID_OFFSET;
 	} else {
 		csid->base = devm_platform_ioremap_resource_byname(pdev, res->reg[0]);
@@ -1139,7 +1142,7 @@ int msm_csid_subdev_init(struct camss *camss, struct csid_device *csid,
 
 	csid->irq = ret;
 	snprintf(csid->irq_name, sizeof(csid->irq_name), "%s_%s%d",
-		 dev_name(dev), MSM_CSID_NAME, csid->id);
+		 dev_name(dev), MSM_CSID_NAME, csid_hwid(csid));
 	ret = devm_request_irq(dev, csid->irq, csid->res->hw_ops->isr,
 			       IRQF_TRIGGER_RISING | IRQF_NO_AUTOEN,
 			       csid->irq_name, csid);
@@ -1211,7 +1214,7 @@ void msm_csid_get_csid_id(struct media_entity *entity, u8 *id)
 	struct v4l2_subdev *sd = media_entity_to_v4l2_subdev(entity);
 	struct csid_device *csid = v4l2_get_subdevdata(sd);
 
-	*id = csid->id;
+	*id = csid_hwid(csid);
 }
 
 /*
@@ -1313,9 +1316,80 @@ static int csid_link_setup(struct media_entity *entity,
 	return 0;
 }
 
+static int csid_frame_sync_add(struct v4l2_subscribed_event *sev, unsigned int elems)
+{
+	struct csid_device *csid = v4l2_get_subdevdata(vdev_to_v4l2_subdev(sev->fh->vdev));
+
+	atomic_inc(&csid->frame_sync_users);
+
+	return 0;
+}
+
+static void csid_frame_sync_del(struct v4l2_subscribed_event *sev)
+{
+	struct csid_device *csid = v4l2_get_subdevdata(vdev_to_v4l2_subdev(sev->fh->vdev));
+
+	atomic_dec(&csid->frame_sync_users);
+}
+
+static const struct v4l2_subscribed_event_ops csid_frame_sync_ops = {
+	.add = csid_frame_sync_add,
+	.del = csid_frame_sync_del,
+};
+
+static int csid_subscribe_event(struct v4l2_subdev *sd, struct v4l2_fh *fh,
+				struct v4l2_event_subscription *sub)
+{
+	struct csid_device *csid = v4l2_get_subdevdata(sd);
+
+	if (sub->type != V4L2_EVENT_FRAME_SYNC)
+		return v4l2_ctrl_subdev_subscribe_event(sd, fh, sub);
+
+	if (!csid->res->frame_sync_en)
+		return -EINVAL;
+
+	return v4l2_event_subscribe(fh, sub, 0, &csid_frame_sync_ops);
+}
+
+atomic_t *csid_get_sof_seq(struct media_pad *pad)
+{
+	struct csid_device *csid;
+
+	if (!pad || pad->index < MSM_CSID_PAD_FIRST_SRC)
+		return NULL;
+
+	csid = v4l2_get_subdevdata(media_entity_to_v4l2_subdev(pad->entity));
+	if (!csid->res->frame_sync_en)
+		return NULL;
+
+	return &csid->sof_seq[pad->index - MSM_CSID_PAD_FIRST_SRC];
+}
+
+void csid_sof_event(struct csid_device *csid, unsigned int id)
+{
+	struct v4l2_event event = {
+		.type = V4L2_EVENT_FRAME_SYNC,
+		.u.frame_sync.frame_sequence =
+			atomic_inc_return(&csid->sof_seq[id]),
+	};
+
+	if (atomic_read(&csid->frame_sync_users))
+		v4l2_event_queue(csid->subdev.devnode, &event);
+}
+
+unsigned int csid_index(struct csid_device *csid)
+{
+	return csid - csid->camss->csid;
+}
+
+u8 csid_hwid(struct csid_device *csid)
+{
+	return csid->id;
+}
+
 static const struct v4l2_subdev_core_ops csid_core_ops = {
 	.s_power = csid_set_power,
-	.subscribe_event = v4l2_ctrl_subdev_subscribe_event,
+	.subscribe_event = csid_subscribe_event,
 	.unsubscribe_event = v4l2_event_subdev_unsubscribe,
 };
 
@@ -1366,7 +1440,7 @@ int msm_csid_register_entity(struct csid_device *csid,
 	sd->flags |= V4L2_SUBDEV_FL_HAS_DEVNODE |
 		     V4L2_SUBDEV_FL_HAS_EVENTS;
 	snprintf(sd->name, ARRAY_SIZE(sd->name), "%s%d",
-		 MSM_CSID_NAME, csid->id);
+		 MSM_CSID_NAME, csid_hwid(csid));
 	v4l2_set_subdevdata(sd, csid);
 
 	if (csid->testgen.nmodes != CSID_PAYLOAD_MODE_DISABLED) {
@@ -1440,5 +1514,5 @@ void msm_csid_unregister_entity(struct csid_device *csid)
 
 inline bool csid_is_lite(struct csid_device *csid)
 {
-	return csid->camss->res->csid_res[csid->id].csid.is_lite;
+	return csid->res->is_lite;
 }
