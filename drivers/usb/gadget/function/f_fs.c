@@ -1378,7 +1378,7 @@ static void ffs_dmabuf_release(struct kref *ref)
 	struct dma_buf *dmabuf = attach->dmabuf;
 
 	pr_vdebug("FFS DMABUF release\n");
-	dma_buf_unmap_attachment_unlocked(attach, priv->sgt, priv->dir);
+	dma_buf_unmap_sgt_unlocked(attach, priv->sgt, priv->dir);
 
 	dma_buf_detach(attach->dmabuf, attach);
 	dma_buf_put(dmabuf);
@@ -1569,7 +1569,7 @@ static int ffs_dmabuf_attach(struct file *file, int fd)
 	if (err)
 		goto err_free_priv;
 
-	sg_table = dma_buf_map_attachment(attach, dir);
+	sg_table = dma_buf_map_sgt(attach, dir);
 	dma_resv_unlock(dmabuf->resv);
 
 	if (IS_ERR(sg_table)) {
@@ -1736,7 +1736,7 @@ static int ffs_dmabuf_transfer(struct file *file,
 	seqno = atomic_add_return(1, &epfile->seqno);
 
 	dma_fence_init(&fence->base, &ffs_dmabuf_fence_ops,
-		       &priv->lock, priv->context, seqno);
+		       &priv->lock, priv->context, seqno, 0);
 
 	resv_dir = epfile->in ? DMA_RESV_USAGE_READ : DMA_RESV_USAGE_WRITE;
 
