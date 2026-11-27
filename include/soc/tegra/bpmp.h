@@ -29,6 +29,7 @@ struct tegra_bpmp_soc {
 
 	const struct tegra_bpmp_ops *ops;
 	unsigned int num_resets;
+	unsigned int emc_clk_id;
 };
 
 struct tegra_bpmp_mb_data {
