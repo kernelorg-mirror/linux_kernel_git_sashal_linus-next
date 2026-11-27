@@ -218,6 +218,12 @@ static int imx_scu_ocotp_write(void *context, unsigned int offset,
 	return res.a0;
 }
 
+static void imx_scu_ocotp_fixup_dt_cell_info(struct nvmem_device *nvmem,
+					     struct nvmem_cell_info *cell)
+{
+	cell->raw_len = round_up(cell->bytes, 4);
+}
+
 static struct nvmem_config imx_scu_ocotp_nvmem_config = {
 	.name = "imx-scu-ocotp",
 	.add_legacy_fixed_of_cells = true,
@@ -227,6 +233,7 @@ static struct nvmem_config imx_scu_ocotp_nvmem_config = {
 	.owner = THIS_MODULE,
 	.reg_read = imx_scu_ocotp_read,
 	.reg_write = imx_scu_ocotp_write,
+	.fixup_dt_cell_info = imx_scu_ocotp_fixup_dt_cell_info,
 };
 
 static const struct of_device_id imx_scu_ocotp_dt_ids[] = {
