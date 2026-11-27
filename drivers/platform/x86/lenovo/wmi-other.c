@@ -999,7 +999,7 @@ load_psy_ext:
 	priv->battery_hook.name = "Lenovo WMI Other Battery Extension";
 	priv->bh_registered = true;
 
-	battery_hook_register(&priv->battery_hook);
+	acpi_battery_hook_register(&priv->battery_hook);
 }
 
 /**
@@ -1013,7 +1013,7 @@ static void lwmi_om_psy_remove(struct lwmi_om_priv *priv)
 	if (!priv->bh_registered)
 		return;
 
-	battery_hook_unregister(&priv->battery_hook);
+	acpi_battery_hook_unregister(&priv->battery_hook);
 	priv->bh_registered = false;
 }
 

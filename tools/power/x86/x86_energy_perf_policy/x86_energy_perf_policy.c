@@ -795,6 +795,7 @@ void err_on_hypervisor(void)
 		free(buffer);
 		err(1, "Reading /proc/cpuinfo failed");
 	}
+	buffer[1024 - 1] = '\0';
 
 	flags = strstr(buffer, "flags");
 	if (!flags) {
