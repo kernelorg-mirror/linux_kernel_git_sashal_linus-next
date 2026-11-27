@@ -77,6 +77,7 @@ struct is31fl32xx_priv {
  * @pwm_registers_reversed: : true if PWM registers count down instead of up
  * @led_control_register_base : address of first LED control register (optional)
  * @enable_bits_per_led_control_register: number of LEDs enable bits in each
+ * @enable_bits_offset_in_led_control_reg: offset of the enable bits in the LED Control Register
  * @brightness_steps    : number of brightness steps supported by the chip
  * @reset_func          : pointer to reset function
  * @sw_shutdown_func    : pointer to software shutdown function
@@ -87,6 +88,12 @@ struct is31fl32xx_priv {
  * If non-NULL, @reset_func will be called during probing to set all
  * necessary registers to a known initialization state. This is needed
  * for chips that do not have a @reset_reg.
+ *
+ * @enable_bits_offset_in_led_control_reg determines the offset of the
+ * enable bits from the least significant bit of the LED control
+ * register. This is needed for chips that have a LED Control Register
+ * that controls more than simply the enable/disable state of the
+ * channel such as the IS31FL3206.
  *
  * @enable_bits_per_led_control_register must be >=1 if
  * @led_control_register_base != %IS31FL32XX_REG_NONE.
@@ -103,6 +110,7 @@ struct is31fl32xx_chipdef {
 	bool	pwm_registers_reversed;
 	u8	led_control_register_base;
 	u8	enable_bits_per_led_control_register;
+	u8	enable_bits_offset_in_led_control_reg;
 	u16	brightness_steps;
 	int (*reset_func)(struct is31fl32xx_priv *priv);
 	int (*sw_shutdown_func)(struct is31fl32xx_priv *priv, bool enable);
@@ -350,13 +358,13 @@ static int is31fl32xx_init_regs(struct is31fl32xx_priv *priv)
 	 * We will control state with PWM registers alone.
 	 */
 	if (cdef->led_control_register_base != IS31FL32XX_REG_NONE) {
-		u8 value =
-		    GENMASK(cdef->enable_bits_per_led_control_register-1, 0);
+		u8 value = GENMASK(cdef->enable_bits_per_led_control_register - 1, 0);
 		u8 num_regs = cdef->channels /
 				cdef->enable_bits_per_led_control_register;
-		int i;
 
-		for (i = 0; i < num_regs; i++) {
+		value <<= cdef->enable_bits_offset_in_led_control_reg;
+
+		for (int i = 0; i < num_regs; i++) {
 			ret = is31fl32xx_write(priv,
 					       cdef->led_control_register_base+i,
 					       value);
@@ -553,7 +561,22 @@ static const struct is31fl32xx_chipdef is31fl3293_cdef = {
 	.sw_shutdown_func			= is31fl3293_software_shutdown,
 };
 
+static const struct is31fl32xx_chipdef is31fl3206_cdef = {
+	.channels				= 12,
+	.shutdown_reg				= 0x00,
+	.pwm_update_reg			= 0x13,
+	.global_control_reg			= 0x26,
+	.reset_reg				= 0x2f,
+	.output_frequency_setting_reg		= 0x27,
+	.pwm_register_base			= 0x04,
+	.led_control_register_base		= 0x17,
+	.enable_bits_per_led_control_register	= 1,
+	.enable_bits_offset_in_led_control_reg	= 4,
+	.brightness_steps			= 256,
+};
+
 static const struct of_device_id of_is31fl32xx_match[] = {
+	{ .compatible = "issi,is31fl3206",  .data = &is31fl3206_cdef, },
 	{ .compatible = "issi,is31fl3293",  .data = &is31fl3293_cdef, },
 	{ .compatible = "issi,is31fl3236",  .data = &is31fl3236_cdef, },
 	{ .compatible = "issi,is31fl3236a", .data = &is31fl3236a_cdef, },
@@ -612,6 +635,7 @@ static void is31fl32xx_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id is31fl32xx_id[] = {
+	{ .name = "is31fl3206", .driver_data = (kernel_ulong_t)&is31fl3206_cdef },
 	{ .name = "is31fl3293", .driver_data = (kernel_ulong_t)&is31fl3293_cdef },
 	{ .name = "is31fl3236", .driver_data = (kernel_ulong_t)&is31fl3236_cdef },
 	{ .name = "is31fl3236a", .driver_data = (kernel_ulong_t)&is31fl3236a_cdef },
