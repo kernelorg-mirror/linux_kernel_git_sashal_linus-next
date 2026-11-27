@@ -2081,7 +2081,7 @@ static const struct file_operations ep0_operations = {
 
 
 /* FIXME PAM etc could set this security policy without mount options
- * if epfiles inherited ownership and permissons from ep0 ...
+ * if epfiles inherited ownership and permissions from ep0 ...
  */
 
 static unsigned default_uid;
@@ -2191,6 +2191,7 @@ gadgetfs_fill_super (struct super_block *sb, struct fs_context *fc)
 	rc = gadgetfs_create_file(sb, CHIP, dev, &ep0_operations);
 	if (rc) {
 		put_dev(dev);
+		the_device = NULL;
 		goto Enomem;
 	}
 
