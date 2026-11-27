@@ -742,9 +742,9 @@ static void ht16k33_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id ht16k33_i2c_match[] = {
-	{ "3108", DISP_QUAD_7SEG },
-	{ "3130", DISP_QUAD_14SEG },
-	{ "ht16k33", DISP_MATRIX },
+	{ .name = "3108", .driver_data = DISP_QUAD_7SEG },
+	{ .name = "3130", .driver_data = DISP_QUAD_14SEG },
+	{ .name = "ht16k33", .driver_data = DISP_MATRIX },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, ht16k33_i2c_match);
