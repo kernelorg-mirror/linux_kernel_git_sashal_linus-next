@@ -18,6 +18,10 @@
 #include <soc/tegra/bpmp-abi.h>
 #include <soc/tegra/ivc.h>
 
+#include <dt-bindings/clock/nvidia,tegra238.h>
+#include <dt-bindings/clock/nvidia,tegra264.h>
+#include <dt-bindings/clock/tegra234-clock.h>
+
 #include "bpmp-private.h"
 
 #define MSG_ACK		BIT(0)
@@ -869,25 +873,44 @@ static const struct dev_pm_ops tegra_bpmp_pm_ops = {
 #if IS_ENABLED(CONFIG_ARCH_TEGRA_186_SOC) || \
     IS_ENABLED(CONFIG_ARCH_TEGRA_194_SOC) || \
     IS_ENABLED(CONFIG_ARCH_TEGRA_234_SOC) || \
+    IS_ENABLED(CONFIG_ARCH_TEGRA_238_SOC) || \
     IS_ENABLED(CONFIG_ARCH_TEGRA_264_SOC)
+#define TEGRA186_BPMP_SOC_COMMON					\
+	.channels = {							\
+		.cpu_tx = {						\
+			.offset = 3,					\
+			.timeout = 60 * USEC_PER_SEC,			\
+		},							\
+		.thread = {						\
+			.offset = 0,					\
+			.count = 3,					\
+			.timeout = 600 * USEC_PER_SEC,			\
+		},							\
+		.cpu_rx = {						\
+			.offset = 13,					\
+			.timeout = 0,					\
+		},							\
+	},								\
+	.ops = &tegra186_bpmp_ops,					\
+	.num_resets = 193
+
 static const struct tegra_bpmp_soc tegra186_soc = {
-	.channels = {
-		.cpu_tx = {
-			.offset = 3,
-			.timeout = 60 * USEC_PER_SEC,
-		},
-		.thread = {
-			.offset = 0,
-			.count = 3,
-			.timeout = 600 * USEC_PER_SEC,
-		},
-		.cpu_rx = {
-			.offset = 13,
-			.timeout = 0,
-		},
-	},
-	.ops = &tegra186_bpmp_ops,
-	.num_resets = 193,
+	TEGRA186_BPMP_SOC_COMMON,
+};
+
+static const struct tegra_bpmp_soc tegra234_soc = {
+	TEGRA186_BPMP_SOC_COMMON,
+	.emc_clk_id = TEGRA234_CLK_EMC,
+};
+
+static const struct tegra_bpmp_soc tegra238_soc = {
+	TEGRA186_BPMP_SOC_COMMON,
+	.emc_clk_id = TEGRA238_CLK_EMC,
+};
+
+static const struct tegra_bpmp_soc tegra264_soc = {
+	TEGRA186_BPMP_SOC_COMMON,
+	.emc_clk_id = TEGRA264_CLK_EMC,
 };
 #endif
 
@@ -918,8 +941,12 @@ static const struct of_device_id tegra_bpmp_match[] = {
 #if IS_ENABLED(CONFIG_ARCH_TEGRA_186_SOC) || \
     IS_ENABLED(CONFIG_ARCH_TEGRA_194_SOC) || \
     IS_ENABLED(CONFIG_ARCH_TEGRA_234_SOC) || \
+    IS_ENABLED(CONFIG_ARCH_TEGRA_238_SOC) || \
     IS_ENABLED(CONFIG_ARCH_TEGRA_264_SOC)
 	{ .compatible = "nvidia,tegra186-bpmp", .data = &tegra186_soc },
+	{ .compatible = "nvidia,tegra234-bpmp", .data = &tegra234_soc },
+	{ .compatible = "nvidia,tegra238-bpmp", .data = &tegra238_soc },
+	{ .compatible = "nvidia,tegra264-bpmp", .data = &tegra264_soc },
 #endif
 #if IS_ENABLED(CONFIG_ARCH_TEGRA_210_SOC)
 	{ .compatible = "nvidia,tegra210-bpmp", .data = &tegra210_soc },
