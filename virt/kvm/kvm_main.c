@@ -208,28 +208,55 @@ static bool kvm_request_needs_ipi(struct kvm_vcpu *vcpu, unsigned req)
 	return mode == IN_GUEST_MODE;
 }
 
+static bool kvm_cpu_needs_ipi(int cpu, int me)
+{
+	return cpu >= 0 && cpu != me && cpu_online(cpu);
+}
+
 static void ack_kick(void *_completed)
 {
 }
 
-static inline bool kvm_kick_many_cpus(struct cpumask *cpus, bool wait)
-{
-	if (cpumask_empty(cpus))
-		return false;
+struct kvm_cpu_kick {
+	int me;
+	unsigned int req;
+	struct cpumask *cpus;
+	bool need_kick;
+};
 
-	smp_call_function_many(cpus, ack_kick, NULL, wait);
-	return true;
+static __always_inline struct kvm_cpu_kick kvm_init_cpu_kick(unsigned int req)
+{
+	struct kvm_cpu_kick kick = { .req = req };
+
+	kick.me = get_cpu();
+
+	if (req & KVM_REQUEST_WAIT) {
+		kick.cpus = this_cpu_cpumask_var_ptr(cpu_kick_mask);
+		cpumask_clear(kick.cpus);
+	}
+
+	return kick;
 }
 
-static void kvm_make_vcpu_request(struct kvm_vcpu *vcpu, unsigned int req,
-				  struct cpumask *tmp, int current_cpu)
+static bool kvm_finish_cpu_kick(struct kvm_cpu_kick *kick)
+{
+	if (kick->need_kick && kick->cpus)
+		smp_call_function_many(kick->cpus, ack_kick, NULL,
+				       !!(kick->req & KVM_REQUEST_WAIT));
+
+	put_cpu();
+	return kick->need_kick;
+}
+
+static void kvm_make_vcpu_request(struct kvm_vcpu *vcpu,
+				  struct kvm_cpu_kick *kick)
 {
 	int cpu;
 
-	if (likely(!(req & KVM_REQUEST_NO_ACTION)))
-		__kvm_make_request(req, vcpu);
+	if (likely(!(kick->req & KVM_REQUEST_NO_ACTION)))
+		__kvm_make_request(kick->req, vcpu);
 
-	if (!(req & KVM_REQUEST_NO_WAKEUP) && kvm_vcpu_wake_up(vcpu))
+	if (!(kick->req & KVM_REQUEST_NO_WAKEUP) && kvm_vcpu_wake_up(vcpu))
 		return;
 
 	/*
@@ -240,61 +267,53 @@ static void kvm_make_vcpu_request(struct kvm_vcpu *vcpu, unsigned int req,
 	 * satisfied if the vCPU migrates. Entering READING_SHADOW_PAGE_TABLES
 	 * after this point is also OK, as the requirement is only that KVM wait
 	 * for vCPUs that were reading SPTEs _before_ any changes were
-	 * finalized. See kvm_vcpu_kick() for more details on handling requests.
+	 * finalized.
+	 *
+	 * See kvm_vcpu_kick() for more details on handling requests, including
+	 * the use of a reschedule IPI for non-waiting requests.  If waiting is
+	 * required (kick->cpus is non-NULL), batch the SMP function call until
+	 * after all to-be-kicked CPUs are gathered, to avoid waiting multiple
+	 * times.
 	 */
-	if (kvm_request_needs_ipi(vcpu, req)) {
+	if (kvm_request_needs_ipi(vcpu, kick->req)) {
 		cpu = READ_ONCE(vcpu->cpu);
-		if (cpu != -1 && cpu != current_cpu)
-			__cpumask_set_cpu(cpu, tmp);
+		if (kvm_cpu_needs_ipi(cpu, kick->me)) {
+			kick->need_kick = true;
+			if (kick->cpus)
+				__cpumask_set_cpu(cpu, kick->cpus);
+			else
+				smp_send_reschedule(cpu);
+		}
 	}
 }
 
 bool kvm_make_vcpus_request_mask(struct kvm *kvm, unsigned int req,
 				 unsigned long *vcpu_bitmap)
 {
+	struct kvm_cpu_kick kick = kvm_init_cpu_kick(req);
 	struct kvm_vcpu *vcpu;
-	struct cpumask *cpus;
-	int i, me;
-	bool called;
-
-	me = get_cpu();
-
-	cpus = this_cpu_cpumask_var_ptr(cpu_kick_mask);
-	cpumask_clear(cpus);
+	int i;
 
 	for_each_set_bit(i, vcpu_bitmap, KVM_MAX_VCPUS) {
 		vcpu = kvm_get_vcpu(kvm, i);
 		if (!vcpu)
 			continue;
-		kvm_make_vcpu_request(vcpu, req, cpus, me);
+		kvm_make_vcpu_request(vcpu, &kick);
 	}
 
-	called = kvm_kick_many_cpus(cpus, !!(req & KVM_REQUEST_WAIT));
-	put_cpu();
-
-	return called;
+	return kvm_finish_cpu_kick(&kick);
 }
 
 bool kvm_make_all_cpus_request(struct kvm *kvm, unsigned int req)
 {
+	struct kvm_cpu_kick kick = kvm_init_cpu_kick(req);
 	struct kvm_vcpu *vcpu;
-	struct cpumask *cpus;
 	unsigned long i;
-	bool called;
-	int me;
-
-	me = get_cpu();
-
-	cpus = this_cpu_cpumask_var_ptr(cpu_kick_mask);
-	cpumask_clear(cpus);
 
 	kvm_for_each_vcpu(i, vcpu, kvm)
-		kvm_make_vcpu_request(vcpu, req, cpus, me);
+		kvm_make_vcpu_request(vcpu, &kick);
 
-	called = kvm_kick_many_cpus(cpus, !!(req & KVM_REQUEST_WAIT));
-	put_cpu();
-
-	return called;
+	return kvm_finish_cpu_kick(&kick);
 }
 EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_make_all_cpus_request);
 
@@ -3959,7 +3978,7 @@ void __kvm_vcpu_kick(struct kvm_vcpu *vcpu, int req, bool force)
 	 */
 	if (force || kvm_request_needs_ipi(vcpu, req)) {
 		cpu = READ_ONCE(vcpu->cpu);
-		if (cpu != me && (unsigned int)cpu < nr_cpu_ids && cpu_online(cpu)) {
+		if (kvm_cpu_needs_ipi(cpu, me)) {
 			/*
 			 * Use a reschedule IPI to kick the vCPU if the request
 			 * doesn't need to wait for a response (or there is no
