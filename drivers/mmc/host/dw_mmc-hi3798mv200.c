@@ -53,15 +53,19 @@ static void dw_mci_hi3798mv200_set_ios(struct dw_mci *host, struct mmc_ios *ios)
 		val &= ~SDMMC_DDR_HS400;
 	mci_writel(host, DDR_REG, val);
 
-	if (clk_set_rate(host->ciu_clk, ios->clock))
-		dev_warn(host->dev, "Failed to set rate to %u\n", ios->clock);
-	else
+	if (ios->clock) {
 		/*
-		 * CLK_MUX_ROUND_NEAREST is enabled for this clock
-		 * The actual clock rate is not what we set, but a rounded value
-		 * so we should get the rate once again
+		 * The card clock comes from the controller's divider, which
+		 * only divides down, so a fast mode needs the CIU lifted
+		 * first. Ask for the card clock and ignore the outcome: the
+		 * mux has nothing below 25 MHz, so the 400 kHz identification
+		 * clock is refused and just leaves the CIU where it was.
+		 * Whatever the framework settles on is the divider input, so
+		 * read it back; clock == 0 is a stop request, not a rate.
 		 */
+		clk_set_rate(host->ciu_clk, ios->clock);
 		host->bus_hz = clk_get_rate(host->ciu_clk);
+	}
 
 	if (phase.valid) {
 		clk_set_phase(priv->drive_clk, phase.out_deg);
