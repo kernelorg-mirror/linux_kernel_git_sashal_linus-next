@@ -10757,6 +10757,16 @@ F:	drivers/perf/fsl_imx8_ddr_perf.c
 F:	drivers/perf/fsl_imx9_ddr_perf.c
 F:	tools/perf/pmu-events/arch/arm64/freescale/
 
+FREESCALE IMX GPIO DRIVER
+M:	Peng Fan <peng.fan@nxp.com>
+L:	linux-gpio@vger.kernel.org
+L:	imx@lists.linux.dev
+S:	Maintained
+F:	Documentation/devicetree/bindings/gpio/fsl-imx-gpio.yaml
+F:	Documentation/devicetree/bindings/gpio/gpio-vf610.yaml
+F:	drivers/gpio/gpio-mxc.c
+F:	drivers/gpio/gpio-vf610.c
+
 FREESCALE IMX I2C DRIVER
 M:	Oleksij Rempel <o.rempel@pengutronix.de>
 R:	Pengutronix Kernel Team <kernel@pengutronix.de>
@@ -21374,7 +21384,7 @@ F:	drivers/hwmon/pc87360.c
 PC8736x GPIO DRIVER
 M:	Jim Cromie <jim.cromie@gmail.com>
 S:	Maintained
-F:	drivers/char/pc8736x_gpio.c
+F:	drivers/gpio/gpio-pc8736x.c
 
 PC87427 HARDWARE MONITORING DRIVER
 M:	Jean Delvare <jdelvare@suse.com>
@@ -22129,6 +22139,7 @@ F:	drivers/pinctrl/airoha/pinctrl-airoha.c
 PIN CONTROLLER - AMD
 M:	Basavaraj Natikar <Basavaraj.Natikar@amd.com>
 M:	Shyam Sundar S K <Shyam-sundar.S-k@amd.com>
+R:	Mario Limonciello (AMD) <superm1@kernel.org>
 S:	Maintained
 F:	drivers/pinctrl/pinctrl-amd.c
 
@@ -22147,7 +22158,6 @@ F:	drivers/pinctrl/freescale/
 F:	drivers/pinctrl/nxp/
 
 PIN CONTROLLER - INTEL
-M:	Mika Westerberg <mika.westerberg@linux.intel.com>
 M:	Andy Shevchenko <andy@kernel.org>
 S:	Supported
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/pinctrl/intel.git
@@ -22240,6 +22250,7 @@ F:	drivers/pinctrl/samsung/
 PIN CONTROLLER - SINGLE
 M:	Tony Lindgren <tony@atomide.com>
 M:	Haojian Zhuang <haojian.zhuang@linaro.org>
+M:	Alexander Sverdlin <asv@kernel.org>
 L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
 L:	linux-omap@vger.kernel.org
 S:	Maintained
@@ -25415,8 +25426,8 @@ F:	include/linux/scx200.h
 SCx200 GPIO DRIVER
 M:	Jim Cromie <jim.cromie@gmail.com>
 S:	Maintained
-F:	drivers/char/scx200_gpio.c
-F:	include/linux/scx200_gpio.h
+F:	drivers/gpio/gpio-scx200.c
+F:	include/linux/scx200.h
 
 SCx200 HRT CLOCKSOURCE DRIVER
 M:	Jim Cromie <jim.cromie@gmail.com>
