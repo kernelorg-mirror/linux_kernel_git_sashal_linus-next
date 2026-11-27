@@ -14,7 +14,7 @@ SECTIONS
 
 	.rodata : ALIGN(8) {
 		__efistub__gzdata_start = .;
-		*(.gzdata)
+		KEEP(*(.gzdata))
 		__efistub_payload_size = . - 4;
 		__efistub__gzdata_end = .;
 		*(.rodata* .init.rodata* .srodata*)
@@ -29,7 +29,7 @@ SECTIONS
 
         .sbat : ALIGN(4096) {
 		_sbat = .;
-		*(.sbat)
+		KEEP(*(.sbat))
 		_esbat = ALIGN(4096);
 		. = _esbat;
 	}
