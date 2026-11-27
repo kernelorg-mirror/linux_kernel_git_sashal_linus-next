@@ -883,7 +883,7 @@ static int csiphy_link_setup(struct media_entity *entity,
 		sd = media_entity_to_v4l2_subdev(remote->entity);
 		csid = v4l2_get_subdevdata(sd);
 
-		csiphy->cfg.csid_id = csid->id;
+		csiphy->cfg.csid_id = csid_hwid(csid);
 	}
 
 	return 0;

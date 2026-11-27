@@ -138,7 +138,7 @@ static void __csid_configure_stream(struct csid_device *csid, u8 enable, u8 port
 		val |= CSID_CFG0_ENABLE;
 
 	dev_dbg(csid->camss->dev, "CSID%u: Stream %s (dt:0x%x df=0x%x port=%u vc=%u)\n",
-		csid->id, enable ? "enable" : "disable", format->data_type,
+		csid_hwid(csid), enable ? "enable" : "disable", format->data_type,
 		format->decode_format, port, vc);
 
 	writel_relaxed(val, csid->base + CSID_CFG0(iface));
@@ -175,11 +175,11 @@ static int csid_reset(struct csid_device *csid)
 	time = wait_for_completion_timeout(&csid->reset_complete,
 					   msecs_to_jiffies(CSID_RESET_TIMEOUT_MS));
 	if (!time) {
-		dev_err(csid->camss->dev, "CSID%u: reset timeout\n", csid->id);
+		dev_err(csid->camss->dev, "CSID%u: reset timeout\n", csid_hwid(csid));
 		return -EIO;
 	}
 
-	dev_dbg(csid->camss->dev, "CSID%u: reset done\n", csid->id);
+	dev_dbg(csid->camss->dev, "CSID%u: reset done\n", csid_hwid(csid));
 
 	return 0;
 }

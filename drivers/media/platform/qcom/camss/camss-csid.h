@@ -280,4 +280,21 @@ void csid_sof_event(struct csid_device *csid, unsigned int id);
  */
 atomic_t *csid_get_sof_seq(struct media_pad *pad);
 
+/*
+ * csid_index - Get the index of a CSI decoder
+ * @csid: CSID device
+ *
+ * Return the index of the CSI device.
+ */
+unsigned int csid_index(struct csid_device *csid);
+
+/*
+ * csid_hwid - Return the hardware id of the CSI device
+ *
+ * @csid: CSID device
+ *
+ * @Return CSI hw id
+ */
+u8 csid_hwid(struct csid_device *csid);
+
 #endif /* QC_MSM_CAMSS_CSID_H */

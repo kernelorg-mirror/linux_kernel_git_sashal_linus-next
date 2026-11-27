@@ -329,7 +329,7 @@ static irqreturn_t csid_isr(int irq, void *dev)
 			}
 
 			if (buf_done_val & BIT(BUF_DONE_IRQ_STATUS_RDI_OFFSET + i))
-				camss_buf_done(csid->camss, csid->id, i);
+				camss_buf_done(csid->camss, csid_index(csid), i);
 		}
 	}
 

@@ -158,7 +158,7 @@ static void __csid_configure_wrapper(struct csid_device *csid)
 		return;
 
 	val = OUTPUT_IFE_EN | INTERNAL_CSID;
-	writel(val, csid->camss->csid_wrapper_base + CSID_IO_PATH_CFG0(csid->id));
+	writel(val, csid->camss->csid_wrapper_base + CSID_IO_PATH_CFG0(csid_hwid(csid)));
 }
 
 static void __csid_configure_rdi_stream(struct csid_device *csid, u8 enable, u8 port, u8 vc)
@@ -316,7 +316,7 @@ static irqreturn_t csid_isr(int irq, void *dev)
 				 * CSID from VFE. Once CSID received bus done, need notify
 				 * VFE of this event. Trigger VFE to handle bus done process.
 				 */
-				camss_buf_done(csid->camss, csid->id, i);
+				camss_buf_done(csid->camss, csid_index(csid), i);
 			}
 		}
 

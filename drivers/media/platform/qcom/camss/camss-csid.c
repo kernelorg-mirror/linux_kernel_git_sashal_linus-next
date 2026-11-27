@@ -616,7 +616,7 @@ u32 csid_hw_version(struct csid_device *csid)
 	hw_rev = (hw_version >> HW_VERSION_REVISION) & 0xFFF;
 	hw_step = (hw_version >> HW_VERSION_STEPPING) & 0xFFFF;
 	dev_dbg(csid->camss->dev, "CSID:%d HW Version = %u.%u.%u\n",
-		csid->id, hw_gen, hw_rev, hw_step);
+		csid_hwid(csid), hw_gen, hw_rev, hw_step);
 
 	return hw_version;
 }
@@ -690,7 +690,7 @@ static int csid_set_power(struct v4l2_subdev *sd, int on)
 		 * switching on the CSID. Do so unconditionally, as there is no
 		 * drawback in following the same powering order on older SoCs.
 		 */
-		ret = csid->res->parent_dev_ops->get(camss, csid->id);
+		ret = csid->res->parent_dev_ops->get(camss, csid_index(csid));
 		if (ret < 0)
 			return ret;
 
@@ -726,7 +726,7 @@ static int csid_set_power(struct v4l2_subdev *sd, int on)
 		regulator_bulk_disable(csid->num_supplies,
 				       csid->supplies);
 		pm_runtime_put_sync(dev);
-		csid->res->parent_dev_ops->put(camss, csid->id);
+		csid->res->parent_dev_ops->put(camss, csid_index(csid));
 	}
 
 	return 0;
@@ -739,7 +739,7 @@ err_regulators_disable:
 err_pm_put:
 	pm_runtime_put_sync(dev);
 err_parent_put:
-	csid->res->parent_dev_ops->put(camss, csid->id);
+	csid->res->parent_dev_ops->put(camss, csid_index(csid));
 
 	return ret;
 }
@@ -1101,9 +1101,11 @@ int msm_csid_subdev_init(struct camss *camss, struct csid_device *csid,
 	struct platform_device *pdev = to_platform_device(dev);
 	int i, j;
 	int ret;
+	u8 idx;
 
 	csid->camss = camss;
 	csid->id = id;
+	idx = csid_index(csid);
 	csid->res = &res->csid;
 
 	if (dev_WARN_ONCE(dev, !csid->res->parent_dev_ops,
@@ -1120,11 +1122,11 @@ int msm_csid_subdev_init(struct camss *camss, struct csid_device *csid,
 		 * between the VFE "top" and "bus" registers. this requires
 		 * VFE to be initialized before CSID
 		 */
-		if (id >= 2) /* VFE/CSID lite */
-			csid->base = csid->res->parent_dev_ops->get_base_address(camss, id)
+		if (idx >= 2) /* VFE/CSID lite */
+			csid->base = csid->res->parent_dev_ops->get_base_address(camss, idx)
 				+ VFE_480_LITE_CSID_OFFSET;
 		else
-			csid->base = csid->res->parent_dev_ops->get_base_address(camss, id)
+			csid->base = csid->res->parent_dev_ops->get_base_address(camss, idx)
 				 + VFE_480_CSID_OFFSET;
 	} else {
 		csid->base = devm_platform_ioremap_resource_byname(pdev, res->reg[0]);
@@ -1140,7 +1142,7 @@ int msm_csid_subdev_init(struct camss *camss, struct csid_device *csid,
 
 	csid->irq = ret;
 	snprintf(csid->irq_name, sizeof(csid->irq_name), "%s_%s%d",
-		 dev_name(dev), MSM_CSID_NAME, csid->id);
+		 dev_name(dev), MSM_CSID_NAME, csid_hwid(csid));
 	ret = devm_request_irq(dev, csid->irq, csid->res->hw_ops->isr,
 			       IRQF_TRIGGER_RISING | IRQF_NO_AUTOEN,
 			       csid->irq_name, csid);
@@ -1215,7 +1217,7 @@ void msm_csid_get_csid_id(struct media_entity *entity, u8 *id)
 	struct v4l2_subdev *sd = media_entity_to_v4l2_subdev(entity);
 	struct csid_device *csid = v4l2_get_subdevdata(sd);
 
-	*id = csid->id;
+	*id = csid_hwid(csid);
 }
 
 /*
@@ -1378,6 +1380,16 @@ void csid_sof_event(struct csid_device *csid, unsigned int id)
 		v4l2_event_queue(csid->subdev.devnode, &event);
 }
 
+unsigned int csid_index(struct csid_device *csid)
+{
+	return csid - csid->camss->csid;
+}
+
+u8 csid_hwid(struct csid_device *csid)
+{
+	return csid->id;
+}
+
 static const struct v4l2_subdev_core_ops csid_core_ops = {
 	.s_power = csid_set_power,
 	.subscribe_event = csid_subscribe_event,
@@ -1431,7 +1443,7 @@ int msm_csid_register_entity(struct csid_device *csid,
 	sd->flags |= V4L2_SUBDEV_FL_HAS_DEVNODE |
 		     V4L2_SUBDEV_FL_HAS_EVENTS;
 	snprintf(sd->name, ARRAY_SIZE(sd->name), "%s%d",
-		 MSM_CSID_NAME, csid->id);
+		 MSM_CSID_NAME, csid_hwid(csid));
 	v4l2_set_subdevdata(sd, csid);
 
 	if (csid->testgen.nmodes != CSID_PAYLOAD_MODE_DISABLED) {
@@ -1505,5 +1517,5 @@ void msm_csid_unregister_entity(struct csid_device *csid)
 
 inline bool csid_is_lite(struct csid_device *csid)
 {
-	return csid->camss->res->csid_res[csid->id].csid.is_lite;
+	return csid->res->is_lite;
 }
