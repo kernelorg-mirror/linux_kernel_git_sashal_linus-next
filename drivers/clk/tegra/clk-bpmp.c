@@ -582,6 +582,9 @@ tegra_bpmp_clk_register(struct tegra_bpmp *bpmp,
 
 	init.parent_names = parents;
 
+	if (bpmp->soc->emc_clk_id && info->id == bpmp->soc->emc_clk_id)
+		init.flags = CLK_GET_RATE_NOCACHE;
+
 	err = devm_clk_hw_register(bpmp->dev, &clk->hw);
 
 	kfree(parents);
