@@ -54,8 +54,8 @@ static inline u64 ntfs_check_mref(u64 mref)
  *
  * Note, we look for a case sensitive match first but we also look for a case
  * insensitive match at the same time. If we find a case insensitive match, we
- * save that for the case that we don't find an exact match, where we return
- * the case insensitive match and setup @res (which we allocate!) with the mft
+ * save the first match on the search path in case we don't find an exact
+ * match, where we return it and setup @res (which we allocate!) with the mft
  * reference, the file name type, length and with a copy of the little endian
  * Unicode file name itself. If we match a file name which is in the DOS name
  * space, we only return the mft reference and file name type in @res.
@@ -91,6 +91,7 @@ u64 ntfs_lookup_inode_by_name(struct ntfs_inode *dir_ni, const __le16 *uname,
 	struct folio *folio;
 	u8 *kaddr = NULL;
 	struct ntfs_name *name = NULL;
+	bool seen_nonposix = false;
 
 	/* Get hold of the mft record for the directory. */
 	m = map_mft_record(dir_ni);
@@ -100,8 +101,9 @@ u64 ntfs_lookup_inode_by_name(struct ntfs_inode *dir_ni, const __le16 *uname,
 		return ERR_MREF(PTR_ERR(m));
 	}
 	ctx = ntfs_attr_get_search_ctx(dir_ni, m);
-	if (unlikely(!ctx)) {
-		err = -ENOMEM;
+	if (IS_ERR(ctx)) {
+		err = PTR_ERR(ctx);
+		ctx = NULL;
 		goto err_out;
 	}
 	/* Find the index root attribute in the mft record. */
@@ -190,13 +192,11 @@ found_it:
 		}
 		/*
 		 * For a case insensitive mount, we also perform a case
-		 * insensitive comparison (provided the file name is not in the
-		 * POSIX namespace). If the comparison matches, and the name is
-		 * in the WIN32 namespace, we cache the filename in *res so
-		 * that the caller, ntfs_lookup(), can work on it. If the
-		 * comparison matches, and the name is in the DOS namespace, we
-		 * only cache the mft reference and the file name type (we set
-		 * the name length to zero for simplicity).
+		 * insensitive comparison. DOS names are matched this way even
+		 * on a case sensitive mount. If the comparison matches and no
+		 * candidate is cached, we cache the filename in *res for
+		 * ntfs_lookup(). For a DOS name, we only cache the mft reference
+		 * and the file name type (we set the name length to zero).
 		 */
 		if ((!NVolCaseSensitive(vol) ||
 		     ie->key.file_name.file_name_type == FILE_NAME_DOS) &&
@@ -209,29 +209,32 @@ found_it:
 			u8 type = ie->key.file_name.file_name_type;
 			u8 len = ie->key.file_name.file_name_length;
 
-			/* Only one case insensitive matching name allowed. */
-			if (name) {
+			/* Only one imperfect non-POSIX match is allowed. */
+			if (type != FILE_NAME_POSIX && seen_nonposix) {
 				ntfs_error(sb,
 					"Found already allocated name in phase 1. Please run chkdsk");
 				goto dir_err_out;
 			}
-
-			if (type != FILE_NAME_DOS)
-				name_size += len * sizeof(__le16);
-			name = kmalloc(name_size, GFP_NOFS);
+			if (type != FILE_NAME_POSIX)
+				seen_nonposix = true;
 			if (!name) {
-				err = -ENOMEM;
-				goto err_out;
+				if (type != FILE_NAME_DOS)
+					name_size += len * sizeof(__le16);
+				name = kmalloc(name_size, GFP_NOFS);
+				if (!name) {
+					err = -ENOMEM;
+					goto err_out;
+				}
+				name->mref = le64_to_cpu(ie->data.dir.indexed_file);
+				name->type = type;
+				if (type != FILE_NAME_DOS) {
+					name->len = len;
+					memcpy(name->name, ie->key.file_name.file_name,
+							len * sizeof(__le16));
+				} else
+					name->len = 0;
+				*res = name;
 			}
-			name->mref = le64_to_cpu(ie->data.dir.indexed_file);
-			name->type = type;
-			if (type != FILE_NAME_DOS) {
-				name->len = len;
-				memcpy(name->name, ie->key.file_name.file_name,
-						len * sizeof(__le16));
-			} else
-				name->len = 0;
-			*res = name;
 		}
 		/*
 		 * Not a perfect match, need to do full blown collation so we
@@ -327,8 +330,8 @@ descend_into_child_node:
 	 * of PAGE_SIZE and map the page cache page, reading it from
 	 * disk if necessary.
 	 */
-	folio = read_mapping_folio(ia_mapping, vcn <<
-			dir_ni->itype.index.vcn_size_bits >> PAGE_SHIFT, NULL);
+	folio = ntfs_read_metadata_folio(ia_mapping, vcn <<
+			dir_ni->itype.index.vcn_size_bits >> PAGE_SHIFT);
 	if (IS_ERR(folio)) {
 		ntfs_error(sb, "Failed to map directory index page, error %ld.",
 				-PTR_ERR(folio));
@@ -446,13 +449,11 @@ found_it2:
 		}
 		/*
 		 * For a case insensitive mount, we also perform a case
-		 * insensitive comparison (provided the file name is not in the
-		 * POSIX namespace). If the comparison matches, and the name is
-		 * in the WIN32 namespace, we cache the filename in *res so
-		 * that the caller, ntfs_lookup(), can work on it. If the
-		 * comparison matches, and the name is in the DOS namespace, we
-		 * only cache the mft reference and the file name type (we set
-		 * the name length to zero for simplicity).
+		 * insensitive comparison. DOS names are matched this way even
+		 * on a case sensitive mount. If the comparison matches and no
+		 * candidate is cached, we cache the filename in *res for
+		 * ntfs_lookup(). For a DOS name, we only cache the mft reference
+		 * and the file name type (we set the name length to zero).
 		 */
 		if ((!NVolCaseSensitive(vol) ||
 		     ie->key.file_name.file_name_type == FILE_NAME_DOS) &&
@@ -465,30 +466,33 @@ found_it2:
 			u8 type = ie->key.file_name.file_name_type;
 			u8 len = ie->key.file_name.file_name_length;
 
-			/* Only one case insensitive matching name allowed. */
-			if (name) {
+			/* Only one imperfect non-POSIX match is allowed. */
+			if (type != FILE_NAME_POSIX && seen_nonposix) {
 				ntfs_error(sb,
 					"Found already allocated name in phase 2. Please run chkdsk");
 				kfree(kaddr);
 				goto dir_err_out;
 			}
-
-			if (type != FILE_NAME_DOS)
-				name_size += len * sizeof(__le16);
-			name = kmalloc(name_size, GFP_NOFS);
+			if (type != FILE_NAME_POSIX)
+				seen_nonposix = true;
 			if (!name) {
-				err = -ENOMEM;
-				goto unm_err_out;
+				if (type != FILE_NAME_DOS)
+					name_size += len * sizeof(__le16);
+				name = kmalloc(name_size, GFP_NOFS);
+				if (!name) {
+					err = -ENOMEM;
+					goto unm_err_out;
+				}
+				name->mref = le64_to_cpu(ie->data.dir.indexed_file);
+				name->type = type;
+				if (type != FILE_NAME_DOS) {
+					name->len = len;
+					memcpy(name->name, ie->key.file_name.file_name,
+							len * sizeof(__le16));
+				} else
+					name->len = 0;
+				*res = name;
 			}
-			name->mref = le64_to_cpu(ie->data.dir.indexed_file);
-			name->type = type;
-			if (type != FILE_NAME_DOS) {
-				name->len = len;
-				memcpy(name->name, ie->key.file_name.file_name,
-						len * sizeof(__le16));
-			} else
-				name->len = 0;
-			*res = name;
 		}
 		/*
 		 * Not a perfect match, need to do full blown collation so we
@@ -846,8 +850,9 @@ static int ntfs_readdir(struct file *file, struct dir_context *actor)
 	}
 
 	ctx = ntfs_attr_get_search_ctx(ndir, NULL);
-	if (!ctx) {
-		err = -ENOMEM;
+	if (IS_ERR(ctx)) {
+		err = PTR_ERR(ctx);
+		ctx = NULL;
 		goto out;
 	}
 
@@ -1048,9 +1053,9 @@ int ntfs_check_empty_dir(struct ntfs_inode *ni, struct mft_record *ni_mrec)
 		return 0;
 
 	ctx = ntfs_attr_get_search_ctx(ni, NULL);
-	if (!ctx) {
+	if (IS_ERR(ctx)) {
 		ntfs_error(ni->vol->sb, "Failed to get search context");
-		return -ENOMEM;
+		return PTR_ERR(ctx);
 	}
 
 	/* Find the index root attribute in the mft record. */
@@ -1145,12 +1150,13 @@ static int ntfs_dir_fsync(struct file *filp, loff_t start, loff_t end,
 
 	ntfs_debug("Entering for inode 0x%llx.", ni->mft_no);
 
-	if (NVolShutdown(vol))
-		return -EIO;
+	err = ntfs_emergency_state(vol);
+	if (err)
+		return err;
 
 	ctx = ntfs_attr_get_search_ctx(ni, NULL);
-	if (!ctx)
-		return -ENOMEM;
+	if (IS_ERR(ctx))
+		return PTR_ERR(ctx);
 
 	mutex_lock_nested(&ni->mrec_lock, NTFS_INODE_MUTEX_NORMAL_CHILD);
 	while (!(err = ntfs_attr_lookup(AT_FILE_NAME, NULL, 0, 0, 0, NULL, 0, ctx))) {
