@@ -13,6 +13,7 @@
 #include <linux/sched.h>
 #include <linux/uidgid.h>
 #include <linux/filter.h>
+#include <net/xdp.h>
 #include <linux/ctype.h>
 #include <linux/jiffies.h>
 #include <linux/pid_namespace.h>
@@ -22,13 +23,16 @@
 #include <linux/security.h>
 #include <linux/btf_ids.h>
 #include <linux/bpf_mem_alloc.h>
-#include <linux/kasan.h>
+#include <linux/kprobes.h>
 #include <linux/bpf_verifier.h>
 #include <linux/uaccess.h>
 #include <linux/verification.h>
 #include <linux/task_work.h>
 #include <linux/irq_work.h>
 #include <linux/buildid.h>
+#include <linux/mm.h>
+#include <linux/mman.h>
+#include <linux/limits.h>
 
 #include "../../lib/kstrtox.h"
 
@@ -726,7 +730,7 @@ BPF_CALL_5(bpf_copy_from_user_task, void *, dst, u32, size,
 	if (unlikely(!size))
 		return 0;
 
-	mm = get_task_mm(tsk);
+	mm = tsk ? get_task_mm(tsk) : NULL;
 	if (!mm) {
 		memset(dst, 0, size);
 		return -EFAULT;
@@ -857,7 +861,8 @@ int bpf_bprintf_prepare(const char *fmt, u32 fmt_size, const u64 *raw_args,
 			u32 num_args, struct bpf_bprintf_data *data)
 {
 	bool get_buffers = (data->get_bin_args && num_args) || data->get_buf;
-	char *unsafe_ptr = NULL, *tmp_buf = NULL, *tmp_buf_end, *fmt_end;
+	char *unsafe_ptr = NULL, *tmp_buf = NULL, *tmp_buf_end;
+	const char *fmt_end;
 	struct bpf_bprintf_buffers *buffers = NULL;
 	size_t sizeof_cur_arg, sizeof_cur_ip;
 	int err, i, num_spec = 0;
@@ -1218,12 +1223,25 @@ static DEFINE_PER_CPU(struct bpf_hrtimer *, hrtimer_running);
 
 static void bpf_async_refcount_put(struct bpf_async_cb *cb);
 
+struct bpf_run_ctx bpf_async_run_ctx;
+
+static void bpf_run_async_cb(struct bpf_prog *prog, bpf_callback_t callback_fn,
+			     struct bpf_map *map, void *key, void *value)
+{
+	struct bpf_run_ctx *old_ctx = bpf_set_run_ctx(&bpf_async_run_ctx);
+	struct bpf_timed_may_goto saved;
+
+	bpf_timed_may_goto_save(prog, &saved);
+	callback_fn((u64)(long)map, (u64)(long)key, (u64)(long)value, 0, 0);
+	bpf_timed_may_goto_restore(prog, &saved);
+	bpf_reset_run_ctx(old_ctx);
+}
+
 static enum hrtimer_restart bpf_timer_cb(struct hrtimer *hrtimer)
 {
 	struct bpf_hrtimer *t = container_of(hrtimer, struct bpf_hrtimer, timer);
 	struct bpf_map *map = READ_ONCE(t->cb.map);
 	struct bpf_prog *prog = READ_ONCE(t->cb.prog);
-	struct bpf_timed_may_goto saved;
 	void *value = t->cb.value;
 	bpf_callback_t callback_fn;
 	void *key;
@@ -1244,10 +1262,8 @@ static enum hrtimer_restart bpf_timer_cb(struct hrtimer *hrtimer)
 
 	key = map_key_from_value(map, value, &idx);
 
-	bpf_timed_may_goto_save(prog, &saved);
-	callback_fn((u64)(long)map, (u64)(long)key, (u64)(long)value, 0, 0);
 	/* The verifier checked that return value is zero. */
-	bpf_timed_may_goto_restore(prog, &saved);
+	bpf_run_async_cb(prog, callback_fn, map, key, value);
 
 	this_cpu_write(hrtimer_running, NULL);
 out:
@@ -1258,7 +1274,6 @@ static void bpf_wq_work(struct work_struct *work)
 {
 	struct bpf_work *w = container_of(work, struct bpf_work, work);
 	struct bpf_async_cb *cb = &w->cb;
-	struct bpf_timed_may_goto saved;
 	struct bpf_prog *prog;
 	struct bpf_map *map;
 	bpf_callback_t callback_fn;
@@ -1281,9 +1296,7 @@ static void bpf_wq_work(struct work_struct *work)
 
 	migrate_disable();
 
-	bpf_timed_may_goto_save(prog, &saved);
-	callback_fn((u64)(long)map, (u64)(long)key, (u64)(long)value, 0, 0);
-	bpf_timed_may_goto_restore(prog, &saved);
+	bpf_run_async_cb(prog, callback_fn, map, key, value);
 
 	migrate_enable();
 out:
@@ -2185,10 +2198,6 @@ bpf_base_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
 		return &bpf_spin_unlock_proto;
 	case BPF_FUNC_jiffies64:
 		return &bpf_jiffies64_proto;
-	case BPF_FUNC_per_cpu_ptr:
-		return &bpf_per_cpu_ptr_proto;
-	case BPF_FUNC_this_cpu_ptr:
-		return &bpf_this_cpu_ptr_proto;
 	case BPF_FUNC_timer_init:
 		return &bpf_timer_init_proto;
 	case BPF_FUNC_timer_set_callback:
@@ -2292,6 +2301,10 @@ bpf_base_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
 		return &bpf_get_branch_snapshot_proto;
 	case BPF_FUNC_find_vma:
 		return &bpf_find_vma_proto;
+	case BPF_FUNC_per_cpu_ptr:
+		return &bpf_per_cpu_ptr_proto;
+	case BPF_FUNC_this_cpu_ptr:
+		return &bpf_this_cpu_ptr_proto;
 	default:
 		return NULL;
 	}
@@ -2302,6 +2315,7 @@ void bpf_list_head_free(const struct btf_field *field, void *list_head,
 			struct bpf_spin_lock *spin_lock)
 {
 	struct list_head *head = list_head, drain, *pos, *n;
+	unsigned long flags;
 
 	BUILD_BUG_ON(sizeof(struct list_head) > sizeof(struct bpf_list_head));
 	BUILD_BUG_ON(__alignof__(struct list_head) > __alignof__(struct bpf_list_head));
@@ -2313,7 +2327,8 @@ void bpf_list_head_free(const struct btf_field *field, void *list_head,
 	 * section, and end up doing map ops that call bpf_list_head_free for
 	 * the same map value again.
 	 */
-	__bpf_spin_lock_irqsave(spin_lock);
+	local_irq_save(flags);
+	__bpf_spin_lock(spin_lock);
 	if (!head->next || list_empty(head))
 		goto unlock;
 	list_for_each_safe(pos, n, head) {
@@ -2325,7 +2340,8 @@ void bpf_list_head_free(const struct btf_field *field, void *list_head,
 	}
 unlock:
 	INIT_LIST_HEAD(head);
-	__bpf_spin_unlock_irqrestore(spin_lock);
+	__bpf_spin_unlock(spin_lock);
+	local_irq_restore(flags);
 
 	while (!list_empty(&drain)) {
 		struct bpf_list_node_kern *node;
@@ -2362,19 +2378,22 @@ void bpf_rb_root_free(const struct btf_field *field, void *rb_root,
 	struct rb_root_cached orig_root, *root = rb_root;
 	struct bpf_rb_node_kern *node;
 	struct rb_node *pos, *n;
+	unsigned long flags;
 	void *obj;
 
 	BUILD_BUG_ON(sizeof(struct rb_root_cached) > sizeof(struct bpf_rb_root));
 	BUILD_BUG_ON(__alignof__(struct rb_root_cached) > __alignof__(struct bpf_rb_root));
 
-	__bpf_spin_lock_irqsave(spin_lock);
+	local_irq_save(flags);
+	__bpf_spin_lock(spin_lock);
 	orig_root = *root;
 	bpf_rbtree_postorder_for_each_entry_safe(pos, n, &orig_root.rb_root) {
 		node = rb_entry(pos, struct bpf_rb_node_kern, rb_node);
 		WRITE_ONCE(node->owner, BPF_PTR_POISON);
 	}
 	*root = RB_ROOT_CACHED;
-	__bpf_spin_unlock_irqrestore(spin_lock);
+	__bpf_spin_unlock(spin_lock);
+	local_irq_restore(flags);
 
 	bpf_rbtree_postorder_for_each_entry_safe(pos, n, &orig_root.rb_root) {
 		obj = pos;
@@ -3138,7 +3157,8 @@ __bpf_kfunc void *bpf_dynptr_slice(const struct bpf_dynptr *p, u64 offset,
 		if (!IS_ERR_OR_NULL(xdp_ptr))
 			return xdp_ptr;
 
-		if (!buffer__nullable)
+		/* the packet may be shorter than it was for bpf_dynptr_from_xdp() */
+		if (!buffer__nullable || ptr->offset + offset + len > xdp_get_buff_len(ptr->data))
 			return NULL;
 		bpf_xdp_copy_buf(ptr->data, ptr->offset + offset, buffer__nullable, len, false);
 		return buffer__nullable;
@@ -3457,7 +3477,8 @@ static bool bpf_stack_walker(void *cookie, u64 ip, u64 sp, u64 bp)
 	return false;
 }
 
-__bpf_kfunc void bpf_throw(u64 cookie)
+/* It does not return. What a tracer keeps for the return would stay behind, redzones too. */
+__bpf_kfunc notrace __no_sanitize_address void bpf_throw(u64 cookie)
 {
 	struct bpf_throw_ctx ctx = {};
 
@@ -3467,16 +3488,11 @@ __bpf_kfunc void bpf_throw(u64 cookie)
 		WARN_ON_ONCE(!ctx.aux->exception_boundary);
 	WARN_ON_ONCE(!ctx.bp);
 	WARN_ON_ONCE(!ctx.cnt);
-	/*
-	 * Prevent KASAN false positives for CONFIG_KASAN_STACK by unpoisoning
-	 * deeper stack depths than ctx.sp as we do not return from bpf_throw,
-	 * which skips compiler generated instrumentation to do the same. Some
-	 * architectures cannot recover sp while unwinding, so fall back to bp.
-	 */
-	kasan_unpoison_task_stack_below((void *)(long)(ctx.sp ?: ctx.bp));
+	/* arm64 drops one entry of the shadow call stack, don't move the call to a callee */
 	ctx.aux->bpf_exception_cb(cookie, ctx.sp + ctx.aux->stack_arg_sp_adjust, ctx.bp, 0, 0);
 	WARN(1, "A call to BPF exception callback should never return\n");
 }
+NOKPROBE_SYMBOL(bpf_throw);
 
 __bpf_kfunc int bpf_wq_init(struct bpf_wq *wq, void *p__const_map, unsigned int flags)
 {
@@ -3766,6 +3782,88 @@ __bpf_kfunc int bpf_copy_from_user_mm(void *dst, u32 dst__sz,
 	mmput(mm);
 
 	return ret;
+}
+
+/**
+ * bpf_copy_to_user() - Copy data to the current task's address space
+ * @unsafe_ptr__ign: Destination address in the current task's address space
+ * @src:     Source address, in kernel space
+ * @src__sz: Number of bytes to copy
+ * @flags:   Reserved for future use; must be zero
+ *
+ * Faults in the destination and writes the way ptrace(PTRACE_POKETEXT) does:
+ * a private mapping doesn't have to be writable. A partial copy is not undone,
+ * the bytes before the fault stay written.
+ *
+ * The caller must coordinate with other threads so they do not execute the
+ * destination range while it is being modified, and ensure execution begins
+ * only after the copy completes.
+ *
+ * Return: 0 on success, -EINVAL if @flags is non-zero, or -EFAULT if the copy
+ * fails or is partial.
+ */
+__bpf_kfunc int bpf_copy_to_user(void __user *unsafe_ptr__ign, const void *src,
+				 u32 src__sz, u64 flags)
+{
+	int ret;
+
+	if (unlikely(flags))
+		return -EINVAL;
+	if (unlikely(src__sz > S32_MAX))
+		return -EINVAL;
+	if (unlikely(!src__sz))
+		return 0;
+	ret = access_process_vm(current, (unsigned long)unsafe_ptr__ign, (void *)src,
+				src__sz, FOLL_FORCE | FOLL_WRITE);
+	return ret == src__sz ? 0 : -EFAULT;
+}
+
+/* bpf_wq and bpf_task_work callbacks can run without a usable mm. */
+static bool bpf_user_mm_ok(void)
+{
+	return current->mm && !(current->flags & (PF_KTHREAD | PF_EXITING));
+}
+
+/**
+ * bpf_user_anon_mmap() - Map private anonymous memory into the current process
+ * @len:  Length of the mapping
+ * @prot: PROT_* flags of mmap(2), including PROT_EXEC
+ *
+ * This maps memory by calling vm_mmap() directly. It does not invoke the
+ * mmap(2) syscall, so seccomp filters do not mediate this mapping.
+ *
+ * Note that ia32 tasks are unsupported. This calls vm_mmap() directly and
+ * bypasses the compat mmap syscall wrapper.
+ *
+ * Return: The address of the mapping on success, -EPERM if the caller has no
+ * user mm, or an unsigned-long encoded negative error code, as returned by
+ * vm_mmap().
+ */
+__bpf_kfunc unsigned long bpf_user_anon_mmap(unsigned long len, unsigned long prot)
+{
+	if (!bpf_user_mm_ok())
+		return -EPERM;
+	if (!arch_validate_prot(prot, 0))
+		return -EINVAL;
+	return vm_mmap(NULL, 0, len, prot, MAP_PRIVATE | MAP_ANONYMOUS, 0);
+}
+
+/**
+ * bpf_user_munmap() - Unmap a range of addresses of the current process
+ * @addr: Start of the range
+ * @len:  Length of the range
+ *
+ * This unmaps memory by calling vm_munmap() directly. It does not invoke the
+ * munmap(2) syscall, so seccomp filters do not mediate this unmapping.
+ *
+ * Return: 0 on success, -EPERM if the caller has no user mm, or a negative
+ * error code.
+ */
+__bpf_kfunc int bpf_user_munmap(unsigned long addr, unsigned long len)
+{
+	if (!bpf_user_mm_ok())
+		return -EPERM;
+	return vm_munmap(addr, len);
 }
 
 /**
@@ -4620,7 +4718,6 @@ static void bpf_task_work_cancel(struct bpf_task_work_ctx *ctx,
 static void bpf_task_work_callback(struct callback_head *cb)
 {
 	struct bpf_task_work_ctx *ctx = container_of(cb, struct bpf_task_work_ctx, work);
-	struct bpf_timed_may_goto saved;
 	enum bpf_task_work_state state;
 	u32 idx;
 	void *key;
@@ -4642,10 +4739,7 @@ static void bpf_task_work_callback(struct callback_head *cb)
 	key = (void *)map_key_from_value(ctx->map, ctx->map_val, &idx);
 
 	migrate_disable();
-	bpf_timed_may_goto_save(ctx->prog, &saved);
-	ctx->callback_fn((u64)(long)ctx->map, (u64)(long)key,
-			 (u64)(long)ctx->map_val, 0, 0);
-	bpf_timed_may_goto_restore(ctx->prog, &saved);
+	bpf_run_async_cb(ctx->prog, ctx->callback_fn, ctx->map, key, ctx->map_val);
 	migrate_enable();
 
 	bpf_task_work_ctx_reset(ctx);
@@ -4800,6 +4894,9 @@ static int bpf_task_work_schedule(struct task_struct *task, struct bpf_task_work
 
 	BTF_TYPE_EMIT(struct bpf_task_work);
 
+	if (task->flags & PF_KTHREAD)
+		return -EPERM;
+
 	prog = bpf_prog_inc_not_zero(aux->prog);
 	if (IS_ERR(prog))
 		return -EBADF;
@@ -4885,7 +4982,6 @@ static void bpf_rcu_run_callback(struct rcu_head *rcu)
 	struct bpf_rcu_head_kern *rh = container_of(rcu, struct bpf_rcu_head_kern, rcu);
 	bpf_callback_t callback_fn = rh->callback_fn;
 	struct bpf_prog *prog = rh->prog;
-	struct bpf_timed_may_goto saved;
 	struct bpf_map *map = rh->map;
 	void *value, *key;
 	u32 idx;
@@ -4897,9 +4993,7 @@ static void bpf_rcu_run_callback(struct rcu_head *rcu)
 	smp_store_release(&rh->armed, 0);
 
 	rcu_read_lock_dont_migrate();
-	bpf_timed_may_goto_save(prog, &saved);
-	callback_fn((u64)(long)map, (u64)(long)key, (u64)(long)value, 0, 0);
-	bpf_timed_may_goto_restore(prog, &saved);
+	bpf_run_async_cb(prog, callback_fn, map, key, value);
 	rcu_read_unlock_migrate();
 
 	bpf_prog_put(prog);
@@ -5155,7 +5249,7 @@ BTF_ID_FLAGS(func, bpf_task_from_pid, KF_ACQUIRE | KF_RET_NULL)
 BTF_ID_FLAGS(func, bpf_task_from_vpid, KF_ACQUIRE | KF_RET_NULL)
 BTF_ID_FLAGS(func, bpf_throw)
 #ifdef CONFIG_BPF_EVENTS
-BTF_ID_FLAGS(func, bpf_send_signal_task)
+BTF_ID_FLAGS(func, bpf_send_signal_task, KF_PERFMON)
 #endif
 #ifdef CONFIG_KEYS
 BTF_ID_FLAGS(func, bpf_lookup_user_key, KF_ACQUIRE | KF_RET_NULL | KF_SLEEPABLE)
@@ -5173,6 +5267,27 @@ BTF_KFUNCS_END(generic_btf_ids)
 static const struct btf_kfunc_id_set generic_kfunc_set = {
 	.owner = THIS_MODULE,
 	.set   = &generic_btf_ids,
+};
+
+BTF_KFUNCS_START(user_mem_btf_ids)
+BTF_ID_FLAGS(func, bpf_copy_to_user, KF_SLEEPABLE | KF_PERFMON)
+BTF_ID_FLAGS(func, bpf_user_anon_mmap, KF_SLEEPABLE | KF_PERFMON)
+BTF_ID_FLAGS(func, bpf_user_munmap, KF_SLEEPABLE | KF_PERFMON)
+BTF_KFUNCS_END(user_mem_btf_ids)
+
+static int user_mem_kfunc_filter(const struct bpf_prog *prog, u32 kfunc_id)
+{
+	if (!btf_id_set8_contains(&user_mem_btf_ids, kfunc_id))
+		return 0;
+	if (!bpf_token_capable(prog->aux->token, CAP_SYS_ADMIN))
+		return -EPERM;
+	return security_locked_down(LOCKDOWN_BPF_WRITE_USER);
+}
+
+static const struct btf_kfunc_id_set user_mem_kfunc_set = {
+	.owner  = THIS_MODULE,
+	.set    = &user_mem_btf_ids,
+	.filter = user_mem_kfunc_filter,
 };
 
 BTF_ID_LIST(generic_dtor_ids)
@@ -5271,8 +5386,8 @@ BTF_ID_FLAGS(func, bpf_cgroup_read_xattr, KF_RCU)
 #endif
 BTF_ID_FLAGS(func, bpf_stream_vprintk, KF_IMPLICIT_ARGS | KF_SPINLOCK_SAFE | KF_PERFMON)
 BTF_ID_FLAGS(func, bpf_stream_print_stack, KF_IMPLICIT_ARGS | KF_SPINLOCK_SAFE | KF_PERFMON)
-BTF_ID_FLAGS(func, bpf_task_work_schedule_signal, KF_IMPLICIT_ARGS)
-BTF_ID_FLAGS(func, bpf_task_work_schedule_resume, KF_IMPLICIT_ARGS)
+BTF_ID_FLAGS(func, bpf_task_work_schedule_signal, KF_IMPLICIT_ARGS | KF_PERFMON)
+BTF_ID_FLAGS(func, bpf_task_work_schedule_resume, KF_IMPLICIT_ARGS | KF_PERFMON)
 BTF_ID_FLAGS(func, bpf_call_rcu, KF_IMPLICIT_ARGS)
 BTF_ID_FLAGS(func, bpf_call_rcu_tasks_trace, KF_IMPLICIT_ARGS)
 BTF_ID_FLAGS(func, bpf_dynptr_from_file)
@@ -5302,6 +5417,7 @@ static int __init kfunc_init(void)
 	};
 
 	ret = register_btf_kfunc_id_set(BPF_PROG_TYPE_TRACING, &generic_kfunc_set);
+	ret = ret ?: register_btf_kfunc_id_set(BPF_PROG_TYPE_KPROBE, &user_mem_kfunc_set);
 	ret = ret ?: register_btf_kfunc_id_set(BPF_PROG_TYPE_SCHED_CLS, &generic_kfunc_set);
 	ret = ret ?: register_btf_kfunc_id_set(BPF_PROG_TYPE_XDP, &generic_kfunc_set);
 	ret = ret ?: register_btf_kfunc_id_set(BPF_PROG_TYPE_STRUCT_OPS, &generic_kfunc_set);

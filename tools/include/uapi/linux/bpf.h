@@ -34,6 +34,12 @@
 #define BPF_FROM_LE	BPF_TO_LE
 #define BPF_FROM_BE	BPF_TO_BE
 
+/* BPF_MUL off values for high-half multiplication; BPF_ALU64 only. */
+enum bpf_mul_variant {
+	BPF_UHMUL = 1,
+	BPF_SHMUL = 2,
+};
+
 /* jmp encodings */
 #define BPF_JNE		0x50	/* jump != */
 #define BPF_JLT		0xa0	/* LT is unsigned, '<' */
@@ -934,6 +940,7 @@ union bpf_iter_link_info {
  *		by *prog_fd*, and the stream is identified by the *stream_id*.
  *		The data is copied to a buffer pointed to by *stream_buf*, and
  *		filled less than or equal to *stream_buf_len* bytes.
+ *		The caller needs **CAP_PERFMON**.
  *
  *	Return
  *		Number of bytes read from the stream on success, or -1 if an
@@ -953,7 +960,7 @@ union bpf_iter_link_info {
  *	Description
  *		Open a file descriptor for one of the BPF streams associated
  *		with the program identified by *prog_fd*. The stream is selected
- *		by *stream_id*.
+ *		by *stream_id*. The caller needs **CAP_PERFMON**.
  *
  *		The returned file descriptor supports **read**\ (2) and
  *		**poll**\ (2). Reads block while the stream is empty unless

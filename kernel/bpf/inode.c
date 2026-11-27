@@ -310,6 +310,11 @@ static int bpffs_map_open(struct inode *inode, struct file *file)
 	struct seq_file *m;
 	int err;
 
+	/* Special fields are printed as they are. Most have addresses. */
+	if (btf_record_has_field(map->record, ~(BPF_SPIN_LOCK | BPF_RES_SPIN_LOCK)) &&
+	    !perfmon_capable())
+		return -EPERM;
+
 	iter = map_iter_alloc(map);
 	if (!iter)
 		return -ENOMEM;
@@ -1055,7 +1060,7 @@ static int bpf_parse_param(struct fs_context *fc, struct fs_parameter *param)
 		struct bpffs_btf_enums info;
 		const struct btf_type *enum_t;
 		const char *enum_pfx;
-		u64 *delegate_msk, msk = 0;
+		u64 *delegate_msk, msk = 0, num;
 		char *p, *str;
 		int val;
 
@@ -1094,9 +1099,10 @@ static int bpf_parse_param(struct fs_context *fc, struct fs_parameter *param)
 			} else if (find_btf_enum_const(info.btf, enum_t, enum_pfx, p, &val)) {
 				msk |= 1ULL << val;
 			} else {
-				err = kstrtou64(p, 0, &msk);
+				err = kstrtou64(p, 0, &num);
 				if (err)
 					return err;
+				msk |= num;
 			}
 		}
 
@@ -1188,10 +1194,6 @@ static int bpf_fill_super(struct super_block *sb, struct fs_context *fc)
 	struct bpf_mount_opts *opts = sb->s_fs_info;
 	struct inode *inode;
 
-	/* Mounting an instance of BPF FS requires privileges */
-	if (fc->user_ns != &init_user_ns && !capable(CAP_SYS_ADMIN))
-		return -EPERM;
-
 	sb->s_blocksize = PAGE_SIZE;
 	sb->s_blocksize_bits = PAGE_SHIFT;
 	sb->s_magic = BPF_FS_MAGIC;
@@ -1280,7 +1282,7 @@ static struct file_system_type bpf_fs_type = {
 	.init_fs_context = bpf_init_fs_context,
 	.parameters	= bpf_fs_parameters,
 	.kill_sb	= bpf_kill_super,
-	.fs_flags	= FS_USERNS_MOUNT,
+	.fs_flags	= FS_USERNS_DELEGATABLE,
 };
 
 static void bpf_fs_inode_init_once(void *foo)
