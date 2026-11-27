@@ -48,12 +48,23 @@ static int mmc_host_class_prepare(struct device *dev)
 	if (host->bus_ops->pre_suspend)
 		return host->bus_ops->pre_suspend(host);
 
+	/*
+	 * If it's required to make a reset of the card at system resume, this
+	 * indirectly also means that we must keep the card powered on during
+	 * system suspend.
+	 */
+	if (host->caps2 & MMC_CAP2_RESET_AT_RESUME)
+		return mmc_set_host_pm_flags(host, MMC_PM_KEEP_POWER);
+
 	return 0;
 }
 
 static void mmc_host_class_complete(struct device *dev)
 {
 	struct mmc_host *host = cls_dev_to_mmc_host(dev);
+
+	/* If system suspend is aborted let's make sure to start fresh. */
+	host->pm_flags &= ~MMC_PM_KEEP_POWER;
 
 	_mmc_detect_change(host, 0, false);
 }
@@ -375,6 +386,8 @@ int mmc_of_parse(struct mmc_host *host)
 		host->pm_caps |= MMC_PM_KEEP_POWER;
 	if (device_property_read_bool(dev, "wakeup-source"))
 		host->pm_caps |= MMC_PM_WAKE_SDIO_IRQ;
+	if (device_property_read_bool(dev, "reset-card-at-resume"))
+		host->caps2 |= MMC_CAP2_RESET_AT_RESUME;
 	if (device_property_read_bool(dev, "mmc-ddr-3_3v"))
 		host->caps |= MMC_CAP_3_3V_DDR;
 	if (device_property_read_bool(dev, "mmc-ddr-1_8v"))
@@ -617,6 +630,13 @@ static int mmc_validate_host_caps(struct mmc_host *host)
 
 	if (caps & MMC_CAP_SDIO_IRQ && !host->ops->enable_sdio_irq) {
 		dev_warn(dev, "missing ->enable_sdio_irq() ops\n");
+		return -EINVAL;
+	}
+
+	/* Resetting the card at resume requires that it stays powered on */
+	if (caps2 & MMC_CAP2_RESET_AT_RESUME &&
+	    !(host->pm_caps & MMC_PM_KEEP_POWER)) {
+		dev_warn(dev, "reset-card-at-resume requires keep-power-in-suspend\n");
 		return -EINVAL;
 	}
 
