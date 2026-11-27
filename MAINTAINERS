@@ -2617,6 +2617,20 @@ F:	drivers/clocksource/asm9260_timer.c
 F:	drivers/rtc/rtc-asm9260.c
 F:	drivers/watchdog/asm9260_wdt.c
 
+ARM/AMBARELLA SOC SUPPORT
+M:	Long Zhao <longzhao@ambarella.com>
+L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
+L:	devicetree@vger.kernel.org
+S:	Maintained
+F:	Documentation/devicetree/bindings/arm/ambarella.yaml
+F:	Documentation/devicetree/bindings/clock/ambarella,cv75-rct.yaml
+F:	Documentation/devicetree/bindings/pinctrl/ambarella,cv75-pinctrl.yaml
+F:	arch/arm64/boot/dts/ambarella/
+F:	drivers/clk/ambarella/
+F:	drivers/pinctrl/pinctrl-ambarella*
+F:	include/dt-bindings/clock/ambarella,cv75-rct.h
+N:	ambarella
+
 ARM/AMD PENSANDO ARM64 ARCHITECTURE
 M:	Brad Larson <blarson@amd.com>
 L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
@@ -3000,14 +3014,6 @@ S:	Maintained
 T:	git git://git.berlios.de/gemini-board
 F:	arch/arm/mm/*-fa*
 
-ARM/FOOTBRIDGE ARCHITECTURE
-M:	Russell King <linux@armlinux.org.uk>
-L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
-S:	Maintained
-W:	http://www.armlinux.org.uk/
-F:	arch/arm/include/asm/hardware/dec21285.h
-F:	arch/arm/mach-footbridge/
-
 ARM/FREESCALE IMX / MXC / LAYERSCAPE ARM ARCHITECTURE
 M:	Frank Li <Frank.Li@nxp.com>
 M:	Sascha Hauer <s.hauer@pengutronix.de>
@@ -3052,14 +3058,6 @@ T:	git https://github.com/hisilicon/linux-hisi.git
 F:	arch/arm/boot/dts/hisilicon/
 F:	arch/arm/mach-hisi/
 F:	arch/arm64/boot/dts/hisilicon/
-
-ARM/HP JORNADA 7XX MACHINE SUPPORT
-M:	Kristoffer Ericson <kristoffer.ericson@gmail.com>
-S:	Maintained
-W:	www.jlime.com
-T:	git git://git.kernel.org/pub/scm/linux/kernel/git/kristoffer/linux-hpc.git
-F:	arch/arm/mach-sa1100/include/mach/jornada720.h
-F:	arch/arm/mach-sa1100/jornada720.c
 
 ARM/HPE GXP ARCHITECTURE
 M:	Jean-Marie Verdun <verdun@hpe.com>
@@ -3130,18 +3128,6 @@ L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
 S:	Maintained
 F:	arch/arm64/boot/dts/lg/
 
-ARM/LPC18XX ARCHITECTURE
-M:	Vladimir Zapolskiy <vz@mleia.com>
-L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
-S:	Maintained
-F:	Documentation/devicetree/bindings/i2c/nxp,lpc1788-i2c.yaml
-F:	arch/arm/boot/dts/nxp/lpc/lpc43*
-F:	drivers/i2c/busses/i2c-lpc2k.c
-F:	drivers/memory/pl172.c
-F:	drivers/mtd/spi-nor/controllers/nxp-spifi.c
-F:	drivers/rtc/rtc-lpc24xx.c
-N:	lpc18xx
-
 ARM/LPC32XX SOC SUPPORT
 M:	Vladimir Zapolskiy <vz@mleia.com>
 M:	Piotr Wojtaszczyk <piotr.wojtaszczyk@timesys.com>
@@ -3178,10 +3164,7 @@ F:	Documentation/devicetree/bindings/arm/marvell/marvell,orion5x.yaml
 F:	Documentation/devicetree/bindings/soc/dove/
 F:	arch/arm/boot/dts/marvell/dove*
 F:	arch/arm/boot/dts/marvell/orion5x*
-F:	arch/arm/mach-dove/
-F:	arch/arm/mach-mv78xx0/
 F:	arch/arm/mach-orion5x/
-F:	arch/arm/plat-orion/
 F:	drivers/bus/mvebu-mbus.c
 F:	drivers/soc/dove/
 
@@ -3455,13 +3438,6 @@ R:	s32@nxp.com
 S:	Maintained
 F:	Documentation/devicetree/bindings/net/nxp,s32-dwmac.yaml
 F:	drivers/net/ethernet/stmicro/stmmac/dwmac-s32.c
-
-ARM/Orion SoC/Technologic Systems TS-78xx platform support
-M:	Alexander Clouter <alex@digriz.org.uk>
-L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
-S:	Maintained
-W:	http://www.digriz.org.uk/ts78xx/kernel
-F:	arch/arm/mach-orion5x/ts78xx-*
 
 ARM/QUALCOMM CHROMEBOOK SUPPORT
 R:	cros-qcom-dts-watchers@chromium.org
@@ -4225,15 +4201,15 @@ M:	Denis Benato <denis.benato@linux.dev>
 L:	platform-driver-x86@vger.kernel.org
 S:	Maintained
 W:	https://asus-linux.org/
-F:	drivers/platform/x86/asus*.c
-F:	drivers/platform/x86/eeepc*.c
+F:	drivers/platform/asus/asus*.c
+F:	drivers/platform/asus/eeepc*.c
 
 ASUS TF103C DOCK DRIVER
 M:	Hans de Goede <hansg@kernel.org>
 L:	platform-driver-x86@vger.kernel.org
 S:	Maintained
 T:	git git://git.kernel.org/pub/scm/linux/kernel/git/pdx86/platform-drivers-x86.git
-F:	drivers/platform/x86/asus-tf103c-dock.c
+F:	drivers/platform/asus/asus-tf103c-dock.c
 
 ASUS ROG RYUJIN AIO HARDWARE MONITOR DRIVER
 M:	Aleksa Savic <savicaleksa83@gmail.com>
@@ -4245,7 +4221,7 @@ ASUS WIRELESS RADIO CONTROL DRIVER
 M:	João Paulo Rechi Vita <jprvita@gmail.com>
 L:	platform-driver-x86@vger.kernel.org
 S:	Maintained
-F:	drivers/platform/x86/asus-wireless.c
+F:	drivers/platform/asus/asus-wireless.c
 
 ASUS WMI HARDWARE MONITOR DRIVER
 M:	Ed Brindley <kernel@maidavale.org>
@@ -13148,8 +13124,9 @@ L:	linux-mips@vger.kernel.org
 S:	Maintained
 F:	arch/mips/boot/dts/ingenic/
 F:	arch/mips/generic/board-ingenic.c
+F:	arch/mips/include/asm/ingenic-smp.h
 F:	arch/mips/include/asm/mach-ingenic/
-F:	arch/mips/ingenic/Kconfig
+F:	arch/mips/ingenic/
 F:	drivers/clk/ingenic/
 F:	drivers/dma/dma-jz4780.c
 F:	drivers/gpu/drm/ingenic/
@@ -13748,7 +13725,7 @@ S:	Supported
 F:	drivers/counter/intel-qep.c
 
 INTEL SCU DRIVERS
-M:	Mika Westerberg <mika.westerberg@linux.intel.com>
+M:	Ilpo Järvinen <ilpo.jarvinen@linux.intel.com>
 S:	Maintained
 F:	drivers/platform/x86/intel_scu_*
 F:	include/linux/platform_data/x86/intel_scu_ipc.h
@@ -20461,7 +20438,6 @@ M:	Jarkko Nikula <jarkko.nikula@bitmer.com>
 L:	linux-sound@vger.kernel.org
 L:	linux-omap@vger.kernel.org
 S:	Maintained
-F:	sound/soc/ti/n810.c
 F:	sound/soc/ti/omap*
 F:	sound/soc/ti/rx51.c
 F:	sound/soc/ti/sdma-pcm.*
@@ -20501,7 +20477,6 @@ M:	Roger Quadros <rogerq@kernel.org>
 M:	Tony Lindgren <tony@atomide.com>
 L:	linux-omap@vger.kernel.org
 S:	Maintained
-F:	arch/arm/mach-omap2/*gpmc*
 F:	drivers/memory/omap-gpmc.c
 
 OMAP GPIO DRIVER
@@ -23665,11 +23640,12 @@ S:	Maintained
 T:	git https://github.com/pkshih/rtw.git
 F:	drivers/net/wireless/realtek/rtw89/
 
-REDMIBOOK WMI DRIVERS
-M:	Gladyshev Ilya <foxido@foxido.dev>
+BITLAND LAPTOP DRIVER
+M:	Mingyou Chen <qby140326@gmail.com>
+M:	Ilya Gladyshev <ilya.gladyshev@linux.dev>
 L:	platform-driver-x86@vger.kernel.org
 S:	Maintained
-F:	drivers/platform/x86/redmi-wmi.c
+F:	drivers/platform/x86/bitland-mifs-wmi.c
 
 REDPINE WIRELESS DRIVER
 L:	linux-wireless@vger.kernel.org
@@ -24289,6 +24265,14 @@ F:	include/dt-bindings/clock/thead,th1520-clk-ap.h
 F:	include/dt-bindings/power/thead,th1520-power.h
 F:	include/dt-bindings/reset/thead,th1520-reset.h
 F:	include/linux/firmware/thead/thead,th1520-aon.h
+
+RISC-V ULTRARISC SoC SUPPORT
+M:	Xincheng Ji <jixincheng@ultrarisc.com>
+L:	linux-riscv@lists.infradead.org
+S:	Supported
+T:	git https://git.kernel.org/pub/scm/linux/kernel/git/conor/linux.git/
+F:	Documentation/devicetree/bindings/riscv/ultrarisc.yaml
+F:	arch/riscv/boot/dts/ultrarisc/
 
 RNBD BLOCK DRIVERS
 M:	Md. Haris Iqbal <haris.iqbal@ionos.com>
@@ -30637,6 +30621,12 @@ F:	Documentation/filesystems/xfs/*
 F:	fs/xfs/
 F:	include/uapi/linux/dqblk_xfs.h
 F:	include/uapi/linux/fsmap.h
+
+XIAOMI WMI KEYS DRIVER
+M:	Lucy Wong <lucywong2778@gmail.com>
+L:	platform-driver-x86@vger.kernel.org
+S:	Maintained
+F:	drivers/platform/x86/xiaomi-wmi-keys.c
 
 XILINX AMS DRIVER
 M:	Sai Krishna Potthuri <sai.krishna.potthuri@amd.com>
